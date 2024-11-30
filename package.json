@@ -1,0 +1,39 @@
+{
+    "name": "com.landerdurie.gspledit",
+    "version": "1.0.0",
+    "displayName": "GsplEdit",
+    "description": "Unity gaussian splat editor",
+    "unity": "6000.0",
+    "keywords": [
+        "3d",
+        "model",
+        "mesh",
+        "modeling",
+        "geometry",
+        "shape",
+        "cube",
+        "blender",
+        "max",
+        "maya",
+        "fbx",
+        "obj",
+        "design",
+        "block",
+        "prototype",
+        "gspledit",
+        "gaussian",
+        "splat",
+        "g3ds"
+    ],
+    "author": {
+        "name": "Lander Durie",
+        "email": "lander.durie@gmail.com",
+        "url": "https://github.com/LanderDurie/gspledit"
+    },
+    "dependencies": {
+        "com.unity.modules.imgui": "1.0.0",
+        "com.unity.burst": "1.8.8", 
+        "com.unity.collections": "2.1.4", 
+        "com.unity.mathematics": "1.2.6"
+      }
+}
