@@ -8,10 +8,14 @@ namespace UnityEngine.GsplEdit
         private EditableMesh m_Mesh;
         private GSRenderer m_GSRenderer;
         private SharedComputeContext m_Context;
+        private MeshGen m_MeshGenerator;
+        private LinkGen m_LinkGenerator;
 
         public void OnEnable()
         {
             m_Context = new();
+            m_MeshGenerator = new(ref m_Context);
+            m_LinkGenerator = new(ref m_Context);
         }
 
         public void OnDisable() {
@@ -19,12 +23,11 @@ namespace UnityEngine.GsplEdit
         }
 
 
-        public void CreateBuffers()
+        public unsafe void CreateBuffers()
         {
             if (m_Context.splatData != null && m_Context.splatData.splatCount > 0)
             {
                 m_GSRenderer = GSRenderer.Create(transform, isActiveAndEnabled, ref m_Context);
-                m_Mesh = new();
 
                 // Create splat buffers
                 m_Context.splatCount = m_Context.splatData.splatCount;
@@ -38,21 +41,24 @@ namespace UnityEngine.GsplEdit
                 // Create mesh buffers
                 m_Context.vertexCount = 1;
                 m_Context.edgeCount = 1;
-                m_Context.gpuMeshVerts = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.vertexCount, (int)Vertex.StructSize()) { name = "MeshVertices" };
+                m_Context.gpuMeshVerts = new ComputeBuffer(m_Context.vertexCount, sizeof(Vertex));
                 m_Context.gpuMeshVerts.SetData(Enumerable.Repeat(Vertex.Default(), m_Context.vertexCount).ToArray());
-                m_Context.gpuMeshEdges = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.edgeCount, (int)Edge.Size()) { name = "MeshEdges" };
+                m_Context.gpuMeshEdges = new ComputeBuffer(m_Context.edgeCount, sizeof(Edge));
                 m_Context.gpuMeshEdges.SetData(Enumerable.Repeat(new Edge(0, 0), m_Context.edgeCount).ToArray());
 
                 // Create link buffers
-                m_Context.gpuForwardLinks = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.splatData.splatCount, (int)ForwardLink.StructSize()) { name = "ForwardLinks" };
+                m_Context.gpuForwardLinks = new ComputeBuffer(m_Context.splatData.splatCount, sizeof(ForwardLink));
                 m_Context.gpuForwardLinks.SetData(Enumerable.Repeat(ForwardLink.Default(), m_Context.splatData.splatCount).ToArray());
-                m_Context.gpuBackwardLinks = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, 1, (int)BackwardLink.StructSize()) { name = "BackwardLinks" };
+                m_Context.gpuBackwardLinks = new ComputeBuffer(1, (int)BackwardLink.StructSize());
                 m_Context.gpuBackwardLinks.SetData(Enumerable.Repeat(BackwardLink.Default(), 1).ToArray());
             }
         }
 
         public void Destroy() {
             m_GSRenderer?.Destroy();
+            m_Mesh?.Destroy();
+            m_Mesh = null;
+            m_GSRenderer = null;
             DestroyBuffers();
         }
 
@@ -96,22 +102,40 @@ namespace UnityEngine.GsplEdit
             return m_Mesh;
         }
 
+        public MeshGen GetMeshGen() {
+            return m_MeshGenerator;
+        }
+
+        public LinkGen GetLinkGen() {
+            return m_LinkGenerator;
+        }
+
+        public void GenerateMesh() {
+            if (m_MeshGenerator != null) {
+                m_Mesh?.DestroyBuffers();
+                m_Mesh = m_MeshGenerator.Generate();
+                m_LinkGenerator.Generate();
+            }
+        }
+
+        public void GenerateLinks() {
+            m_LinkGenerator.Generate();
+        }
+
         public void Update()
         {
 
-            if (m_GSRenderer != null)
+            if (m_Context != null && m_GSRenderer != null)
             {
                 m_GSRenderer.m_Transform = transform;
                 m_GSRenderer.m_IsActiveAndEnabled = isActiveAndEnabled;
                 m_GSRenderer.Update();
             }
-        }
 
-        public void ActivateCamera(int index) {
-            if (m_GSRenderer != null) {
-                                Debug.Log("update");
-
-                m_GSRenderer.ActivateCamera(index);
+            if (m_Context != null && m_Mesh != null)
+            {                
+                m_Mesh.m_GlobalTransform = transform;
+                m_Mesh.Update();
             }
         }
     }

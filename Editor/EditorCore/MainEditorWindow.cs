@@ -1,13 +1,16 @@
 using UnityEngine;
+using UnityEditor;
 using UnityEngine.GsplEdit;
 
 namespace UnityEditor.GsplEdit
 {
     public class MainEditorWindow : EditorWindow
     {
-        private TabContainer m_TabContainer;
-        private DynamicSplat m_SelectedGS; // Track the selected DynamicSplat
-        private EditorContainer m_Editor;
+        private static TabContainer m_TabContainer;
+        private static DynamicSplat m_SelectedGS;
+        private static EditorContainer m_Editor;
+        private static bool m_IsLocked = false; // Flag to lock focus
+        private static SelectorTool m_EditorTool;
 
         [MenuItem("Window/GsplEdit/Editor Window")]
         public static void ShowWindow()
@@ -17,24 +20,37 @@ namespace UnityEditor.GsplEdit
 
         private void OnEnable()
         {
-            // Create TabContainer if it doesn't exist
             if (m_TabContainer == null)
             {
                 m_TabContainer = TabContainer.Create();
                 m_TabContainer.hideFlags = HideFlags.HideAndDontSave;
                 m_Editor = EditorContainer.Create();
-                m_Editor.hideFlags = HideFlags.HideAndDontSave;            
+                m_Editor.hideFlags = HideFlags.HideAndDontSave;
+                m_EditorTool = CreateInstance<SelectorTool>();
+                m_EditorTool.hideFlags = HideFlags.HideAndDontSave;
             }
 
-            // Subscribe to selection changes
             Selection.selectionChanged += OnSelectionChanged;
-            UpdateSelectedSplat(); // Initial update
+            EditorApplication.update += EnforceSelection;
+
+            UpdateSelectedSplat();
         }
+
+        static MainEditorWindow()
+        {
+            SceneView.duringSceneGui += OnSceneGUI;
+        }
+
+
 
         private void OnDisable()
         {
             // Unsubscribe from selection changes
             Selection.selectionChanged -= OnSelectionChanged;
+
+            // Unsubscribe from the update loop
+            EditorApplication.update -= EnforceSelection;
+            SceneView.duringSceneGui -= OnSceneGUI;
 
             // Clean up resources
             if (m_TabContainer != null)
@@ -44,6 +60,9 @@ namespace UnityEditor.GsplEdit
                 DestroyImmediate(m_Editor);
                 m_Editor = null;
             }
+
+            // Unlock focus
+            m_IsLocked = false;
         }
 
         private void OnGUI()
@@ -61,7 +80,7 @@ namespace UnityEditor.GsplEdit
                 return;
             }
 
-            GeneralInfo.Draw(m_SelectedGS);
+            GeneralInfo.Draw(m_SelectedGS, ref m_IsLocked);
 
             // Draw the default inspector for DynamicSplat
             EditorGUILayout.Space();
@@ -75,16 +94,22 @@ namespace UnityEditor.GsplEdit
             serializedSplat.ApplyModifiedProperties();
 
             // Draw the tab container for the selected DynamicSplat
-            // EditorGUILayout.BeginVertical(GUILayout.Width(25));
-            // m_TabContainer.Draw(m_SelectedGS);
-            // EditorGUILayout.EndVertical();
             DrawUtils.Separator();
+            if (!m_IsLocked)
+            {
+                GUI.enabled = false;
+            }
             m_Editor.Draw(m_SelectedGS);
+            GUI.enabled = true;
         }
 
         private void OnSelectionChanged()
         {
-            UpdateSelectedSplat();
+            if (!m_IsLocked || m_SelectedGS == null)
+            {
+                UpdateSelectedSplat();
+            }
+
             Repaint(); // Refresh the window when the selection changes
         }
 
@@ -98,6 +123,30 @@ namespace UnityEditor.GsplEdit
             else
             {
                 m_SelectedGS = null;
+                m_IsLocked = false;
+            }
+        }
+
+        public static void OnSceneGUI(SceneView sceneView)
+        {
+            if (m_SelectedGS != null && m_IsLocked)
+            {
+                // Hide default handle
+                Tools.hidden = true;
+                SelectorTool.Draw(m_SelectedGS, sceneView);
+            }
+            else
+            {
+                Tools.hidden = false;
+            }
+        }
+
+        private void EnforceSelection()
+        {
+            if (m_IsLocked && m_SelectedGS != null && Selection.activeGameObject != m_SelectedGS.gameObject)
+            {
+                // Force the selection back to the selected object
+                Selection.activeGameObject = m_SelectedGS.gameObject;
             }
         }
     }

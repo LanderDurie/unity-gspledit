@@ -1,0 +1,13 @@
+fileFormatVersion: 2
+guid: ff6e4e3d78bef6c42906cbdcaf1aa2df
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - m_IcosahedronComputeShader: {fileID: 7200000, guid: 3437e33d58159dd44841016c807ae1ee, type: 3}
+  - m_VoxelizeIcosahedron: {fileID: 7200000, guid: 1dc6fee4ea973cb48b366cf50f255713, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

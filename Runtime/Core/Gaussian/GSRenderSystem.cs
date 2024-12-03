@@ -126,7 +126,7 @@ namespace UnityEngine.GsplEdit
                     continue;
 
                 gs.SetAssetDataOnMaterial(mpb);
-                mpb.SetBuffer(GSRenderer.Props.SplatChunks, gs.m_GpuChunks);
+                mpb.SetBuffer(GSRenderer.Props.SplatChunks, gs.m_SharedContext.gpuGSChunks);
                 mpb.SetBuffer(GSRenderer.Props.SplatViewData, gs.m_GpuView);
                 mpb.SetBuffer(GSRenderer.Props.OrderBuffer, gs.m_GpuSortKeys);
                 mpb.SetBuffer("_VertexProps", gs.m_SharedContext.gpuMeshVerts);
@@ -153,7 +153,7 @@ namespace UnityEngine.GsplEdit
                 if (gs.m_RenderMode is GSRenderer.RenderMode.DebugBoxes or GSRenderer.RenderMode.DebugChunkBounds)
                     indexCount = 36;
                 if (gs.m_RenderMode == GSRenderer.RenderMode.DebugChunkBounds)
-                    instanceCount = gs.m_GpuChunksValid ? gs.m_GpuChunks.count : 0;
+                    instanceCount = gs.m_SharedContext.gpuGSChunksValid ? gs.m_SharedContext.gpuGSChunks.count : 0;
 
                 cmb.BeginSample(s_ProfDraw);
                 cmb.DrawProcedural(gs.m_GpuIndexBuffer, matrix, displayMat, 0, topology, indexCount, instanceCount, mpb);

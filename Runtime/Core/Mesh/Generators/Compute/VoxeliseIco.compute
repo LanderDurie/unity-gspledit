@@ -1,0 +1,107 @@
+#pragma kernel VoxelizeIcosahedrons
+#include "../../../Gaussian/Compute/GaussianSplatting.hlsl"
+
+// Parameters
+uint3 _Dims;                  // Dimensions of the voxel grid (x, y, z)
+float _Scale;                 // _Scale of each voxel
+float3 _GridOffset;           // Offset to position the grid in world space
+uint _SplatCount;             // Number of icosahedrons (splats)
+
+struct Ico
+{
+    float3 center;                 // 12 bytes
+    float3 vertices[12];           // 12 * float3 = 12 * 3 * 4 = 144 bytes
+    uint3 indices[20];             // 20 * uint3 = 20 * 3 * 4 = 240 bytes
+    float opacity;                 // 4 bytes
+    float3 boundMin;               // 12 bytes
+    float3 boundMax;               // 12 bytes
+};
+
+// Writable buffer for Ico structs
+RWStructuredBuffer<Ico> _IcosahedronBuffer;
+
+RWStructuredBuffer<float> VoxelGrid;
+
+// Function to calculate the normal of a triangle
+float3 CalculateNormal(float3 v0, float3 v1, float3 v2) {
+    return normalize(cross(v1 - v0, v2 - v0));
+}
+
+// Check if the voxel position is inside the icosahedron using face normals
+bool IsPointInsideIco(int splatIndex, float3 voxelPos) {
+    // Each icosahedron has 20 faces, with each face defined by 3 vertices
+    for (int tri = 0; tri < 20; ++tri) {
+        int idx0 = _IcosahedronBuffer[splatIndex].indices[tri * 3][0];
+        int idx1 = _IcosahedronBuffer[splatIndex].indices[tri * 3][1];
+        int idx2 = _IcosahedronBuffer[splatIndex].indices[tri * 3][2];
+
+        // Get the vertices of the current face
+        float3 v0 = _IcosahedronBuffer[splatIndex].indices[idx0];
+        float3 v2 = _IcosahedronBuffer[splatIndex].indices[idx1];
+        float3 v1 = _IcosahedronBuffer[splatIndex].indices[idx2];
+
+        // Calculate the normal of the face
+        float3 normal = CalculateNormal(v0, v1, v2);
+
+        // Check if the voxel is on the "inside" side of the face using the dot product
+        if (dot(normal, voxelPos - v0) > 0) {
+            return false; // If point is on the outside side of any face, return false
+        }
+    }
+    return true; // If the point is on the "inside" for all faces, return true
+}
+
+bool IsPointInsideBox(float3 p, float3 minPoint, float3 maxPoint)
+{
+    // Check if the point is within the bounds of the box
+    return (p.x >= minPoint.x && p.x <= maxPoint.x) &&
+           (p.y >= minPoint.y && p.y <= maxPoint.y) &&
+           (p.z >= minPoint.z && p.z <= maxPoint.z);
+}
+
+
+// Function to calculate the inverse of a 3x3 matrix
+float3x3 inverse(float3x3 mat) {
+    float det = dot(mat[0], cross(mat[1], mat[2]));  // Determinant of the matrix
+    // if (det == 0.0) {
+    //     return float3x3(0.0f);  // Return zero matrix in case of singularity (non-invertible)
+    // }
+    float invDet = 1.0f / det;
+
+    // Cofactor matrix and adjugate matrix calculation
+    float3x3 adjugate = float3x3(
+        cross(mat[1], mat[2]),
+        cross(mat[2], mat[0]),
+        cross(mat[0], mat[1])
+    );
+
+    // Transpose the adjugate matrix (because it's the adjugate)
+    adjugate = transpose(adjugate);
+
+    // Multiply by the inverse of the determinant
+    return adjugate * invDet;
+    // return mat;
+}
+
+
+[numthreads(8, 8, 8)]
+void VoxelizeIcosahedrons(uint3 id : SV_DispatchThreadID) {
+    if (any(id >= _Dims)) return;
+
+    float3 voxelPos = _GridOffset + (float3(id) * _Scale);
+    float accumulatedOpacity = 0.0;
+
+    for (uint splatIndex = 0; splatIndex < _SplatCount; splatIndex++) {
+        bool onEdge = !(id.x > 0 && id.y > 0 && id.z > 0 && id.x < _Dims.x-1 && id.y < _Dims.y-1 && id.z < _Dims.z-1);
+        if (!onEdge && IsPointInsideBox(voxelPos, _IcosahedronBuffer[splatIndex].boundMin, _IcosahedronBuffer[splatIndex].boundMax)) {
+            SplatData splat = LoadSplatData(splatIndex);
+            float3x3 invSplatRot_ScaleMat = inverse(CalcMatrixFromRotationScale(splat.rot, splat.scale));
+            float3 transformedPos = mul(invSplatRot_ScaleMat, (voxelPos - splat.pos));
+            float distanceSquared = dot(transformedPos, transformedPos);
+            float opacity = splat.opacity * splat.opacity * exp(-distanceSquared / 2.0f);
+            accumulatedOpacity += opacity;
+        }
+    }
+
+    VoxelGrid[id.x + _Dims.x * (id.y + _Dims.y * id.z)] += accumulatedOpacity;
+}

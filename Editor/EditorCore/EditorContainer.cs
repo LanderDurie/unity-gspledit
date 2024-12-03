@@ -30,17 +30,21 @@ namespace UnityEditor.GsplEdit
         {
             if (gs.GetSplatData() == null)
             {
-                GUILayout.Label("Editor (Select an asset to use)", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField(
+                    "Select an asset to use edit mode",
+                    new GUIStyle(EditorStyles.label)
+                    {
+                        alignment = TextAnchor.MiddleCenter
+                    },
+                    GUILayout.ExpandWidth(true)
+                );
+                GUILayout.Space(16); 
                 GUI.enabled = false;
-            } else {
-                GUILayout.Label("Editor", EditorStyles.boldLabel);
             }
 
             m_CurrentTabId = (uint)GUILayout.SelectionGrid((int)m_CurrentTabId, m_TabNames, 4);
             DrawUtils.Separator();
             m_Tabs[m_CurrentTabId].Draw(gs);
-            GUI.enabled = true;
-
         }
     }
 }

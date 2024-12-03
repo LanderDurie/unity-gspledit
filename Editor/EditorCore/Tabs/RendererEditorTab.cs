@@ -19,47 +19,47 @@ namespace UnityEditor.GsplEdit
 
             // Draw properties with appropriate fields
             gsr.m_SplatScale = EditorGUILayout.Slider(
-                new GUIContent("Splat Scale", "Additional scaling factor for the splats"), 
-                gsr.m_SplatScale, 
-                0.1f, 
+                new GUIContent("Splat Scale", "Additional scaling factor for the splats"),
+                gsr.m_SplatScale,
+                0.1f,
                 2.0f
             );
 
             gsr.m_OpacityScale = EditorGUILayout.Slider(
-                new GUIContent("Opacity Scale", "Additional scaling factor for opacity"), 
-                gsr.m_OpacityScale, 
-                0.05f, 
+                new GUIContent("Opacity Scale", "Additional scaling factor for opacity"),
+                gsr.m_OpacityScale,
+                0.05f,
                 20.0f
             );
 
             gsr.m_SHOrder = EditorGUILayout.IntSlider(
-                new GUIContent("SH Order", "Spherical Harmonics order to use"), 
-                gsr.m_SHOrder, 
-                0, 
+                new GUIContent("SH Order", "Spherical Harmonics order to use"),
+                gsr.m_SHOrder,
+                0,
                 3
             );
 
             gsr.m_SHOnly = EditorGUILayout.Toggle(
-                new GUIContent("SH Only", "Show only Spherical Harmonics contribution, using gray color"), 
+                new GUIContent("SH Only", "Show only Spherical Harmonics contribution, using gray color"),
                 gsr.m_SHOnly
             );
 
             gsr.m_SortNthFrame = EditorGUILayout.IntSlider(
-                new GUIContent("Sort Nth Frame", "Sort splats only every N frames"), 
-                gsr.m_SortNthFrame, 
-                1, 
+                new GUIContent("Sort Nth Frame", "Sort splats only every N frames"),
+                gsr.m_SortNthFrame,
+                1,
                 30
             );
 
             gsr.m_RenderMode = (GSRenderer.RenderMode)EditorGUILayout.EnumPopup(
-                new GUIContent("Render Mode", "Choose the rendering mode"), 
+                new GUIContent("Render Mode", "Choose the rendering mode"),
                 gsr.m_RenderMode
             );
 
             gsr.m_PointDisplaySize = EditorGUILayout.Slider(
-                new GUIContent("Point Display Size", "Adjust the size of point rendering"), 
-                gsr.m_PointDisplaySize, 
-                1.0f, 
+                new GUIContent("Point Display Size", "Adjust the size of point rendering"),
+                gsr.m_PointDisplaySize,
+                1.0f,
                 15.0f
             );
 
@@ -72,6 +72,74 @@ namespace UnityEditor.GsplEdit
             DrawUtils.Separator();
             GUILayout.Label("Mesh Render Settings", EditorStyles.boldLabel);
             GUILayout.Space(10);
+
+            EditableMesh mesh = gs.GetMesh();
+
+            if (mesh == null) {
+                EditorGUILayout.HelpBox("No mesh has been created.", MessageType.Warning);
+                return;
+            }
+
+            Material vertexMaterial = mesh.m_SelectedVertexMaterial;
+            Material wireframeMaterial = mesh.m_WireframeMaterial;
+
+            // Ensure the vertexMaterial is assigned
+            if (vertexMaterial == null)
+            {
+                EditorGUILayout.HelpBox("Vertex material is not assigned.", MessageType.Warning);
+                return;
+            }
+
+            if (vertexMaterial == null)
+            {
+                EditorGUILayout.HelpBox("Wireframe material is not assigned.", MessageType.Warning);
+                return;
+            }
+
+            // Point Size
+            float pointSize = vertexMaterial.GetFloat("_PointSize");
+            pointSize = EditorGUILayout.Slider(
+                new GUIContent("Point Size", "Adjust the size of point rendering"),
+                pointSize,
+                0.01f,
+                5.0f
+            );
+            vertexMaterial.SetFloat("_PointSize", pointSize);
+
+            // Default Color
+            Color defaultColor = vertexMaterial.GetColor("_DefaultColor");
+            defaultColor = EditorGUILayout.ColorField(
+                new GUIContent("Default Color", "The default vertex color"),
+                defaultColor
+            );
+            vertexMaterial.SetColor("_DefaultColor", defaultColor);
+
+            // Selected Color
+            Color selectedColor = vertexMaterial.GetColor("_SelectedColor");
+            selectedColor = EditorGUILayout.ColorField(
+                new GUIContent("Selected Color", "The color for selected vertices"),
+                selectedColor
+            );
+            vertexMaterial.SetColor("_SelectedColor", selectedColor);
+
+            // Wireframe Selected Color
+            Color wireframeColor = wireframeMaterial.GetColor("_WireframeFrontColour");
+            wireframeColor = EditorGUILayout.ColorField(
+                new GUIContent("Wireframe Color", "The color for wireframe"),
+                wireframeColor
+            );
+            wireframeMaterial.SetColor("_WireframeFrontColour", wireframeColor);
+
+            // Wireframe Alias
+            float wireframeAlias = wireframeMaterial.GetFloat("_WireframeAliasing");
+            wireframeAlias = EditorGUILayout.Slider(
+                new GUIContent("Wireframe alias", ""),
+                wireframeAlias,
+                0.01f,
+                2.0f
+            );
+            wireframeMaterial.SetFloat("_WireframeAliasing", wireframeAlias);
+
         }
     }
 }

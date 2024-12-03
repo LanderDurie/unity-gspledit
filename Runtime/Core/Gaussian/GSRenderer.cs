@@ -33,8 +33,6 @@ namespace UnityEngine.GsplEdit
 
         public GSCutout[] m_Cutouts;
 
-        public GraphicsBuffer m_GpuChunks;
-        public Texture m_GpuColorData;
         public Shader m_ShaderSplats;
         public Shader m_ShaderComposite;
         public Shader m_ShaderDebugPoints;
@@ -143,7 +141,6 @@ namespace UnityEngine.GsplEdit
         const int kGpuViewDataSize = 40;
 
         public SharedComputeContext m_SharedContext;
-        public bool m_GpuChunksValid;
         public Transform m_Transform;
         public bool m_IsActiveAndEnabled;
 
@@ -176,7 +173,7 @@ namespace UnityEngine.GsplEdit
 
         public bool HasValidRenderSetup()
         {
-            return m_SharedContext.gpuGSPosData != null && m_SharedContext.gpuGSOtherData != null && m_GpuChunks != null;
+            return m_SharedContext.gpuGSPosData != null && m_SharedContext.gpuGSOtherData != null && m_SharedContext.gpuGSChunks != null;
         }
 
 
@@ -188,21 +185,20 @@ namespace UnityEngine.GsplEdit
 
             if (m_SharedContext.splatData.chunkData != null && m_SharedContext.splatData.chunkData.dataSize != 0)
             {
-                Debug.Log("using chunks");
-                m_GpuChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                m_SharedContext.gpuGSChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                     (int)(m_SharedContext.splatData.chunkData.dataSize / UnsafeUtility.SizeOf<SplatData.ChunkInfo>()),
                     UnsafeUtility.SizeOf<SplatData.ChunkInfo>())
                 { name = "GaussianChunkData" };
-                m_GpuChunks.SetData(m_SharedContext.splatData.chunkData.GetData<SplatData.ChunkInfo>());
-                m_GpuChunksValid = true;
+                m_SharedContext.gpuGSChunks.SetData(m_SharedContext.splatData.chunkData.GetData<SplatData.ChunkInfo>());
+                m_SharedContext.gpuGSChunksValid = true;
             }
             else
             {
                 // just a dummy chunk buffer
-                m_GpuChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
+                m_SharedContext.gpuGSChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
                     UnsafeUtility.SizeOf<SplatData.ChunkInfo>())
                 { name = "GaussianChunkData" };
-                m_GpuChunksValid = false;
+                m_SharedContext.gpuGSChunksValid = false;
             }
 
             var (texWidth, texHeight) = SplatData.CalcTextureSize(m_SharedContext.splatData.splatCount);
@@ -210,7 +206,7 @@ namespace UnityEngine.GsplEdit
             var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
             tex.SetPixelData(m_SharedContext.splatData.colorData.GetData<byte>(), 0);
             tex.Apply(false, true);
-            m_GpuColorData = tex;
+            m_SharedContext.gpuGSColorData = tex;
 
             m_GpuView = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SharedContext.splatData.splatCount, kGpuViewDataSize);
             m_GpuIndexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Index, 36, 2);
@@ -259,10 +255,10 @@ namespace UnityEngine.GsplEdit
             ComputeShader cs = m_CSSplatUtilities;
             int kernelIndex = (int)kernel;
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatPos, m_SharedContext.gpuGSPosData);
-            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatChunks, m_GpuChunks);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatChunks, m_SharedContext.gpuGSChunks);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatOther, m_SharedContext.gpuGSOtherData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatSH, m_SharedContext.gpuGSSHData);
-            cmb.SetComputeTextureParam(cs, kernelIndex, Props.SplatColor, m_GpuColorData);
+            cmb.SetComputeTextureParam(cs, kernelIndex, Props.SplatColor, m_SharedContext.gpuGSColorData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatSelectedBits, m_GpuEditSelected ?? m_SharedContext.gpuGSPosData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatDeletedBits, m_GpuEditDeleted ?? m_SharedContext.gpuGSPosData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatViewData, m_GpuView);
@@ -278,7 +274,7 @@ namespace UnityEngine.GsplEdit
             uint format = (uint)m_SharedContext.splatData.posFormat | ((uint)m_SharedContext.splatData.scaleFormat << 8) | ((uint)m_SharedContext.splatData.shFormat << 16);
             cmb.SetComputeIntParam(cs, Props.SplatFormat, (int)format);
             cmb.SetComputeIntParam(cs, Props.SplatCount, m_SharedContext.splatCount);
-            cmb.SetComputeIntParam(cs, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
+            cmb.SetComputeIntParam(cs, Props.SplatChunkCount, m_SharedContext.gpuGSChunksValid ? m_SharedContext.gpuGSChunks.count : 0);
 
             UpdateCutoutsBuffer();
             cmb.SetComputeIntParam(cs, Props.SplatCutoutsCount, m_Cutouts?.Length ?? 0);
@@ -290,14 +286,14 @@ namespace UnityEngine.GsplEdit
             mat.SetBuffer(Props.SplatPos, m_SharedContext.gpuGSPosData);
             mat.SetBuffer(Props.SplatOther, m_SharedContext.gpuGSOtherData);
             mat.SetBuffer(Props.SplatSH, m_SharedContext.gpuGSSHData);
-            mat.SetTexture(Props.SplatColor, m_GpuColorData);
+            mat.SetTexture(Props.SplatColor, m_SharedContext.gpuGSColorData);
             mat.SetBuffer(Props.SplatSelectedBits, m_GpuEditSelected ?? m_SharedContext.gpuGSPosData);
             mat.SetBuffer(Props.SplatDeletedBits, m_GpuEditDeleted ?? m_SharedContext.gpuGSPosData);
             mat.SetInt(Props.SplatBitsValid, m_GpuEditSelected != null && m_GpuEditDeleted != null ? 1 : 0);
             uint format = (uint)m_SharedContext.splatData.posFormat | ((uint)m_SharedContext.splatData.scaleFormat << 8) | ((uint)m_SharedContext.splatData.shFormat << 16);
             mat.SetInteger(Props.SplatFormat, (int)format);
             mat.SetInteger(Props.SplatCount, m_SharedContext.splatCount);
-            mat.SetInteger(Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
+            mat.SetInteger(Props.SplatChunkCount, m_SharedContext.gpuGSChunksValid ? m_SharedContext.gpuGSChunks.count : 0);
         }
 
         static void DisposeBuffer(ref GraphicsBuffer buf)
@@ -308,11 +304,17 @@ namespace UnityEngine.GsplEdit
 
         void DisposeResourcesForAsset()
         {
-            DestroyImmediate(m_GpuColorData);
+            if (m_SharedContext != null && m_SharedContext.gpuGSColorData != null)
+            {
+                DestroyImmediate(m_SharedContext.gpuGSColorData);
+            }
 
             DisposeBuffer(ref m_GpuView);
             DisposeBuffer(ref m_GpuIndexBuffer);
-            DisposeBuffer(ref m_GpuChunks);
+            if (m_SharedContext != null && m_SharedContext.gpuGSChunks != null)
+            {
+                DisposeBuffer(ref m_SharedContext.gpuGSChunks);
+            }
             DisposeBuffer(ref m_GpuSortDistances);
             DisposeBuffer(ref m_GpuSortKeys);
 
@@ -391,18 +393,18 @@ namespace UnityEngine.GsplEdit
             cmd.BeginSample(s_ProfSort);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortDistances, m_GpuSortDistances);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortKeys, m_GpuSortKeys);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatChunks, m_GpuChunks);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatChunks, m_SharedContext.gpuGSChunks);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatPos, m_SharedContext.gpuGSPosData);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatOther, m_SharedContext.gpuGSOtherData);
-            cmd.SetComputeTextureParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatColor, m_GpuColorData);
+            cmd.SetComputeTextureParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatColor, m_SharedContext.gpuGSColorData);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_VertexProps", m_SharedContext.gpuMeshVerts);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_SplatLinks", m_SharedContext.gpuForwardLinks);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_EdgeProps", m_SharedContext.gpuMeshEdges);
-            // cmd.SetComputeIntParam(m_CSSplatUtilities, "_ColorsPerChannel", m_SharedContext.m_ColorsPerChannel);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, "_ColorsPerChannel", 0);
             cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, (int)m_SharedContext.splatData.posFormat);
             cmd.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMV, worldToCamMatrix * matrix);
             cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, m_SharedContext.splatCount);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatChunkCount, m_SharedContext.gpuGSChunksValid ? m_SharedContext.gpuGSChunks.count : 0);
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.CalcDistances, out uint gsX, out _, out _);
             cmd.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, (m_GpuSortDistances.count + (int)gsX - 1) / (int)gsX, 1, 1);
 
@@ -413,6 +415,9 @@ namespace UnityEngine.GsplEdit
 
         public void Update()
         {
+            if (m_SharedContext == null || !m_SharedContext.IsValid())
+                return;
+
             var curHash = m_SharedContext.splatData ? m_SharedContext.splatData.dataHash : new Hash128();
             if (m_PrevAsset != m_SharedContext.splatData || m_PrevHash != curHash)
             {
@@ -776,7 +781,7 @@ namespace UnityEngine.GsplEdit
             m_SharedContext.gpuGSPosData.Dispose();
             m_SharedContext.gpuGSOtherData.Dispose();
             m_SharedContext.gpuGSSHData.Dispose();
-            // DestroyImmediate(m_GpuColorData);
+            // DestroyImmediate(m_SharedContext.gpuGSColorData);
             m_GpuView.Dispose();
 
             m_GpuEditSelected?.Dispose();
@@ -786,7 +791,7 @@ namespace UnityEngine.GsplEdit
             m_SharedContext.gpuGSPosData = newPosData;
             m_SharedContext.gpuGSOtherData = newOtherData;
             m_SharedContext.gpuGSSHData = newSHData;
-            m_GpuColorData = newColorData;
+            m_SharedContext.gpuGSColorData = newColorData;
             m_GpuView = newGpuView;
             m_GpuEditSelected = newEditSelected;
             m_GpuEditSelectedMouseDown = newEditSelectedMouseDown;
@@ -803,7 +808,7 @@ namespace UnityEngine.GsplEdit
         {
             EditCopySplats(
                 dst.m_Transform,
-                m_SharedContext.gpuGSPosData, m_SharedContext.gpuGSOtherData, m_SharedContext.gpuGSSHData, m_GpuColorData, dst.m_GpuEditDeleted,
+                m_SharedContext.gpuGSPosData, m_SharedContext.gpuGSOtherData, m_SharedContext.gpuGSSHData, m_SharedContext.gpuGSColorData, dst.m_GpuEditDeleted,
                 m_SharedContext.splatCount,
                 copySrcStartIndex, copyDstStartIndex, copyCount);
             dst.editModified = true;

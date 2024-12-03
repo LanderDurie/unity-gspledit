@@ -1,0 +1,12 @@
+fileFormatVersion: 2
+guid: 111df506b998650429980a20e683bc94
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - m_IcosahedronComputeShader: {fileID: 7200000, guid: 3437e33d58159dd44841016c807ae1ee, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

@@ -32,7 +32,7 @@
 #include "GaussianSplatting.hlsl"
 
 struct SplatLink {
-    int edgeIds[8];
+    uint edgeIds[8];
     float edgeWeights[8];
     float edgeT[8];
 };
@@ -43,13 +43,14 @@ struct EdgeProperties {
 };
 
 struct VertexProperties {
-    float3 pos;
-    float3 normal;
-    int4 colors;
-    float3 posMod;
-    float4 rotMod;
-    float3 scaleMod;
-    float3 colorMods[4];
+    float3 pos;          // 12 bytes (3 * 4)
+    float3 normal;       // 12 bytes (3 * 4)
+    uint colorIds[4];         // 16 bytes (4 * 4)
+    float3 posMod;       // 12 bytes (3 * 4)
+    float4 rotMod;       // 16 bytes (4 * 4)
+    float3 scaleMod;     // 12 bytes (3 * 4)
+    uint colorModIds[4]; // 48 bytes (4 * 12)
+    // Total size: 128 bytes
 };
 
 float4x4 _MatrixObjectToWorld;
@@ -192,6 +193,38 @@ float3 MaxElementToOne(float3 input)
     return output;
 }
 
+float4 QuatSlerp(float4 q1, float4 q2, float t)
+{
+    // Compute the dot product to determine the angle between the quaternions
+    float d = dot(q1, q2);
+
+    // If the dot product is negative, negate one quaternion to take the shorter path
+    if (d < 0.0f)
+    {
+        q2 = -q2;
+        d = -d;
+    }
+
+    const float DOT_THRESHOLD = 0.9995f;
+    if (d > DOT_THRESHOLD)
+    {
+        // If the quaternions are nearly identical, perform linear interpolation and normalize
+        float4 result = q1 * (1.0f - t) + q2 * t;
+        return normalize(result);
+    }
+
+    // Compute the angle theta between the quaternions
+    float theta_0 = acos(d);     // Angle between input quaternions
+    float theta = theta_0 * t;     // Interpolated angle
+
+    // Compute orthogonal basis
+    float4 q3 = normalize(q2 - q1 * d);
+
+    // Perform the slerp interpolation
+    return q1 * cos(theta) + q3 * sin(theta);
+}
+
+
 VertexProperties calcSplineVertices(int idx, SplatData splat) {
 
     float3 avgBasePos = float3(0,0,0);
@@ -242,14 +275,12 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
             float3 cp1Base = v1.pos + t1Base;
             float3 cp2Base = v2.pos + t2Base;
             
-            // Compute base position
+            // Compute position
             float3 splinePos = cubicBezier(t, v1.pos, v2.pos, cp1Base, cp2Base);
-            // Compute spline position
             float3 newSplinePos = cubicBezier(t, p1, p2, cp1, cp2);
 
-            // Compute tangent base direction
+            // Compute tangent direction
             float3 baseDir = cubicBezierTangent(t, v1.pos, v2.pos, cp1Base, cp2Base);
-            // Compute tangent spline direction
             float3 splineDir = cubicBezierTangent(t, p1, p2, cp1, cp2);
 
             float4 vertexRot = v1.rotMod * (1-t) + v2.rotMod * t;
@@ -289,49 +320,11 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
     
     avgSplinePos += weightedScaleOffset + weightedRotOffset + splat.pos - avgBasePos;
 
-    float totalWeight = 0.0f;
-    float max_val = 0;
-    float min_val = 100000000000000000;
-    int min_id = 0;
-    for (int i = 0; i < 8; i++) {
-        int edgeId = _SplatLinks[idx].edgeIds[i];
-        if (edgeId != -1) {
-            float weight = length(avgSplinePos - weightPos[i]);
-            if (weight > max_val) {
-                max_val = weight;
-            }
-            if (weight < min_val) {
-                min_val = weight;
-                min_id = i;
-            }
-        }
-    }
-
-    for (int i = 0; i < 8; i++) {
-        int edgeId = _SplatLinks[idx].edgeIds[i];
-        if (edgeId != -1) {
-            float weight = _SplatLinks[idx].edgeWeights[i];//max_val - length(avgSplinePos - weightPos[i]);
-            // weight *= weight;
-            newWeights[i] = weight;
-            totalWeight += weight;
-            // if (i == min_id) {
-            //     newWeights[i] = 1;
-            // } else {
-            //     newWeights[i] = 0;
-            // }
-        } else {
-            newWeights[i] = 0;
-        }
-    }
-    for (int i = 0; i < 8; i++) {
-        newWeights[i] /= totalWeight;
-    }
-
 
     [unroll]
     for (int i = 0; i < 8; i++) {
         int edgeId = _SplatLinks[idx].edgeIds[i];
-        float weight = newWeights[i];
+        float weight = _SplatLinks[idx].edgeWeights[i];
         if (edgeId != -1 && weight > 0) {
             VertexProperties v1 = _VertexProps[_EdgeProps[edgeId].vertexId1];
             VertexProperties v2 = _VertexProps[_EdgeProps[edgeId].vertexId2];
@@ -354,7 +347,7 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
                 splineDir = RotationFromXAxis(avgSplineDir, -MaxElementToOne(splat.scale));
             }
 
-            avgSplineRot += (splineDir * alignmentFactor + splatDir * (1 - alignmentFactor)) * weight;
+            avgSplineRot += QuatSlerp(splat.rot, splineDir, alignmentFactor) * weight;
         }
     }
 
@@ -362,7 +355,7 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
     [unroll]
     for (int i = 0; i < 8; i++) {
         int edgeId = _SplatLinks[idx].edgeIds[i];
-        float weight = newWeights[i];
+        float weight = _SplatLinks[idx].edgeWeights[i];
         if (edgeId != -1 && weight > 0) {
             VertexProperties v1 = _VertexProps[_EdgeProps[edgeId].vertexId1];
             VertexProperties v2 = _VertexProps[_EdgeProps[edgeId].vertexId2];
@@ -487,22 +480,22 @@ half3 IdToColor(uint id)
     return half3(rCenter, gCenter, bCenter);
 }
 
-half3 calcColorOffset(int idx, half3 baseColor) {
-    half3 colOffset = float3(0.0f, 0.0f, 0.0f);
-    for (int i = 0; i < 4; i++) {
-        float weight = _SplatLinks[idx].edgeWeights[i];
-        int linkId = _SplatLinks[idx].edgeIds[i];
-        VertexProperties v = _VertexProps[linkId];
-        for (int j = 0; j < 4; j++) {
-            if (v.colors[j] >= 0) {
-                float3 color = IdToColor(v.colors[j]);
-                float dist = length(baseColor - color);
-                colOffset += v.colorMods[j] * 1 / (1 + dist);
-            }
-        }
-    }
-    return colOffset;
-}
+// half3 calcColorOffset(int idx, half3 baseColor) {
+//     half3 colOffset = float3(0.0f, 0.0f, 0.0f);
+//     for (int i = 0; i < 4; i++) {
+//         float weight = _SplatLinks[idx].edgeWeights[i];
+//         int linkId = _SplatLinks[idx].edgeIds[i];
+//         VertexProperties v = _VertexProps[linkId];
+//         for (int j = 0; j < 4; j++) {
+//             if (v.colors[j] >= 0) {
+//                 float3 color = IdToColor(v.colors[j]);
+//                 float dist = length(baseColor - color);
+//                 colOffset += v.colorMods[j] * 1 / (1 + dist);
+//             }
+//         }
+//     }
+//     return colOffset;
+// }
 
 
 [numthreads(GROUP_SIZE,1,1)]
@@ -517,7 +510,7 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
     SplatData splat = LoadSplatData(origIdx);
     float3 pos = splat.pos;
     VertexProperties splineVertex = calcSplineVertices(origIdx, splat);
-    // pos +=  splineVertex.pos;
+    pos +=  splineVertex.pos;
     pos = mul(_MatrixMV, float4(pos.xyz, 1)).xyz;
 
     _SplatSortDistances[idx] = FloatToSortableUint(pos.z);
@@ -639,8 +632,8 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     SplatData splat = LoadSplatData(idx);
     SplatViewData view = (SplatViewData)0;
 
-    // VertexProperties splineVertex = calcSplineVertices(idx, splat);
-    float3 posOffset = splat.pos;//calcPosOffset(idx, splat.pos, splineVertices);
+    VertexProperties splineVertex = calcSplineVertices(idx, splat);
+    float3 posOffset = splineVertex.posMod;//calcPosOffset(idx, splat.pos, splineVertices);
 
     
     float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(posOffset ,1)).xyz;
@@ -652,10 +645,10 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     bool behindCam = centerClipPos.w <= 0;
     if (!behindCam)
     {
-        // float3 scaleMod = splineVertex.scaleMod;//calcScaleOffset(idx, splineVertices);
+        float3 scaleMod = splineVertex.scaleMod;//calcScaleOffset(idx, splineVertices);
 
-        float4 boxRot = splat.rot;//splineVertex.rotMod;//calcRot(idx, splat.rot, splineVertices);
-        float3 boxSize = splat.scale * splatScale;
+        float4 boxRot = splineVertex.rotMod;//calcRot(idx, splat.rot, splineVertices);
+        float3 boxSize = splat.scale * scaleMod * splatScale;
 
         float3x3 splatRotScaleMat = CalcMatrixFromRotationScale(boxRot, boxSize);
 
@@ -674,7 +667,7 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
         col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
         col.a = min(splat.opacity * opacityScale, 65000);
 
-        col.rgb += calcColorOffset(idx, col.rgb);
+        // col.rgb += calcColorOffset(idx, col.rgb);
 
         view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
         view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);
