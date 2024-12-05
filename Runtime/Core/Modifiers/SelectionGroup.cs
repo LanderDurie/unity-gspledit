@@ -1,0 +1,49 @@
+
+using System;
+using System.Collections.Generic;
+
+namespace UnityEngine.GsplEdit{
+    
+    public class SelectionGroup {
+        public List<Modifier> m_Modifiers;
+        public String m_Name = "New Selection Group";
+
+        public SelectionGroup()
+        {
+            m_Modifiers = new List<Modifier>();
+        }
+
+         public void Insert()
+        {
+            m_Modifiers.Add(new Modifier());
+        }
+
+        public void Remove(uint id)
+        {
+            if (id >= m_Modifiers.Count)
+            {
+                Debug.LogWarning($"Invalid Id: {id}. No modifier at this position.");
+                return;
+            }
+
+            m_Modifiers.RemoveAt((int)id);
+        }
+
+        public void Reorder(uint fromId, uint toId)
+        {
+            if (fromId >= m_Modifiers.Count || toId >= m_Modifiers.Count)
+            {
+                Debug.LogWarning($"Invalid Id(s). FromId: {fromId}, ToId: {toId}. Out of range.");
+                return;
+            }
+
+            Modifier modifier = m_Modifiers[(int)fromId];
+            m_Modifiers.RemoveAt((int)fromId);
+
+            if (toId > fromId) // Adjust for the shift caused by the removal
+                toId--;
+
+            m_Modifiers.Insert((int)toId, modifier);
+        }
+    }
+}

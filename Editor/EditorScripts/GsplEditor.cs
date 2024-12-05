@@ -23,7 +23,7 @@ namespace UnityEditor.GsplEdit
                             true
                         );
 
-                        if (data != gs.GetSplatData())
+                        if (data != null && data != gs.GetSplatData())
                         {
                                 gs.LoadGS(data);
                                 EditorUtility.SetDirty(gs);

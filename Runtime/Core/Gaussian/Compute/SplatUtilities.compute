@@ -32,14 +32,14 @@
 #include "GaussianSplatting.hlsl"
 
 struct SplatLink {
-    uint edgeIds[8];
+    int edgeIds[8];
     float edgeWeights[8];
     float edgeT[8];
 };
 
 struct EdgeProperties {
-    int vertexId1;
-    int vertexId2;
+    uint vertexId1;
+    uint vertexId2;
 };
 
 struct VertexProperties {
@@ -238,11 +238,13 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
     float newWeights[8];
     float3 weightPos[8];
 
+    bool found = false;
     [unroll]
     for (int i = 0; i < 8; i++) {
         int edgeId = _SplatLinks[idx].edgeIds[i];
-        if (edgeId != -1) {
-            float weight = _SplatLinks[idx].edgeWeights[i];
+        float weight = _SplatLinks[idx].edgeWeights[i];
+        if (edgeId != -1 && weight > 0) {
+            found = true;
             VertexProperties v1 = _VertexProps[_EdgeProps[edgeId].vertexId1];
             VertexProperties v2 = _VertexProps[_EdgeProps[edgeId].vertexId2];
             float3 p1 = v1.pos + v1.posMod;
@@ -283,7 +285,7 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
             float3 baseDir = cubicBezierTangent(t, v1.pos, v2.pos, cp1Base, cp2Base);
             float3 splineDir = cubicBezierTangent(t, p1, p2, cp1, cp2);
 
-            float4 vertexRot = v1.rotMod * (1-t) + v2.rotMod * t;
+            float4 vertexRot = QuatSlerp(v1.rotMod, v2.rotMod, t);
             float3 vertexScale = v1.scaleMod * (1-t) + v2.scaleMod * t;
 
             // Set properties
@@ -295,6 +297,16 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
             avgVertexRot += vertexRot * weight;
             avgVertexScale += vertexScale * weight;
         }
+    }
+
+    // No links exist, just render normal splat
+    if (!found) {
+        VertexProperties returnProp;
+        returnProp.pos = splat.pos;
+        returnProp.posMod = splat.pos;  
+        returnProp.rotMod = splat.rot;
+        returnProp.scaleMod = pow(2.714, splat.scale);
+        return returnProp;
     }
 
     float3 weightedScaleOffset = (float3)(0.0f, 0.0f, 0.0f);
@@ -347,7 +359,7 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
                 splineDir = RotationFromXAxis(avgSplineDir, -MaxElementToOne(splat.scale));
             }
 
-            avgSplineRot += QuatSlerp(splat.rot, splineDir, alignmentFactor) * weight;
+            avgSplineRot += QuatSlerp(splatDir, splineDir, alignmentFactor) * weight;
         }
     }
 

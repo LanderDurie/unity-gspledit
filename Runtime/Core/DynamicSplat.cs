@@ -10,12 +10,14 @@ namespace UnityEngine.GsplEdit
         private SharedComputeContext m_Context;
         private MeshGen m_MeshGenerator;
         private LinkGen m_LinkGenerator;
+        private ModifierSystem m_ModifierSystem;
 
         public void OnEnable()
         {
             m_Context = new();
             m_MeshGenerator = new(ref m_Context);
             m_LinkGenerator = new(ref m_Context);
+            m_ModifierSystem = new();
         }
 
         public void OnDisable() {
@@ -108,6 +110,10 @@ namespace UnityEngine.GsplEdit
 
         public LinkGen GetLinkGen() {
             return m_LinkGenerator;
+        }
+
+        public ModifierSystem GetModifierSystem() {
+            return m_ModifierSystem;
         }
 
         public void GenerateMesh() {

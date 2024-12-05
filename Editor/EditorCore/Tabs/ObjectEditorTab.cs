@@ -6,6 +6,10 @@ namespace UnityEditor.GsplEdit
 {
     public class ObjectEditorTab : Tab
     {
+        public override void Init(DynamicSplat gs)
+        {
+        }
+
         public override void Draw(DynamicSplat gs)
         {
 

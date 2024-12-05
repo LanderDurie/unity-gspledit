@@ -182,8 +182,6 @@ void CSVertexTransform(uint3 id : SV_DispatchThreadID)
         float3 scaledPos = (_VertexProps[idx].posMod - _PivotPoint) * (1.0f + _ScaleDiff);  // Scale relative to pivot
         _VertexProps[idx].posMod = scaledPos + _PivotPoint - _VertexProps[idx].pos;  // Translate back
 
-
-
         _VertexProps[idx].scaleMod += _ScaleDiff;
         _VertexProps[idx].rotMod = QuatMul(_VertexProps[idx].rotMod, _RotationDiff);
     }

@@ -25,6 +25,12 @@ namespace UnityEditor.GsplEdit
             return instance;
         }
 
+        public void Init(DynamicSplat gs) {
+            foreach(Tab tab in m_Tabs) {
+                tab.Init(gs);
+            }
+        }
+
 
         public void Draw(DynamicSplat gs)
         {

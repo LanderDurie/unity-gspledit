@@ -5,6 +5,10 @@ namespace UnityEditor.GsplEdit
 {
     public class MeshGenEditorTab : Tab
     {
+        public override void Init(DynamicSplat gs)
+        {
+        }
+
         public override void Draw(DynamicSplat gs)
         {
             GUILayout.Label("Mesh Generator Options", EditorStyles.boldLabel);

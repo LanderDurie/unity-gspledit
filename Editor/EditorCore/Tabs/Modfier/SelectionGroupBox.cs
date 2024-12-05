@@ -1,36 +1,34 @@
-using System.Collections.Generic;
-using UnityEngine;
-using UnityEditor;
 using UnityEditorInternal;
+using UnityEngine;
+using System.Collections.Generic;
 using UnityEngine.GsplEdit;
 
 namespace UnityEditor.GsplEdit
 {
-    public class ModifierEditorTab : Tab
+    public class SelectionGroupBox : Editor
     {
-        private static List<SelectionGroupBox> m_SelectionGroups = new List<SelectionGroupBox>();
-        private static  ReorderableList m_ReorderableList;
-        private static Vector2 m_ScrollPosition;
+        private List<ModifierBox> m_Modifiers = new List<ModifierBox>();
+        private ReorderableList m_ReorderableList;
+        private Vector2 m_ScrollPosition;
         private int m_SelectedIndex = -1;
 
-        public override void Init(DynamicSplat gs) {
-            if (gs == null) {
-                m_SelectionGroups = null;
+        public void Init(SelectionGroup group) {
+
+            if (group == null) {
+                m_Modifiers = null;
                 m_ScrollPosition = new Vector2(0, 0);
                 m_SelectedIndex = -1;
             }
+            
+            m_Modifiers = new List<ModifierBox>();
 
-            ModifierSystem ms = gs.GetModifierSystem();
-
-            m_SelectionGroups = new List<SelectionGroupBox>();
-
-            foreach (SelectionGroup group in ms.m_SelectionGroups) {
-                m_SelectionGroups.Add(CreateInstance<SelectionGroupBox>());
-                m_SelectionGroups[m_SelectionGroups.Count-1].Init(ms.m_SelectionGroups[m_SelectionGroups.Count-1]);
+            foreach (Modifier m in group.m_Modifiers) {
+                m_Modifiers.Add(CreateInstance<ModifierBox>());
+                m_Modifiers[m_Modifiers.Count - 1].Init(group.m_Modifiers[m_Modifiers.Count - 1]);
             }
 
             // Initialize ReorderableList
-            m_ReorderableList = new ReorderableList(m_SelectionGroups, typeof(SelectionGroupBox),
+            m_ReorderableList = new ReorderableList(m_Modifiers, typeof(Modifier),
                 true, false, false, false);
 
             m_ReorderableList.elementHeight = 24f;
@@ -38,10 +36,10 @@ namespace UnityEditor.GsplEdit
             m_ReorderableList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
             {
                 // Ensure index is valid before accessing
-                if (index < 0 || index >= m_SelectionGroups.Count)
+                if (index < 0 || index >= m_Modifiers.Count)
                     return;
 
-                var element = m_SelectionGroups[index];
+                var element = m_Modifiers[index];
                 
                 // Highlight selected item
                 if (index == m_SelectedIndex)
@@ -50,9 +48,9 @@ namespace UnityEditor.GsplEdit
                 }
 
                 // Name field with reduced width and height
-                ms.m_SelectionGroups[index].m_Name = EditorGUI.TextField(
+                group.m_Modifiers[index].m_Name = EditorGUI.TextField(
                     new Rect(rect.x + 40, rect.y + 4, rect.width - 100, 18),
-                    ms.m_SelectionGroups[index].m_Name,
+                    group.m_Modifiers[index].m_Name,
                     EditorStyles.textField
                 );
 
@@ -61,12 +59,12 @@ namespace UnityEditor.GsplEdit
                     new Rect(rect.x + rect.width - 18 - 4, rect.y + 4, 18, 18),
                     "x"))
                 {
-                    if (index >= 0 && index < m_SelectionGroups.Count)
+                    if (index >= 0 && index < m_Modifiers.Count)
                     {
-                        m_SelectionGroups.RemoveAt(index);
-                        ms.m_SelectionGroups.RemoveAt(index);
+                        m_Modifiers.RemoveAt(index);
+                        group.m_Modifiers.RemoveAt(index);
                         // Reset selected index if it no longer exists
-                        if (m_SelectedIndex >= m_SelectionGroups.Count)
+                        if (m_SelectedIndex >= m_Modifiers.Count)
                         {
                             m_SelectedIndex = -1;
                         }
@@ -77,7 +75,7 @@ namespace UnityEditor.GsplEdit
             // Reorder handle callback
             m_ReorderableList.drawElementBackgroundCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
             {
-                if (index < 0 || index >= m_SelectionGroups.Count)
+                if (index < 0 || index >= m_Modifiers.Count)
                     return;
 
                 // Draw reorder handle
@@ -91,23 +89,15 @@ namespace UnityEditor.GsplEdit
             };
         }
 
-        public override void Draw(DynamicSplat gs)
+        public void Draw(SelectionGroup group)
         {
-            GUILayout.Label("Modifiers", EditorStyles.boldLabel);
-
-            ModifierSystem ms = gs.GetModifierSystem();
-
-            if (m_ReorderableList == null || ms == null || m_SelectionGroups == null)
-                return;
-
-
-            // Add new modifier button
-            if (GUILayout.Button("Add Selection Group"))
+            // // Add new modifier button
+            if (GUILayout.Button("Add Modifier to group"))
             {
-                m_SelectionGroups.Add(CreateInstance<SelectionGroupBox>());
-                ms.Insert();
-                m_SelectionGroups[m_SelectionGroups.Count - 1].Init(ms.m_SelectionGroups[m_SelectionGroups.Count - 1]);
-                m_SelectedIndex = m_SelectionGroups.Count - 1;
+                m_Modifiers.Add(CreateInstance<ModifierBox>());
+                group.Insert();
+                m_Modifiers[m_Modifiers.Count - 1].Init(group.m_Modifiers[m_Modifiers.Count - 1]);
+                m_SelectedIndex = m_Modifiers.Count - 1;
             }
 
             // Scroll view for ReorderableList with forced scrollbar
@@ -125,14 +115,14 @@ namespace UnityEditor.GsplEdit
 
             EditorGUILayout.EndScrollView();
 
-            // Display selected item name
-            if (m_SelectedIndex >= 0 && m_SelectedIndex < m_SelectionGroups.Count)
+                        // Display selected item name
+            if (m_SelectedIndex >= 0 && m_SelectedIndex < m_Modifiers.Count)
             {
-                m_SelectionGroups[m_SelectedIndex].Draw(ms.m_SelectionGroups[m_SelectedIndex]);
+                m_Modifiers[m_SelectedIndex].Draw(group.m_Modifiers[m_SelectedIndex]);
             }
             else
             {
-                EditorGUILayout.LabelField("No Group Selected");
+                EditorGUILayout.LabelField("No Modifier Selected");
             }
         }
     }

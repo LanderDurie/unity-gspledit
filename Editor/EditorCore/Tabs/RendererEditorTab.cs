@@ -5,6 +5,10 @@ namespace UnityEditor.GsplEdit
 {
     public class RendererEditorTab : Tab
     {
+        public override void Init(DynamicSplat gs)
+        {
+        }
+
         public override void Draw(DynamicSplat gs)
         {
             GUILayout.Label("Splat Render Settings", EditorStyles.boldLabel);

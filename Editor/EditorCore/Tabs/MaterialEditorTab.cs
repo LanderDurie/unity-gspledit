@@ -5,6 +5,10 @@ namespace UnityEditor.GsplEdit
 {
     public class MaterialEditorTab : Tab
     {
+        public override void Init(DynamicSplat gs)
+        {
+        }
+
         public override void Draw(DynamicSplat gs)
         {
             GUILayout.Label("Material", EditorStyles.boldLabel);

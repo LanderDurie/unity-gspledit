@@ -145,7 +145,7 @@ namespace UnityEngine.GsplEdit
             System.Array.Resize(ref vertexList, verts.Count);
             System.Array.Resize(ref indexList, indices.Count);
             for(int i = 0; i < verts.Count; i++) {
-                vertexList[i] = new Vertex();
+                vertexList[i] = Vertex.Default();
                 vertexList[i].position = verts[i] * scale + context.splatData.boundsMin - new Vector3(scale, scale, scale) / 2;
             }
 
