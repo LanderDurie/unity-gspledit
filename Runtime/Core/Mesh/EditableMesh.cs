@@ -12,7 +12,6 @@ namespace UnityEngine.GsplEdit
         private Edge[] m_Edges;
         
         public ComputeBuffer m_TriangleBuffer;
-        public ComputeBuffer m_SelectedVerticesBuffer;
         private ComputeBuffer m_ArgsBuffer;
         private static readonly int ARGS_STRIDE = sizeof(int) * 4;
         public ComputeShader m_CSVertexUtilities;
@@ -65,7 +64,7 @@ namespace UnityEngine.GsplEdit
 
             CreateBuffers();
 
-            m_SelectionGroup = new VertexSelectionGroup(m_Vertices, this, m_CSVertexUtilities);
+            m_SelectionGroup = new VertexSelectionGroup(ref m_Vertices);
         }
 
         [System.Obsolete]
@@ -96,7 +95,7 @@ namespace UnityEngine.GsplEdit
 
         private bool AreBuffersValid()
         {
-            if (m_SharedContext != null && m_SharedContext.gpuMeshVerts == null || m_TriangleBuffer == null || m_SelectedVerticesBuffer == null)
+            if (m_SharedContext != null && m_SharedContext.gpuMeshVerts == null || m_TriangleBuffer == null || m_SelectionGroup.m_SelectedVerticesBuffer == null)
                 return false;
 
             return true;
@@ -122,15 +121,6 @@ namespace UnityEngine.GsplEdit
 
                 m_SharedContext.gpuMeshEdges = new ComputeBuffer(m_SharedContext.edgeCount, sizeof(Edge));
                 m_SharedContext.gpuMeshEdges.SetData(m_Edges);
-
-                // Create selection buffer (using uint for bit operations, 32 vertices per uint)
-                int selectionBufferSize = (m_SharedContext.vertexCount + 31) / 32;
-                if (selectionBufferSize > 0)
-                {
-                    m_SelectedVerticesBuffer = new ComputeBuffer(selectionBufferSize, sizeof(uint));
-                    uint[] clearData = new uint[selectionBufferSize];
-                    m_SelectedVerticesBuffer.SetData(clearData);
-                }
 
                 // Create arguments buffer
                 if (m_ArgsBuffer != null)
@@ -173,10 +163,10 @@ namespace UnityEngine.GsplEdit
                 m_TriangleBuffer = null;
             }
 
-            if (m_SelectedVerticesBuffer != null)
+            if (m_SelectionGroup.m_SelectedVerticesBuffer != null)
             {
-                m_SelectedVerticesBuffer.Release();
-                m_SelectedVerticesBuffer = null;
+                m_SelectionGroup.m_SelectedVerticesBuffer.Release();
+                m_SelectionGroup.m_SelectedVerticesBuffer = null;
             }
 
             m_SharedContext.vertexCount = 0;
@@ -200,7 +190,7 @@ namespace UnityEngine.GsplEdit
             using var cmb = new CommandBuffer { name = "VertexSelectionUpdate" };
             int kernelIndex = (int)KernelIndices.SelectionUpdate;
             cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, "_VertexProps", m_SharedContext.gpuMeshVerts);
-            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, Props.VertexSelectedBits, m_SelectedVerticesBuffer);
+            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, Props.VertexSelectedBits, m_SelectionGroup.m_SelectedVerticesBuffer);
             cmb.SetComputeIntParam(m_CSVertexUtilities, Props.VertexCount, m_SharedContext.vertexCount);
             cmb.SetComputeVectorParam(m_CSVertexUtilities, "_SelectionRect", new Vector4(rectMin.x, rectMax.y, rectMax.x, rectMin.y));
 
@@ -218,7 +208,7 @@ namespace UnityEngine.GsplEdit
             if (selectionBufferSize > 0)
             {
                 uint[] clearData = new uint[selectionBufferSize];
-                m_SelectedVerticesBuffer.SetData(clearData);
+                m_SelectionGroup.m_SelectedVerticesBuffer.SetData(clearData);
             }
         }
 
@@ -229,7 +219,7 @@ namespace UnityEngine.GsplEdit
             {
                 uint[] clearData = new uint[selectionBufferSize];
                 Array.Fill(clearData, uint.MaxValue);
-                m_SelectedVerticesBuffer.SetData(clearData);
+                m_SelectionGroup.m_SelectedVerticesBuffer.SetData(clearData);
             }
         }
 
@@ -245,7 +235,7 @@ namespace UnityEngine.GsplEdit
             using var cmb = new CommandBuffer { name = "VertexSelectionUpdate" };
             int kernelIndex = (int)KernelIndices.VertexTransform;
             cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, "_VertexProps", m_SharedContext.gpuMeshVerts);
-            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, Props.VertexSelectedBits, m_SelectedVerticesBuffer);
+            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, Props.VertexSelectedBits, m_SelectionGroup.m_SelectedVerticesBuffer);
             cmb.SetComputeIntParam(m_CSVertexUtilities, Props.VertexCount, m_Vertices.Length);
             cmb.SetComputeVectorParam(m_CSVertexUtilities, "_PositionDiff", positionDiff);
             cmb.SetComputeVectorParam(m_CSVertexUtilities, "_RotationDiff", rotationDiff);
@@ -274,7 +264,7 @@ namespace UnityEngine.GsplEdit
 
             // Retrieve selected vertices data from the buffer
             uint[] selectedBits = new uint[(m_SharedContext.vertexCount + 31) / 32];
-            m_SelectedVerticesBuffer.GetData(selectedBits);
+            m_SelectionGroup.m_SelectedVerticesBuffer.GetData(selectedBits);
 
             for (int i = 0; i < m_SharedContext.vertexCount; i++)
             {
@@ -301,14 +291,26 @@ namespace UnityEngine.GsplEdit
             EditorUtility.SetDirty(this);
         }
 
+        public void SetSelectionBuffer() {
+            if (!AreBuffersValid())
+            {
+                Debug.LogWarning("Buffers are not valid or no base mesh found.");
+                return;
+            }
+
+            Debug.Log(m_SelectionGroup.m_SelectedCount);
+
+            m_SelectionGroup.m_SelectedVerticesBuffer.SetData(m_SelectionGroup.m_SelectedBits);
+        }
+
         public void DrawSelectedVertices()
         {
-            if (m_SharedContext == null || m_SharedContext.gpuMeshVerts == null || m_SelectedVerticesBuffer == null || !m_SelectedVertexMaterial)
+            if (m_SharedContext == null || m_SharedContext.gpuMeshVerts == null || m_SelectionGroup.m_SelectedVerticesBuffer == null || !m_SelectedVertexMaterial)
                 return;
 
             // Set up material properties
             m_SelectedVertexMaterial.SetBuffer("_VertexProps", m_SharedContext.gpuMeshVerts);
-            m_SelectedVertexMaterial.SetBuffer("_VertexSelectedBits", m_SelectedVerticesBuffer);
+            m_SelectedVertexMaterial.SetBuffer("_VertexSelectedBits", m_SelectionGroup.m_SelectedVerticesBuffer);
             m_SelectedVertexMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
 
             // Set up the draw command

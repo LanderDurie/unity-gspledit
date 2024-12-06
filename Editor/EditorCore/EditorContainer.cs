@@ -12,7 +12,6 @@ namespace UnityEditor.GsplEdit
         public static EditorContainer Create()
         {
             EditorContainer instance = CreateInstance<EditorContainer>();
-
             instance.m_Tabs = new Tab[]
             {
                 Tab.Create<ObjectEditorTab>(),

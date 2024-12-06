@@ -13,7 +13,7 @@ namespace UnityEngine.GsplEdit
 
         public MeshGen(ref SharedComputeContext context) {
             m_Context = context;
-            m_SelectedType = GenType.Icosahedron;
+            m_SelectedType = GenType.MarchingCubes;
 
             m_Generators = new Dictionary<GenType, MeshGenBase>
             {

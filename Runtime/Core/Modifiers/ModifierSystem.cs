@@ -5,15 +5,20 @@ namespace UnityEngine.GsplEdit
     public class ModifierSystem
     {
         public List<SelectionGroup> m_SelectionGroups;
+        private EditableMesh m_Mesh;
 
         public ModifierSystem()
         {
             m_SelectionGroups = new List<SelectionGroup>();
         }
 
+        public void SetMesh(ref EditableMesh mesh) {
+            m_Mesh = mesh;
+        }
+
         public void Insert()
         {
-            m_SelectionGroups.Add(new SelectionGroup());
+            m_SelectionGroups.Add(new SelectionGroup(m_Mesh.m_SelectionGroup));
         }
 
         public void Remove(uint id)

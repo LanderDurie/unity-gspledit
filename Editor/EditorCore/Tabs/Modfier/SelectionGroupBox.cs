@@ -18,9 +18,12 @@ namespace UnityEditor.GsplEdit
                 m_Modifiers = null;
                 m_ScrollPosition = new Vector2(0, 0);
                 m_SelectedIndex = -1;
+                return;
             }
             
             m_Modifiers = new List<ModifierBox>();
+
+            Debug.Log(group.m_Modifiers);
 
             foreach (Modifier m in group.m_Modifiers) {
                 m_Modifiers.Add(CreateInstance<ModifierBox>());
@@ -52,6 +55,12 @@ namespace UnityEditor.GsplEdit
                     new Rect(rect.x + 40, rect.y + 4, rect.width - 100, 18),
                     group.m_Modifiers[index].m_Name,
                     EditorStyles.textField
+                );
+
+                // Endabled toggle
+                group.m_Modifiers[index].m_Enabled = EditorGUI.Toggle(
+                    new Rect(rect.x + rect.width - 40 - 4, rect.y + 4, 18, 18), 
+                    group.m_Modifiers[index].m_Enabled
                 );
 
                 // Remove button

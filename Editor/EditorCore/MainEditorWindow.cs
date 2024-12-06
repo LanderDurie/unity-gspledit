@@ -125,7 +125,10 @@ namespace UnityEditor.GsplEdit
                 m_SelectedGS = null;
                 m_IsLocked = false;
             }
-            m_Editor.Init(m_SelectedGS);
+            
+            if (m_Editor != null) {
+                m_Editor.Init(m_SelectedGS);
+            }
         }
 
         public static void OnSceneGUI(SceneView sceneView)

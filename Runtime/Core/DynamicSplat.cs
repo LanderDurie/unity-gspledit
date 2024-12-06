@@ -100,6 +100,10 @@ namespace UnityEngine.GsplEdit
             return m_GSRenderer;
         }
 
+        public void SetVertexGroup(VertexSelectionGroup group) {
+            m_Mesh.m_SelectionGroup = group.Clone();
+        }
+
         public EditableMesh GetMesh() {
             return m_Mesh;
         }
@@ -120,6 +124,7 @@ namespace UnityEngine.GsplEdit
             if (m_MeshGenerator != null) {
                 m_Mesh?.DestroyBuffers();
                 m_Mesh = m_MeshGenerator.Generate();
+                m_ModifierSystem.SetMesh(ref m_Mesh);
                 m_LinkGenerator.Generate();
             }
         }

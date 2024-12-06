@@ -7,10 +7,13 @@ namespace UnityEngine.GsplEdit{
     public class SelectionGroup {
         public List<Modifier> m_Modifiers;
         public String m_Name = "New Selection Group";
+        public bool m_Enabled = true;
+        public VertexSelectionGroup m_Selection;
 
-        public SelectionGroup()
+        public SelectionGroup(VertexSelectionGroup selected)
         {
             m_Modifiers = new List<Modifier>();
+            m_Selection = selected.Clone();
         }
 
          public void Insert()

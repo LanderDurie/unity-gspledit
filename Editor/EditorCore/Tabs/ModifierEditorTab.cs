@@ -18,6 +18,7 @@ namespace UnityEditor.GsplEdit
                 m_SelectionGroups = null;
                 m_ScrollPosition = new Vector2(0, 0);
                 m_SelectedIndex = -1;
+                return;
             }
 
             ModifierSystem ms = gs.GetModifierSystem();
@@ -56,6 +57,14 @@ namespace UnityEditor.GsplEdit
                     EditorStyles.textField
                 );
 
+                
+                // Endabled toggle
+                ms.m_SelectionGroups[index].m_Enabled = EditorGUI.Toggle(
+                    new Rect(rect.x + rect.width - 40 - 4, rect.y + 4, 18, 18), 
+                    ms.m_SelectionGroups[index].m_Enabled
+                );
+
+
                 // Remove button
                 if (GUI.Button(
                     new Rect(rect.x + rect.width - 18 - 4, rect.y + 4, 18, 18),
@@ -88,6 +97,7 @@ namespace UnityEditor.GsplEdit
             m_ReorderableList.onSelectCallback = (ReorderableList list) =>
             {
                 m_SelectedIndex = list.index;
+                gs.SetVertexGroup(ms.m_SelectionGroups[m_SelectedIndex].m_Selection);
             };
         }
 
