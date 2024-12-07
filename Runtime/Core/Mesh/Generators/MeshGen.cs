@@ -22,7 +22,7 @@ namespace UnityEngine.GsplEdit
             };
         }
 
-        public EditableMesh Generate()
+        public EditableMesh Generate(ref ModifierSystem modSystem)
         {
 
             Vertex[] vertexList = new Vertex[0];
@@ -38,7 +38,7 @@ namespace UnityEngine.GsplEdit
             Debug.Log($"Mesh Generated: {vertexList.Length} vertices, {indexList.Length} indices.");
 
             EditableMesh m = ScriptableObject.CreateInstance<EditableMesh>();
-            m.Initialize(ref m_Context, vertexList, indexList, edgeList);
+            m.Initialize(ref m_Context, ref modSystem, vertexList, indexList, edgeList);
 
             return m;
         }

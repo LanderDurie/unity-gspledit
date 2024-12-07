@@ -1,5 +1,6 @@
 using System;
 using UnityEditor;
+using UnityEditor.SearchService;
 using UnityEngine.Rendering;
 
 namespace UnityEngine.GsplEdit
@@ -11,14 +12,16 @@ namespace UnityEngine.GsplEdit
         private uint[] m_Indices;
         private Edge[] m_Edges;
         
-        public ComputeBuffer m_TriangleBuffer;
+        public ComputeBuffer m_IndexBuffer;
+        public GraphicsBuffer m_VertexBuffer; // Stores base vertices before running modifier system
         private ComputeBuffer m_ArgsBuffer;
         private static readonly int ARGS_STRIDE = sizeof(int) * 4;
         public ComputeShader m_CSVertexUtilities;
         public Material m_WireframeMaterial;
         public Material m_SelectedVertexMaterial;
-        private CommandBuffer cmd;
-        public bool isActive = false;
+        private CommandBuffer m_Cmd;
+        public bool m_StaticModifierPass = true;
+        public bool m_DynamicModifierPass = true;
 
         public Vector3 m_LocalPos;
         public Vector3 m_LocalScale;
@@ -26,7 +29,8 @@ namespace UnityEngine.GsplEdit
         public Transform m_GlobalTransform;
 
         public VertexSelectionGroup m_SelectionGroup;
-        public SharedComputeContext m_SharedContext;
+        public SharedComputeContext m_Context;
+        public ModifierSystem m_ModifierSystem;
 
         internal static class Props
         {
@@ -48,15 +52,16 @@ namespace UnityEngine.GsplEdit
             VertexTransform
         }
 
-        public void Initialize(ref SharedComputeContext context, Vertex[] vertices, uint[] indices, Edge[] edges)
+        public void Initialize(ref SharedComputeContext context, ref ModifierSystem modSystem, Vertex[] vertices, uint[] indices, Edge[] edges)
         {
             m_Indices = indices;
             m_Vertices = vertices;
             m_Edges = edges;
-            m_SharedContext = context;
+            m_Context = context;
+            m_ModifierSystem = modSystem;
 
-            m_SharedContext.vertexCount = m_Vertices.Length;
-            m_SharedContext.edgeCount = m_Edges.Length;
+            m_Context.vertexCount = m_Vertices.Length;
+            m_Context.edgeCount = m_Edges.Length;
 
             m_LocalPos = new Vector3();
             m_LocalRot = new Quaternion(0, 0, 0, 1);
@@ -70,7 +75,7 @@ namespace UnityEngine.GsplEdit
         [System.Obsolete]
         private void OnEnable()
         {
-                           cmd = new CommandBuffer
+                           m_Cmd = new CommandBuffer
                     {
                         name = "Vertex Drawing"
                     };
@@ -85,17 +90,17 @@ namespace UnityEngine.GsplEdit
 
         private void OnSceneGUI(SceneView sceneView)
         {
-            Draw(sceneView.camera);
+            Draw();
         }
 
-        public void Update()
+        public void UpdateDraw()
         {
-            Draw(Camera.main);
+            Draw();
         }
 
         private bool AreBuffersValid()
         {
-            if (m_SharedContext != null && m_SharedContext.gpuMeshVerts == null || m_TriangleBuffer == null || m_SelectionGroup.m_SelectedVerticesBuffer == null)
+            if (m_Context != null && m_VertexBuffer == null || m_Context == null || m_Context.gpuMeshVerts == null || m_IndexBuffer == null || m_SelectionGroup.m_SelectedVerticesBuffer == null)
                 return false;
 
             return true;
@@ -106,21 +111,22 @@ namespace UnityEngine.GsplEdit
             try
             {
                 // Create vertex buffer
-                if (m_SharedContext.vertexCount > 0)
+                if (m_Context.vertexCount > 0)
                 {
-                    m_SharedContext.gpuMeshVerts = new ComputeBuffer(m_SharedContext.vertexCount, sizeof(Vertex));
-                    m_SharedContext.gpuMeshVerts.SetData(m_Vertices);
+                    m_VertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.vertexCount, sizeof(Vertex)) { name = "vertices" };
+                    m_VertexBuffer.SetData(m_Vertices);
+                    m_Context.gpuMeshVerts = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopyDestination, m_Context.vertexCount, sizeof(Vertex)) { name = "modifiedVertices" };
                 }
 
                 // Create triangle buffer
                 if (m_Indices.Length > 0)
                 {
-                    m_TriangleBuffer = new ComputeBuffer(m_Indices.Length, sizeof(int));
-                    m_TriangleBuffer.SetData(m_Indices);
+                    m_IndexBuffer = new ComputeBuffer(m_Indices.Length, sizeof(int));
+                    m_IndexBuffer.SetData(m_Indices);
                 }
 
-                m_SharedContext.gpuMeshEdges = new ComputeBuffer(m_SharedContext.edgeCount, sizeof(Edge));
-                m_SharedContext.gpuMeshEdges.SetData(m_Edges);
+                m_Context.gpuMeshEdges = new ComputeBuffer(m_Context.edgeCount, sizeof(Edge));
+                m_Context.gpuMeshEdges.SetData(m_Edges);
 
                 // Create arguments buffer
                 if (m_ArgsBuffer != null)
@@ -148,19 +154,21 @@ namespace UnityEngine.GsplEdit
 
         public void DestroyBuffers()
         {
-            if (m_SharedContext == null)
+            if (m_Context == null)
                 return;
                 
-            if (m_SharedContext.gpuMeshVerts != null)
+            if (m_VertexBuffer != null)
             {
-                m_SharedContext.gpuMeshVerts.Release();
-                m_SharedContext.gpuMeshVerts = null;
+                m_VertexBuffer.Release();
+                m_VertexBuffer = null;
+                m_Context.gpuMeshVerts.Release();
+                m_Context.gpuMeshVerts = null;
             }
 
-            if (m_TriangleBuffer != null)
+            if (m_IndexBuffer != null)
             {
-                m_TriangleBuffer.Release();
-                m_TriangleBuffer = null;
+                m_IndexBuffer.Release();
+                m_IndexBuffer = null;
             }
 
             if (m_SelectionGroup.m_SelectedVerticesBuffer != null)
@@ -169,7 +177,7 @@ namespace UnityEngine.GsplEdit
                 m_SelectionGroup.m_SelectedVerticesBuffer = null;
             }
 
-            m_SharedContext.vertexCount = 0;
+            m_Context.vertexCount = 0;
         }
 
         public void EditUpdateSelection(Vector2 rectMin, Vector2 rectMax, Camera cam)
@@ -189,15 +197,15 @@ namespace UnityEngine.GsplEdit
 
             using var cmb = new CommandBuffer { name = "VertexSelectionUpdate" };
             int kernelIndex = (int)KernelIndices.SelectionUpdate;
-            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, "_VertexProps", m_SharedContext.gpuMeshVerts);
+            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, "_VertexProps", m_VertexBuffer);
             cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, Props.VertexSelectedBits, m_SelectionGroup.m_SelectedVerticesBuffer);
-            cmb.SetComputeIntParam(m_CSVertexUtilities, Props.VertexCount, m_SharedContext.vertexCount);
+            cmb.SetComputeIntParam(m_CSVertexUtilities, Props.VertexCount, m_Context.vertexCount);
             cmb.SetComputeVectorParam(m_CSVertexUtilities, "_SelectionRect", new Vector4(rectMin.x, rectMax.y, rectMax.x, rectMin.y));
 
             cmb.SetComputeMatrixParam(m_CSVertexUtilities, Props.MatrixObjectToWorld, matO2W);
             cmb.SetComputeMatrixParam(m_CSVertexUtilities, Props.MatrixVP, matProj * matView);
             cmb.SetComputeVectorParam(m_CSVertexUtilities, Props.VecScreenParams, screenPar);
-            DispatchUtilsAndExecute(cmb, KernelIndices.SelectionUpdate, m_SharedContext.vertexCount);
+            DispatchUtilsAndExecute(cmb, KernelIndices.SelectionUpdate, m_Context.vertexCount);
 
             SetSelection();
         }
@@ -234,7 +242,7 @@ namespace UnityEngine.GsplEdit
 
             using var cmb = new CommandBuffer { name = "VertexSelectionUpdate" };
             int kernelIndex = (int)KernelIndices.VertexTransform;
-            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, "_VertexProps", m_SharedContext.gpuMeshVerts);
+            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, "_VertexProps", m_VertexBuffer);
             cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, Props.VertexSelectedBits, m_SelectionGroup.m_SelectedVerticesBuffer);
             cmb.SetComputeIntParam(m_CSVertexUtilities, Props.VertexCount, m_Vertices.Length);
             cmb.SetComputeVectorParam(m_CSVertexUtilities, "_PositionDiff", positionDiff);
@@ -263,10 +271,10 @@ namespace UnityEngine.GsplEdit
             }
 
             // Retrieve selected vertices data from the buffer
-            uint[] selectedBits = new uint[(m_SharedContext.vertexCount + 31) / 32];
+            uint[] selectedBits = new uint[(m_Context.vertexCount + 31) / 32];
             m_SelectionGroup.m_SelectedVerticesBuffer.GetData(selectedBits);
 
-            for (int i = 0; i < m_SharedContext.vertexCount; i++)
+            for (int i = 0; i < m_Context.vertexCount; i++)
             {
                 int bitIndex = i / 32;
                 int bitOffset = i % 32;
@@ -305,32 +313,32 @@ namespace UnityEngine.GsplEdit
 
         public void DrawSelectedVertices()
         {
-            if (m_SharedContext == null || m_SharedContext.gpuMeshVerts == null || m_SelectionGroup.m_SelectedVerticesBuffer == null || !m_SelectedVertexMaterial)
+            if (m_Context == null || m_Context.gpuMeshVerts == null || m_SelectionGroup.m_SelectedVerticesBuffer == null || !m_SelectedVertexMaterial)
                 return;
 
             // Set up material properties
-            m_SelectedVertexMaterial.SetBuffer("_VertexProps", m_SharedContext.gpuMeshVerts);
+            m_SelectedVertexMaterial.SetBuffer("_VertexProps", m_Context.gpuMeshVerts);
             m_SelectedVertexMaterial.SetBuffer("_VertexSelectedBits", m_SelectionGroup.m_SelectedVerticesBuffer);
             m_SelectedVertexMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
 
             // Set up the draw command
-            cmd.DrawProcedural(Matrix4x4.identity, m_SelectedVertexMaterial, 0, MeshTopology.Points, m_Vertices.Length);
+            m_Cmd.DrawProcedural(Matrix4x4.identity, m_SelectedVertexMaterial, 0, MeshTopology.Points, m_Vertices.Length);
 
         }
 
         public void DrawWireframe()
         {
-            if (!AreBuffersValid() || m_SharedContext.gpuMeshVerts == null || !m_WireframeMaterial)
+            if (!AreBuffersValid() || m_Context.gpuMeshVerts == null || !m_WireframeMaterial)
                 return;
 
             // Set up material properties
-            m_WireframeMaterial.SetBuffer("_VertexProps", m_SharedContext.gpuMeshVerts);
-            m_WireframeMaterial.SetBuffer("_IndexBuffer", m_TriangleBuffer);
+            m_WireframeMaterial.SetBuffer("_VertexProps", m_Context.gpuMeshVerts);
+            m_WireframeMaterial.SetBuffer("_IndexBuffer", m_IndexBuffer);
             m_WireframeMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
 
             // Draw back faces
             m_WireframeMaterial.SetPass(0);
-            cmd.DrawProceduralIndirect(
+            m_Cmd.DrawProceduralIndirect(
                 Matrix4x4.identity,
                 m_WireframeMaterial,
                 0,
@@ -341,7 +349,7 @@ namespace UnityEngine.GsplEdit
 
             // Draw front faces
             m_WireframeMaterial.SetPass(1);
-            cmd.DrawProceduralIndirect(
+            m_Cmd.DrawProceduralIndirect(
                 Matrix4x4.identity,
                 m_WireframeMaterial,
                 1,
@@ -351,12 +359,19 @@ namespace UnityEngine.GsplEdit
             );
         }
 
-        private void Draw(Camera camera)
+        private void Draw()
         {
-            cmd.Clear();
+            m_Cmd.Clear();
+
+            if (!AreBuffersValid())
+                return;
+
+            // Apply Modifier System
+            m_ModifierSystem.RunAll(m_StaticModifierPass, m_DynamicModifierPass);
+
             DrawWireframe();
             DrawSelectedVertices();
-            Graphics.ExecuteCommandBuffer(cmd);
+            Graphics.ExecuteCommandBuffer(m_Cmd);
         }
     }
 }

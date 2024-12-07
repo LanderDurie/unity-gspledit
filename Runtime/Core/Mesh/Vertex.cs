@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace UnityEngine.GsplEdit
 {
     [System.Serializable]
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    [StructLayout(LayoutKind.Sequential)]
     public unsafe struct Vertex
     {
         public Vector3 position;

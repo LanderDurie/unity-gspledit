@@ -23,8 +23,6 @@ namespace UnityEditor.GsplEdit
             
             m_Modifiers = new List<ModifierBox>();
 
-            Debug.Log(group.m_Modifiers);
-
             foreach (Modifier m in group.m_Modifiers) {
                 m_Modifiers.Add(CreateInstance<ModifierBox>());
                 m_Modifiers[m_Modifiers.Count - 1].Init(group.m_Modifiers[m_Modifiers.Count - 1]);

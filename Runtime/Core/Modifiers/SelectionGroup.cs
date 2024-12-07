@@ -2,23 +2,27 @@
 using System;
 using System.Collections.Generic;
 
-namespace UnityEngine.GsplEdit{
-    
-    public class SelectionGroup {
+namespace UnityEngine.GsplEdit
+{
+
+    public class SelectionGroup
+    {
         public List<Modifier> m_Modifiers;
         public String m_Name = "New Selection Group";
         public bool m_Enabled = true;
         public VertexSelectionGroup m_Selection;
+        private SharedComputeContext m_Context;
 
-        public SelectionGroup(VertexSelectionGroup selected)
+        public SelectionGroup(ref SharedComputeContext context, ref EditableMesh mesh)
         {
+            m_Context = context;
+            m_Selection = mesh.m_SelectionGroup.Clone();
             m_Modifiers = new List<Modifier>();
-            m_Selection = selected.Clone();
         }
 
-         public void Insert()
+        public void Insert()
         {
-            m_Modifiers.Add(new Modifier());
+            m_Modifiers.Add(new Modifier(ref m_Context, ref m_Selection));
         }
 
         public void Remove(uint id)
@@ -47,6 +51,26 @@ namespace UnityEngine.GsplEdit{
                 toId--;
 
             m_Modifiers.Insert((int)toId, modifier);
+        }
+
+        public void RunAll(bool runStatic = true, bool runDynamic = true)
+        {
+            for (int i = 0; i < m_Modifiers.Count; i++)
+            {
+                if (m_Modifiers[i].m_Enabled &&
+                (m_Modifiers[i].m_IsAnimation && runDynamic || m_Modifiers[i].m_IsAnimation && runStatic))
+                {
+                    m_Modifiers[i].Run();
+                }
+            }
+        }
+
+        public void RunModifier(int modId, bool runStatic = true, bool runDynamic = true)
+        {
+            if (m_Modifiers[modId].m_IsAnimation && runDynamic || m_Modifiers[modId].m_IsAnimation && runStatic)
+            {
+                m_Modifiers[modId].Run();
+            }
         }
     }
 }

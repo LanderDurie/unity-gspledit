@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using PlasticPipe.PlasticProtocol.Messages;
 
 namespace UnityEngine.GsplEdit
 {
@@ -6,9 +7,11 @@ namespace UnityEngine.GsplEdit
     {
         public List<SelectionGroup> m_SelectionGroups;
         private EditableMesh m_Mesh;
+        private SharedComputeContext m_Context;
 
-        public ModifierSystem()
+        public ModifierSystem(ref SharedComputeContext context)
         {
+            m_Context = context;
             m_SelectionGroups = new List<SelectionGroup>();
         }
 
@@ -18,7 +21,7 @@ namespace UnityEngine.GsplEdit
 
         public void Insert()
         {
-            m_SelectionGroups.Add(new SelectionGroup(m_Mesh.m_SelectionGroup));
+            m_SelectionGroups.Add(new SelectionGroup(ref m_Context, ref m_Mesh));
         }
 
         public void Remove(uint id)
@@ -49,23 +52,31 @@ namespace UnityEngine.GsplEdit
             m_SelectionGroups.Insert((int)toId, modifier);
         }
 
-        public void PrintSelectionGroups()
+        public void RunAll(bool runStatic = true, bool runDynamic = true)
         {
-            Debug.LogWarning("Current SelectionGroups:");
-            for (int i = 0; i < m_SelectionGroups.Count; i++)
-            {
-                Debug.LogWarning($"SelectionGroup at Id {i}");
+            // Copy base data
+            ResetBuffer();
+            for (int i = 0; i < m_SelectionGroups.Count; i++) {
+                if (m_SelectionGroups[i].m_Enabled) {
+                    m_SelectionGroups[i].RunAll(runStatic, runDynamic);
+                }
             }
         }
 
-        public void RunAll()
+        public void RunGroup(int groupId, bool runStatic = true, bool runDynamic = true)
         {
-
+            ResetBuffer();
+            m_SelectionGroups[groupId].RunAll(runStatic, runDynamic);
         }
 
-        public void Run(uint id)
+        public void RunModifier(int groupId, int modId, bool runStatic = true, bool runDynamic = true)
         {
+            ResetBuffer();
+            m_SelectionGroups[groupId].RunModifier(modId, runStatic, runDynamic);
+        }
 
+        private void ResetBuffer() {
+            Graphics.CopyBuffer(m_Mesh.m_VertexBuffer, m_Context.gpuMeshVerts);
         }
     }
 }

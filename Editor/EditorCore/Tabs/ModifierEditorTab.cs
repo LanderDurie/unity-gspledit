@@ -110,6 +110,11 @@ namespace UnityEditor.GsplEdit
             if (m_ReorderableList == null || ms == null || m_SelectionGroups == null)
                 return;
 
+            if (GUILayout.Button("Run All"))
+            {
+                ms.RunAll();
+            }
+
 
             // Add new modifier button
             if (GUILayout.Button("Add Selection Group"))

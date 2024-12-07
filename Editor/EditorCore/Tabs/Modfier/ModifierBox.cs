@@ -14,7 +14,7 @@ namespace UnityEditor.GsplEdit
         {
             EditorGUILayout.BeginVertical(GUI.skin.box);
             GUILayout.Label("Modifier Settings", EditorStyles.boldLabel);
-            m.m_Shader = (Shader)EditorGUILayout.ObjectField("Shader", m.m_Shader, typeof(Shader), false);
+            m.m_ComputeShader = (ComputeShader)EditorGUILayout.ObjectField("Shader", m.m_ComputeShader, typeof(ComputeShader), false);
             m.m_IsAnimation = EditorGUILayout.Toggle("Animation", m.m_IsAnimation);
             if (m.m_IsAnimation) {
                 EditorGUI.indentLevel++;
@@ -27,6 +27,11 @@ namespace UnityEditor.GsplEdit
                     EditorGUI.indentLevel--;     
                 }
                 EditorGUI.indentLevel--;
+            } else {
+                if (GUILayout.Button("Bake Modifier"))
+                {
+                    m.Bake();
+                }
             }
             EditorGUILayout.EndVertical();
         }

@@ -17,7 +17,7 @@ namespace UnityEngine.GsplEdit
             m_Context = new();
             m_MeshGenerator = new(ref m_Context);
             m_LinkGenerator = new(ref m_Context);
-            m_ModifierSystem = new();
+            m_ModifierSystem = new(ref m_Context);
         }
 
         public void OnDisable() {
@@ -43,7 +43,7 @@ namespace UnityEngine.GsplEdit
                 // Create mesh buffers
                 m_Context.vertexCount = 1;
                 m_Context.edgeCount = 1;
-                m_Context.gpuMeshVerts = new ComputeBuffer(m_Context.vertexCount, sizeof(Vertex));
+                m_Context.gpuMeshVerts = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.vertexCount, sizeof(Vertex)) { name = "MeshVertices" };
                 m_Context.gpuMeshVerts.SetData(Enumerable.Repeat(Vertex.Default(), m_Context.vertexCount).ToArray());
                 m_Context.gpuMeshEdges = new ComputeBuffer(m_Context.edgeCount, sizeof(Edge));
                 m_Context.gpuMeshEdges.SetData(Enumerable.Repeat(new Edge(0, 0), m_Context.edgeCount).ToArray());
@@ -123,7 +123,7 @@ namespace UnityEngine.GsplEdit
         public void GenerateMesh() {
             if (m_MeshGenerator != null) {
                 m_Mesh?.DestroyBuffers();
-                m_Mesh = m_MeshGenerator.Generate();
+                m_Mesh = m_MeshGenerator.Generate(ref m_ModifierSystem);
                 m_ModifierSystem.SetMesh(ref m_Mesh);
                 m_LinkGenerator.Generate();
             }
@@ -146,7 +146,7 @@ namespace UnityEngine.GsplEdit
             if (m_Context != null && m_Mesh != null)
             {                
                 m_Mesh.m_GlobalTransform = transform;
-                m_Mesh.Update();
+                m_Mesh.UpdateDraw();
             }
         }
     }

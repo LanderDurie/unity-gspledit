@@ -12,7 +12,7 @@ namespace UnityEngine.GsplEdit
         public GraphicsBuffer gpuGSChunks;
         public Texture gpuGSColorData;
 
-        public ComputeBuffer gpuMeshVerts;
+        public GraphicsBuffer gpuMeshVerts; // Store vertices after applying the modifier system
         public ComputeBuffer gpuMeshEdges;
         public ComputeBuffer gpuForwardLinks; // Links from splats to vertices
         public ComputeBuffer gpuBackwardLinks; // Links from vertices to splats
