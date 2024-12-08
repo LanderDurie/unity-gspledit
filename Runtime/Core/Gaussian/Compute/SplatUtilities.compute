@@ -235,9 +235,17 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
     float3 avgVertexScale = float3(0,0,0);
     float4 avgSplineRot = float4(0,0,0,0);
     float3 avgSplineScale = float3(0,0,0);
+
+    float4x4 accum = float4x4(0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0);
+
     float newWeights[8];
     float3 weightPos[8];
+    float posDiff[8];
 
+    // Get New weights based on change in splines
     bool found = false;
     [unroll]
     for (int i = 0; i < 8; i++) {
@@ -252,11 +260,11 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
             float t = _SplatLinks[idx].edgeT[i];
             
             // Bounding box and control point calculations
-            float3 minBoundsBox = min(p1, p2);
-            float3 maxBoundsBox = max(p1, p2);
+            float3 minBoundsBox = min(p1, p2) - 0.04;
+            float3 maxBoundsBox = max(p1, p2) + 0.04;
             float3 boxSize = abs(p1 - p2) / 2;
-            float3 minBoundsBoxBase = min(v1.pos, v2.pos);
-            float3 maxBoundsBoxBase = max(v1.pos, v2.pos);
+            float3 minBoundsBoxBase = min(v1.pos, v2.pos) - 0.04;
+            float3 maxBoundsBoxBase = max(v1.pos, v2.pos) + 0.04;
             float3 boxSizeBase = abs(v1.pos - v2.pos) / 2;
 
             float3 t1 = RotateVectorByQuaternion(v1.rotMod, v2.pos - v1.pos);
@@ -281,21 +289,8 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
             float3 splinePos = cubicBezier(t, v1.pos, v2.pos, cp1Base, cp2Base);
             float3 newSplinePos = cubicBezier(t, p1, p2, cp1, cp2);
 
-            // Compute tangent direction
-            float3 baseDir = cubicBezierTangent(t, v1.pos, v2.pos, cp1Base, cp2Base);
-            float3 splineDir = cubicBezierTangent(t, p1, p2, cp1, cp2);
-
-            float4 vertexRot = QuatSlerp(v1.rotMod, v2.rotMod, t);
-            float3 vertexScale = v1.scaleMod * (1-t) + v2.scaleMod * t;
-
             // Set properties
-            weightPos[i] = newSplinePos;
-            avgBasePos += splinePos * weight;
-            avgSplinePos += newSplinePos * weight;
-            avgBaseDir += baseDir * weight;
-            avgSplineDir += splineDir * weight;
-            avgVertexRot += vertexRot * weight;
-            avgVertexScale += vertexScale * weight;
+            posDiff[i] = abs(newSplinePos - splinePos);
         }
     }
 
@@ -309,16 +304,112 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
         return returnProp;
     }
 
+    // Calculate new weights
+    // float t = 0.0f;
+    // for (int i = 0; i < 8; i++) {
+    //     t += posDiff[i] * posDiff[i];
+    // }
+    // if (t > 0) {
+    //     for (int i = 0; i < 8; i++) {
+    //         posDiff[i] /= t;
+    //     }
+    // }
+
+    float avgWeight = 0.0;
+    int activeCount = 0;
+    for (int i = 0; i < 8; i++) {
+        if (_SplatLinks[idx].edgeWeights[i] > 0) {
+            avgWeight += _SplatLinks[idx].edgeWeights[i];
+            activeCount += 1;
+        }
+    }
+    avgWeight /= activeCount;
+
+    float total = 0;
+    for (int i = 0; i < 8; i++) {
+        if (_SplatLinks[idx].edgeWeights[i] > 0) {
+            float weight = _SplatLinks[idx].edgeWeights[i];
+            weight = weight * avgWeight + weight * posDiff[i];
+            total += weight;
+            newWeights[i] = weight;
+        } else {
+            newWeights[i] = 0;
+        }
+    }
+    for (int i = 0; i < 8; i++) {
+        newWeights[i] /= total;
+    }
+
+    // Calculate averages
+    [unroll]
+    for (int i = 0; i < 8; i++) {
+        int edgeId = _SplatLinks[idx].edgeIds[i];
+        float weight = newWeights[i];
+        if (edgeId != -1 && weight > 0) {
+            VertexProperties v1 = _VertexProps[_EdgeProps[edgeId].vertexId1];
+            VertexProperties v2 = _VertexProps[_EdgeProps[edgeId].vertexId2];
+            float3 p1 = v1.pos + v1.posMod;
+            float3 p2 = v2.pos + v2.posMod;
+            float t = _SplatLinks[idx].edgeT[i];
+            
+            // Bounding box and control point calculations
+            float3 minBoundsBox = min(p1, p2) - 0.04;
+            float3 maxBoundsBox = max(p1, p2) + 0.04;
+            float3 boxSize = abs(p1 - p2) / 2;
+            float3 minBoundsBoxBase = min(v1.pos, v2.pos) - 0.04;
+            float3 maxBoundsBoxBase = max(v1.pos, v2.pos) + 0.04;
+            float3 boxSizeBase = abs(v1.pos - v2.pos) / 2;
+
+            float3 t1 = RotateVectorByQuaternion(v1.rotMod, v2.pos - v1.pos);
+            float3 t2 = RotateVectorByQuaternion(v2.rotMod, v1.pos - v2.pos);
+            t1 = clamp(p1 + t1, minBoundsBox, maxBoundsBox) - p1;
+            t2 = clamp(p2 + t2, minBoundsBox, maxBoundsBox) - p2;
+            t1 = normalize(t1) * boxSize;
+            t2 = normalize(t2) * boxSize;
+            float3 cp1 = p1 + t1;
+            float3 cp2 = p2 + t2;
+
+            float3 t1Base = RotateVectorByQuaternion(v1.rotMod, v2.pos - v1.pos);
+            float3 t2Base = RotateVectorByQuaternion(v2.rotMod, v1.pos - v2.pos);
+            t1Base = clamp(v1.pos + t1Base, minBoundsBoxBase, maxBoundsBoxBase) - v1.pos;
+            t2Base = clamp(v2.pos + t2Base, minBoundsBoxBase, maxBoundsBoxBase) - v2.pos;
+            t1Base = normalize(t1Base) * boxSizeBase;
+            t2Base = normalize(t2Base) * boxSizeBase;
+            float3 cp1Base = v1.pos + t1Base;
+            float3 cp2Base = v2.pos + t2Base;
+
+            // Compute position
+            float3 splinePos = cubicBezier(t, v1.pos, v2.pos, cp1Base, cp2Base);
+            float3 newSplinePos = cubicBezier(t, p1, p2, cp1, cp2);
+
+            // Compute tangent direction
+            float3 baseDir = cubicBezierTangent(t, v1.pos, v2.pos, cp1Base, cp2Base);
+            float3 splineDir = cubicBezierTangent(t, p1, p2, cp1, cp2);
+
+            float4 vertexRot = QuatSlerp(v1.rotMod, v2.rotMod, t);
+            float3 vertexScale = v1.scaleMod * (1-t) + v2.scaleMod * t;
+
+            // Set properties
+            weightPos[i] = newSplinePos * weight;
+            avgBasePos += splinePos * weight;
+            avgSplinePos += newSplinePos * weight;
+            avgBaseDir += baseDir * weight;
+            avgSplineDir += splineDir * weight;
+            avgVertexRot += vertexRot * weight;
+            avgVertexScale += vertexScale * weight;
+        }
+    }
+
     float3 weightedScaleOffset = (float3)(0.0f, 0.0f, 0.0f);
     float3 weightedRotOffset = (float3)(0.0f, 0.0f, 0.0f);
 
     for (int i = 0; i < 8; i++) {
-        float weight = _SplatLinks[idx].edgeWeights[i];        
+        float weight = newWeights[i];        
         weightedScaleOffset += (splat.pos - avgBasePos) * avgVertexScale * weight;
     }
     
     for (int i = 0; i < 8; i++) {
-        float weight = _SplatLinks[idx].edgeWeights[i];  
+        float weight = newWeights[i];  
         int linkId = _SplatLinks[idx].edgeIds[i];
 
         float3 rotatedPos = RotatePointAroundCenter(
@@ -330,13 +421,18 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
         weightedRotOffset += rotatedPos * weight;
     }
     
-    avgSplinePos += weightedScaleOffset + weightedRotOffset + splat.pos - avgBasePos;
+    avgSplinePos += weightedRotOffset + weightedScaleOffset + splat.pos - avgBasePos;
+    
+
+
+    // Calculate weights based on new positions
+
 
 
     [unroll]
     for (int i = 0; i < 8; i++) {
         int edgeId = _SplatLinks[idx].edgeIds[i];
-        float weight = _SplatLinks[idx].edgeWeights[i];
+        float weight = newWeights[i];
         if (edgeId != -1 && weight > 0) {
             VertexProperties v1 = _VertexProps[_EdgeProps[edgeId].vertexId1];
             VertexProperties v2 = _VertexProps[_EdgeProps[edgeId].vertexId2];
@@ -344,7 +440,7 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
             float3 p2 = v2.pos + v2.posMod;
             float t = _SplatLinks[idx].edgeT[i];
 
-            // scale splat in direction of spline
+            // rotate splat in direction of spline
             float originalDist = length(v2.pos - v1.pos);
             float modifiedDist = length(p2 - p1);
             float tWeight = (t - 0.5f) * 4; // scale from -2 to 2
@@ -355,19 +451,47 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
             float4 splineDir = RotationFromXAxis(avgSplineDir, MaxElementToOne(splat.scale));
             float4 splatDir = QuatMul(avgVertexRot, splat.rot);
 
-            if (dot(MaxElementToOne(splat.scale), avgSplineDir) < 0) {
-                splineDir = RotationFromXAxis(avgSplineDir, -MaxElementToOne(splat.scale));
-            }
+                        // Compute the outer product q * q^T * weight
+                        float4 q = QuatSlerp(splatDir, splineDir, 0);
+                        float4x4 outer = float4x4(
+                            q.x * q.x, q.x * q.y, q.x * q.z, q.x * q.w,
+                            q.y * q.x, q.y * q.y, q.y * q.z, q.y * q.w,
+                            q.z * q.x, q.z * q.y, q.z * q.z, q.z * q.w,
+                            q.w * q.x, q.w * q.y, q.w * q.z, q.w * q.w
+                        );
+                        accum += weight * outer;
 
-            avgSplineRot += QuatSlerp(splatDir, splineDir, alignmentFactor) * weight;
+            // avgSplineRot += splat.rot * weight;//QuatSlerp(splatDir, splineDir, sqrt(alignmentFactor)) * weight;
         }
     }
+
+    avgSplineRot = float4(1.0, 0.0, 0.0, 0.0);
+    // Perform iterative power method for dominant eigenvector
+    for (int iter = 0; iter < 64; iter++)
+    {
+        // Multiply accum by the guess vector
+        float4 newGuess = mul(accum, avgSplineRot);
+
+        // Normalize the result
+        float magnitude = sqrt(dot(newGuess, newGuess));
+        if (magnitude < 1e-8)
+            break;
+
+            avgSplineRot = newGuess / magnitude;
+    }
+
+    // Normalize final eigenvector
+    avgSplineRot = normalize(avgSplineRot);
+
+    // Ensure quaternion is in the positive hemisphere
+    if (avgSplineRot.w < 0.0)
+        avgSplineRot = -avgSplineRot;
 
 
     [unroll]
     for (int i = 0; i < 8; i++) {
         int edgeId = _SplatLinks[idx].edgeIds[i];
-        float weight = _SplatLinks[idx].edgeWeights[i];
+        float weight = newWeights[i];
         if (edgeId != -1 && weight > 0) {
             VertexProperties v1 = _VertexProps[_EdgeProps[edgeId].vertexId1];
             VertexProperties v2 = _VertexProps[_EdgeProps[edgeId].vertexId2];
@@ -402,9 +526,9 @@ VertexProperties calcSplineVertices(int idx, SplatData splat) {
                 )));
 
                 // add smoothness factor to scale; 
-                float3 newScale = (0.5 + scaleModifier / 2);
+                float3 newScale = (0.5 + scaleModifier * 0.5f);
 
-                avgSplineScale += newScale * sqrt(stretchFactor) * weight;
+                avgSplineScale += sqrt(newScale) * sqrt(stretchFactor) * weight;
             }
         }
     }

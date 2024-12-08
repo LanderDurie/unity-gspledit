@@ -25,6 +25,9 @@ namespace UnityEditor.GsplEdit
                 case MeshGen.GenType.MarchingCubes:
                     DrawMarchingCubesSettings((MarchingCubesGen)meshGen.m_Generators[meshGen.m_SelectedType]);
                     break;
+                case MeshGen.GenType.SurfaceNets:
+                    DrawSurfaceNetsSettings((SurfaceNetsGen)meshGen.m_Generators[meshGen.m_SelectedType]);
+                    break;
             }
 
             GUILayout.Label("Link Generator Options", EditorStyles.boldLabel);
@@ -77,6 +80,18 @@ namespace UnityEditor.GsplEdit
             meshGen.m_Settings.cutoff = EditorGUILayout.Slider(
                 new GUIContent("Isosurface Cutoff", ""), 
                 meshGen.m_Settings.cutoff, 
+                0.0f, 
+                1.0f
+            );
+            meshGen.m_Settings.lod = EditorGUILayout.IntField("Level Of Detail", Mathf.Clamp(meshGen.m_Settings.lod, 4, 1000));
+        }
+
+        private void DrawSurfaceNetsSettings(SurfaceNetsGen meshGen)
+        {
+            meshGen.m_Settings.scale = EditorGUILayout.FloatField("Scale", Mathf.Clamp(meshGen.m_Settings.scale, 0.1f, 100.0f));
+            meshGen.m_Settings.threshold = EditorGUILayout.Slider(
+                new GUIContent("Activation threshold", ""), 
+                meshGen.m_Settings.threshold, 
                 0.0f, 
                 1.0f
             );

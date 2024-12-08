@@ -5,7 +5,7 @@ namespace UnityEngine.GsplEdit
 {
     public class MeshGen
     {
-        public enum GenType {Icosahedron, MarchingCubes};
+        public enum GenType {Icosahedron, MarchingCubes, SurfaceNets};
 
         public GenType m_SelectedType;
         public Dictionary<GenType, MeshGenBase> m_Generators;
@@ -18,7 +18,8 @@ namespace UnityEngine.GsplEdit
             m_Generators = new Dictionary<GenType, MeshGenBase>
             {
                 { GenType.Icosahedron, ScriptableObject.CreateInstance<IcosaehdronGen>() },
-                { GenType.MarchingCubes, ScriptableObject.CreateInstance<MarchingCubesGen>() }
+                { GenType.MarchingCubes, ScriptableObject.CreateInstance<MarchingCubesGen>() },
+                { GenType.SurfaceNets, ScriptableObject.CreateInstance<SurfaceNetsGen>() }
             };
         }
 
