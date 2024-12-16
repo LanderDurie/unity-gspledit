@@ -127,12 +127,12 @@ namespace UnityEditor.GsplEdit
             vertexMaterial.SetColor("_SelectedColor", selectedColor);
 
             // Wireframe Selected Color
-            Color wireframeColor = wireframeMaterial.GetColor("_WireframeFrontColour");
+            Color wireframeColor = wireframeMaterial.GetColor("_WireframeColour");
             wireframeColor = EditorGUILayout.ColorField(
                 new GUIContent("Wireframe Color", "The color for wireframe"),
                 wireframeColor
             );
-            wireframeMaterial.SetColor("_WireframeFrontColour", wireframeColor);
+            wireframeMaterial.SetColor("_WireframeColour", wireframeColor);
 
             // Wireframe Alias
             float wireframeAlias = wireframeMaterial.GetFloat("_WireframeAliasing");

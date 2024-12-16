@@ -33,16 +33,24 @@ namespace UnityEditor.GsplEdit
             GUILayout.Label("Link Generator Options", EditorStyles.boldLabel);
 
             LinkGen linkGen = gs.GetLinkGen();
-            linkGen.m_SelectedType = (LinkGen.GenType)EditorGUILayout.EnumPopup("Link Option", linkGen.m_SelectedType);
-            switch (linkGen.m_SelectedType)
+            linkGen.m_ForwardSelectedType = (LinkGen.ForwardGenType)EditorGUILayout.EnumPopup("Forward Link Option", linkGen.m_ForwardSelectedType);
+            switch (linkGen.m_ForwardSelectedType)
             {
-                case LinkGen.GenType.Distance:
-                    DrawDistanceGenSettings((DistanceGen)linkGen.m_Generators[linkGen.m_SelectedType]);
+                case LinkGen.ForwardGenType.Distance:
+                    DrawDistanceGenSettings((DistanceGen)linkGen.m_ForwardGenerators[linkGen.m_ForwardSelectedType]);
                     break;
-                case LinkGen.GenType.Mahalanobis:
-                    DrawMahalanobisSettings((MahalanobisGen)linkGen.m_Generators[linkGen.m_SelectedType]);
+                case LinkGen.ForwardGenType.Mahalanobis:
+                    DrawMahalanobisSettings((MahalanobisGen)linkGen.m_ForwardGenerators[linkGen.m_ForwardSelectedType]);
                     break;
             }
+
+            linkGen.m_BackwardSelectedType = (LinkGen.BackwardGenType)EditorGUILayout.EnumPopup("Backward Link Option", linkGen.m_BackwardSelectedType);
+            switch (linkGen.m_BackwardSelectedType)
+            {
+                case LinkGen.BackwardGenType.Distance:
+                    break;
+            }
+
 
 
             if (GUILayout.Button("Bake Mesh"))

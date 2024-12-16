@@ -31,12 +31,6 @@
 #include "DeviceRadixSort.hlsl"
 #include "GaussianSplatting.hlsl"
 
-#define QUATERNION_IDENTITY float4(0, 0, 0, 1)
-
-#ifndef PI
-#define PI 3.14159265359f
-#endif 
-
 struct SplatLink {
     int triangleIds[8];
     float triangleWeights[8];
@@ -58,18 +52,6 @@ struct VertexProperties {
     float4 rotMod;     
     float3 scaleMod;   
     uint colorModIds[4];
-};
-
-struct TriangleSet {
-    VertexProperties p0;
-    VertexProperties p1;
-    VertexProperties p2;
-};
-
-struct ModSplat {
-    float3 pos;
-    float4 rot;
-    float3 scale;
 };
 
 float4x4 _MatrixObjectToWorld;
@@ -108,370 +90,570 @@ void CSSetIndices (uint3 id : SV_DispatchThreadID)
     _SplatSortKeys[idx] = idx;
 }
 
-float3 calculateTriangleNormal(float3x3 trianglePoints) {
-    // Compute two edges of the triangle
-    float3 edge1 = trianglePoints[1] - trianglePoints[0];
-    float3 edge2 = trianglePoints[2] - trianglePoints[0];
-
-    // Compute the cross product of the two edges
-    float3 normal = cross(edge1, edge2);
-
-    // Normalize the result to get a unit normal vector
-    return normalize(normal);
+float3 RotatePointAroundCenter(float3 pos, float3 center, float4 quat) {
+        float3 p = pos - center;
+        p = mul(_MatrixObjectToWorld, float4(p,1)).xyz;
+        p = QuatRotateVector(p, quat);
+        p = mul(_MatrixWorldToObject, float4(p,1)).xyz;
+        p += center;
+        return p;
 }
 
-float3 barycentricFromPosition(float3x3 trianglePoints, float3 extPos, bool clamped) {
-    // Compute triangle edge vectors
-    float3 v0 = trianglePoints[1] - trianglePoints[0];
-    float3 v1 = trianglePoints[2] - trianglePoints[0];
-
-    // Compute the normal of the triangle
-    float3 triangleNormal = normalize(cross(v0, v1));
-    
-    // Project the external point onto the plane of the triangle
-    float3 v2 = extPos - trianglePoints[0];
-    float signedDistance = dot(v2, triangleNormal);
-    float3 projectedPoint = extPos - signedDistance * triangleNormal;
-
-    // Compute the vectors for the projected point
-    float3 vp = projectedPoint - trianglePoints[0];
-
-    // Compute dot products for barycentric coordinates
-    float d00 = dot(v0, v0);
-    float d01 = dot(v0, v1);
-    float d11 = dot(v1, v1);
-    float d20 = dot(vp, v0);
-    float d21 = dot(vp, v1);
-
-    // Compute the denominator of the barycentric coordinates
-    float denom = d00 * d11 - d01 * d01;
-
-    // Compute barycentric coordinates
-    float v = (d11 * d20 - d01 * d21) / denom;
-    float w = (d00 * d21 - d01 * d20) / denom;
-    float u = 1.0f - v - w;
-
-    if (clamped) {
-        // Clamp barycentric coordinates
-        v = max(0.0f, v);
-        w = max(0.0f, w);
-        u = max(0.0f, u);
-
-        float sum = u + v + w;
-        u /= sum;
-        v /= sum;
-        w /= sum;
-    }
-
-    return float3(signedDistance, v, w);
-}
-
-
-float3 positionFromBarycentric(float3x3 trianglePoints, float3 barycentricData) {
-    
-    float barycentricX = barycentricData.y;
-    float barycentricY = barycentricData.z;
-    float barycentricZ = 1.0f - barycentricX - barycentricY;
-
-    float3 pointOnTriangle = barycentricZ * trianglePoints[0] + 
-                              barycentricX * trianglePoints[1] + 
-                              barycentricY * trianglePoints[2];
-
-    float3 triangleNormal = normalize(cross(
-        trianglePoints[1] - trianglePoints[0], 
-        trianglePoints[2] - trianglePoints[0]
-    ));
-
-    // Reconstruct the original point by moving along the normal
-    float3 externalPoint = pointOnTriangle + barycentricData.x * triangleNormal;
-
-    return externalPoint;
-}
-
-float3 mapPoint(float3x3 baseTriangle, float3x3 modTriangle, float3 extPos) {
-    float3 baseClamped = barycentricFromPosition(baseTriangle, extPos, true);
-    float3 baseUnclamped = barycentricFromPosition(baseTriangle, extPos, false);
-
-    float3 basePosClamped = positionFromBarycentric(baseTriangle, baseClamped);
-    float3 modPosClamped = positionFromBarycentric(modTriangle, baseClamped);
-    float3 modPosUnclamped = positionFromBarycentric(modTriangle, baseUnclamped);
-
-    if (baseUnclamped.z < 0 || baseUnclamped.y < 0 || baseUnclamped.y + baseUnclamped.z > 1) {
-        float outsideDist = length(extPos - basePosClamped);
-        float3 direction = normalize(modPosUnclamped - modPosClamped);
-        return modPosClamped + direction * outsideDist;
-    }
-
-    return modPosUnclamped;    
-}
-
-// Normalize the input vectors
-float3 normalizeVector(float3 v) {
-    return v / length(v);
-}
-
-// Quaternion constructor from axis and angle
-float4 quaternionFromAxisAngle(float3 axis, float angle) {
-    float halfAngle = angle * 0.5;
-    float s = sin(halfAngle);
-    float c = cos(halfAngle);
-    return float4(axis.x * s, axis.y * s, axis.z * s, c);
-}
-
-// Function to calculate the rotation quaternion between two vectors
-float4 calculateQuaternionRotation(float3 u, float3 v) {
-    // Normalize the vectors
-    u = normalizeVector(u);
-    v = normalizeVector(v);
-
-    // Calculate the dot product
-    float cosTheta = dot(u, v);
-
-    // Check for the case where the vectors are parallel
-    if (cosTheta > 0.9999f) {
-        // Vectors are already aligned, no rotation needed
-        return float4(0, 0, 0, 1);  // Identity quaternion (no rotation)
-    }
-
-    // Handle the case where the vectors are opposite
-    if (cosTheta < -0.9999f) {
-        // Vectors are opposite, 180 degree rotation around any orthogonal vector
-        // Pick an arbitrary axis perpendicular to u and v
-        float3 axis = cross(u, float3(1, 0, 0));
-        if (length(axis) < 1e-6f) {
-            // In case u and v are pointing in the same direction, we pick a perpendicular axis
-            axis = cross(u, float3(0, 1, 0));
-        }
-        axis = normalize(axis);
-        return quaternionFromAxisAngle(axis, 3.14159265359f); // 180 degree rotation
-    }
-
-    // Calculate the axis of rotation (cross product of u and v)
-    float3 axis = cross(u, v);
-    axis = normalize(axis);
-
-    // Calculate the angle between the vectors
-    float angle = acos(cosTheta);
-
-    // Construct the quaternion
-    return quaternionFromAxisAngle(axis, angle);
-}
-
-float3 RotatePointByQuaternion(float3 p, float4 quat) {
-    float3 qvec = quat.xyz;
-    float w = quat.w;
-    float3 uv = cross(qvec, p);
-    float3 uuv = cross(qvec, uv);
-    return p + (2.0f * uv * w) + (2.0f * uuv);
-}
-
-float3 computeProjection(float3 axis, float3 p1, float3 p2, float3 p3) {
-    float dotP1 = abs(dot(axis, normalize(p1)));
-    float dotP2 = abs(dot(axis, normalize(p2)));
-    float dotP3 = abs(dot(axis, normalize(p3)));
-
-    float total = dotP1 + dotP2 + dotP3;
-    
-    return float3(dotP1 / total, dotP2 / total, dotP3 / total);
-}
-
-float4 q_slerp(in float4 a, in float4 b, float t)
+float3 RotateVectorByQuaternion(float4 q, float3 v)
 {
-    // if either input is zero, return the other.
-    if (length(a) == 0.0)
+    // Quaternion rotation formula: v' = q * v * q^-1
+    float3 qv = cross(q.xyz, v);
+    return v + 2.0 * cross(q.xyz, qv + q.w * v);
+}
+
+struct VertexPropertiesArray {
+    VertexProperties vertices[8];
+};
+
+
+float4x4 QuaternionToMatrix(float4 q)
+{
+    float4x4 m = float4x4(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1);
+    
+    float x2 = q.x * q.x;
+    float y2 = q.y * q.y;
+    float z2 = q.z * q.z;
+    float xy = q.x * q.y;
+    float xz = q.x * q.z;
+    float yz = q.y * q.z;
+    float wx = q.w * q.x;
+    float wy = q.w * q.y;
+    float wz = q.w * q.z;
+
+    m[0][0] = 1 - 2 * (y2 + z2);
+    m[0][1] = 2 * (xy - wz);
+    m[0][2] = 2 * (xz + wy);
+    
+    m[1][0] = 2 * (xy + wz);
+    m[1][1] = 1 - 2 * (x2 + z2);
+    m[1][2] = 2 * (yz - wx);
+    
+    m[2][0] = 2 * (xz - wy);
+    m[2][1] = 2 * (yz + wx);
+    m[2][2] = 1 - 2 * (x2 + y2);
+    
+    return m;
+}
+
+float4 RotationFromXAxis(float3 A, float3 xAxis)
+{
+    // Normalize the target vector
+    A = normalize(A);
+    
+    
+    // Compute the dot product and cross product
+    float d = dot(xAxis, A);
+    float3 c = cross(xAxis, A);
+    
+    // If vectors are almost identical, return identity quaternion
+    if (d > 0.99999f)
+        return float4(0, 0, 0, 1);
+    
+    // If vectors are almost opposite, create a 180-degree rotation
+    if (d < -0.99999f)
+        return float4(0, 1, 0, 0);
+    
+    // Compute quaternion components
+    float4 q;
+    q.xyz = c;
+    q.w = 1.0f + d;
+    
+    // Normalize the quaternion
+    return normalize(q);
+}
+
+float3 cubicBezier(float t, float3 point1, float3 point2, float3 handle1, float3 handle2) {
+    return pow(1.0f - t, 3.0f) * point1
+        + 3.0f * pow(1.0f - t, 2.0f) * t * handle1
+        + 3.0f * (1.0f - t) * pow(t, 2.0f) * handle2
+        + pow(t, 3.0f) * point2;
+}
+
+float3 cubicBezierTangent(float t, float3 point1, float3 point2, float3 handle1, float3 handle2) {
+    return normalize(
+                3.0f * (1.0f - t) * (1.0f - t) * (handle1 - point1) + 
+                6.0f * (1.0f - t) * t * (handle2 - handle1) + 
+                3.0f * t * t * (point2 - handle2)
+            );
+}
+
+float3 CubicBezierTriangle(
+    float3 V0, float3 V1, float3 V2,
+    float3 CPE0A, float3 CPE0B,
+    float3 CPE1A, float3 CPE1B,
+    float3 CPE2A, float3 CPE2B,
+    float3 CPCenter,
+    float x, float y)
+{
+    float u = x;
+    float v = y;
+    float w = 1.0f - u - v;
+
+    // Cubic Bézier triangle formula with more robust blending
+    return 
+        pow(w, 3) * V0 + 
+        3 * pow(w, 2) * u * CPE0A + 
+        3 * pow(u, 2) * w * CPE0B +
+        pow(u, 3) * V1 + 
+        3 * pow(u, 2) * v * CPE1A + 
+        3 * pow(v, 2) * u * CPE1B + 
+        pow(v, 3) * V2 +
+        3 * pow(v, 2) * w * CPE2A + 
+        3 * pow(w, 2) * v * CPE2B + 
+        6 * w * u * v * CPCenter;
+}
+
+float3 CubicBezierTriangleTangent(
+    float3 V0, float3 V1, float3 V2,
+    float3 CPE0A, float3 CPE0B,
+    float3 CPE1A, float3 CPE1B,
+    float3 CPE2A, float3 CPE2B,
+    float3 CPCenter,
+    float x, float y)
+{
+    float u = x;
+    float v = y;
+    float w = 1.0f - u - v;
+
+    // Partial derivative with respect to u
+    float3 dPdu = 
+        -3 * pow(w, 2) * V0 +
+        3 * (pow(w, 2) - 2 * w * u) * CPE0A +
+        3 * (2 * u * w - pow(u, 2)) * CPE0B +
+        3 * pow(u, 2) * V1 +
+        3 * (2 * u * v - pow(u, 2)) * CPE1A +
+        3 * (pow(v, 2) - 2 * u * v) * CPE1B +
+        0 * V2 +
+        -3 * pow(v, 2) * CPE2A +
+        3 * (v * w) * CPE2B +
+        6 * v * (w - u) * CPCenter;
+
+    // Partial derivative with respect to v
+    float3 dPdv = 
+        0 * V0 +
+        -3 * pow(u, 2) * CPE0A +
+        3 * (u * w) * CPE0B +
+        0 * V1 +
+        3 * (2 * u * v - pow(v, 2)) * CPE1A +
+        3 * (pow(u, 2) - 2 * u * v) * CPE1B +
+        3 * pow(v, 2) * V2 +
+        3 * (2 * v * w - pow(v, 2)) * CPE2A +
+        3 * (pow(w, 2) - 2 * v * w) * CPE2B +
+        6 * u * (w - v) * CPCenter;
+
+    // Compute the tangent by normalizing the cross product of partial derivatives
+    return normalize(cross(dPdu, dPdv));
+}
+
+float3 MaxElementToOne(float3 input)
+{
+    // Find the index of the maximum element
+    int maxIndex = input.x > input.y ? (input.x > input.z ? 0 : 2) : (input.y > input.z ? 1 : 2);
+    
+    // Create output vector with 1 at max index and 0 elsewhere
+    float3 output = float3(0, 0, 0);
+    output[maxIndex] = 1;
+    
+    return output;
+}
+
+float4 QuatSlerp(float4 q1, float4 q2, float t)
+{
+    // Compute the dot product to determine the angle between the quaternions
+    float d = dot(q1, q2);
+
+    // If the dot product is negative, negate one quaternion to take the shorter path
+    if (d < 0.0f)
     {
-        if (length(b) == 0.0)
-        {
-            return QUATERNION_IDENTITY;
-        }
-        return b;
-    }
-    else if (length(b) == 0.0)
-    {
-        return a;
+        q2 = -q2;
+        d = -d;
     }
 
-    float cosHalfAngle = a.w * b.w + dot(a.xyz, b.xyz);
-
-    if (cosHalfAngle >= 1.0 || cosHalfAngle <= -1.0)
+    const float DOT_THRESHOLD = 0.9995f;
+    if (d > DOT_THRESHOLD)
     {
-        return a;
-    }
-    else if (cosHalfAngle < 0.0)
-    {
-        b.xyz = -b.xyz;
-        b.w = -b.w;
-        cosHalfAngle = -cosHalfAngle;
-    }
-
-    float blendA;
-    float blendB;
-    if (cosHalfAngle < 0.99)
-    {
-        // do proper slerp for big angles
-        float halfAngle = acos(cosHalfAngle);
-        float sinHalfAngle = sin(halfAngle);
-        float oneOverSinHalfAngle = 1.0 / sinHalfAngle;
-        blendA = sin(halfAngle * (1.0 - t)) * oneOverSinHalfAngle;
-        blendB = sin(halfAngle * t) * oneOverSinHalfAngle;
-    }
-    else
-    {
-        // do lerp if angle is really small.
-        blendA = 1.0 - t;
-        blendB = t;
-    }
-
-    float4 result = float4(blendA * a.xyz + blendB * b.xyz, blendA * a.w + blendB * b.w);
-    if (length(result) > 0.0)
-    {
+        // If the quaternions are nearly identical, perform linear interpolation and normalize
+        float4 result = q1 * (1.0f - t) + q2 * t;
         return normalize(result);
     }
-    return QUATERNION_IDENTITY;
+
+    // Compute the angle theta between the quaternions
+    float theta_0 = acos(d);     // Angle between input quaternions
+    float theta = theta_0 * t;     // Interpolated angle
+
+    // Compute orthogonal basis
+    float4 q3 = normalize(q2 - q1 * d);
+
+    // Perform the slerp interpolation
+    return q1 * cos(theta) + q3 * sin(theta);
 }
 
 
+VertexProperties calcSplineVertices(int idx, SplatData splat) {
 
-ModSplat calcModSplat(TriangleSet t, SplatData splat, float triangleX, float triangleY) {
-    float3x3 baseTriangle, modTriangle;
-
-    baseTriangle[0] = t.p0.pos;
-    baseTriangle[1] = t.p1.pos;
-    baseTriangle[2] = t.p2.pos;
-    float3 baseTriangleNormal = calculateTriangleNormal(baseTriangle);
-
-    modTriangle[0] = t.p0.pos + t.p0.posMod;
-    modTriangle[1] = t.p1.pos + t.p1.posMod;
-    modTriangle[2] = t.p2.pos + t.p2.posMod;
-    float3 modTriangleNormal = calculateTriangleNormal(modTriangle);
-
-    // Compute new center
-    float3 newPos = mapPoint(baseTriangle, modTriangle, splat.pos);
-
-    // Align normals to Z-axis
-    float4 baseNormalToCenter = calculateQuaternionRotation(baseTriangleNormal, float3(0, 0, 1));
-    float4 modNormalToCenter = calculateQuaternionRotation(modTriangleNormal, float3(0, 0, 1));
-    float4 normRot = calculateQuaternionRotation(baseTriangleNormal, modTriangleNormal);
-
-    // Center points
-    float3 baseCenter = (baseTriangle[0] + baseTriangle[1] + baseTriangle[2]) / 3.0;
-    float3 modCenter = (modTriangle[0] + modTriangle[1] + modTriangle[2]) / 3.0;
-
-    // Rotate points to align normals
-    float3 baseP1Vec = RotatePointByQuaternion(baseTriangle[0] - baseCenter, baseNormalToCenter);
-    float3 baseP2Vec = RotatePointByQuaternion(baseTriangle[1] - baseCenter, baseNormalToCenter);
-    float3 baseP3Vec = RotatePointByQuaternion(baseTriangle[2] - baseCenter, baseNormalToCenter);
-
-    float3 modP1Vec = RotatePointByQuaternion(modTriangle[0] - modCenter, modNormalToCenter);
-    float3 modP2Vec = RotatePointByQuaternion(modTriangle[1] - modCenter, modNormalToCenter);
-    float3 modP3Vec = RotatePointByQuaternion(modTriangle[2] - modCenter, modNormalToCenter);
-
-    // Calculate rotational differences for each point
-    float4 rotP1 = calculateQuaternionRotation(baseP1Vec, modP1Vec);
-    float4 rotP2 = calculateQuaternionRotation(baseP2Vec, modP2Vec);
-    float4 rotP3 = calculateQuaternionRotation(baseP3Vec, modP3Vec);
-
-    // Average the quaternions
-    float4 avgRot = normalize(rotP1 + rotP2 + rotP3);
-    float4 newRot = QuatMul(QuatInverse(modNormalToCenter), QuatMul(avgRot, QuatMul(baseNormalToCenter, splat.rot)));    
-
-    // Scale
-    float xAxis = RotatePointByQuaternion(float3(1,0,0), splat.rot);
-    float yAxis = RotatePointByQuaternion(float3(0,1,0), splat.rot);
-    float zAxis = RotatePointByQuaternion(float3(0,0,1), splat.rot);
-
-    float scaleP1 = length(modP1Vec) / length(baseP1Vec);
-    float scaleP2 = length(modP2Vec) / length(baseP2Vec);
-    float scaleP3 = length(modP3Vec) / length(baseP3Vec);
-
-    float3 dotXAxis = computeProjection(xAxis, modP1Vec, modP2Vec, modP3Vec);
-    float3 dotYAxis = computeProjection(yAxis, modP1Vec, modP2Vec, modP3Vec);
-    float3 dotZAxis = computeProjection(zAxis, modP1Vec, modP2Vec, modP3Vec);
-
-    float3 newScale;
-    newScale.x = (dotXAxis.x * scaleP1 + dotXAxis.y * scaleP2 + dotXAxis.z * scaleP3);    
-    newScale.y = (dotYAxis.x * scaleP1 + dotYAxis.y * scaleP2 + dotYAxis.z * scaleP3);
-    newScale.z = (dotZAxis.x * scaleP1 + dotZAxis.y * scaleP2 + dotZAxis.z * scaleP3);
-    newScale = sqrt(newScale);
-    newScale *= splat.scale;    
-
-    // Populate result
-    ModSplat result;
-    result.pos = newPos;
-    result.scale = newScale;
-    result.rot = newRot;
-
-    return result;
-}
-
-ModSplat calcSplineVertices(int idx, SplatData splat) {
-
-    ModSplat props[8];
-    float newWeights[8];
-
-    ModSplat returnProp;
-    returnProp.pos = float3(0, 0, 0);
-    returnProp.rot = float4(0, 0, 0, 0);
-    returnProp.scale = float3(0, 0, 0);
-
+    float3 avgBasePos = float3(0,0,0);
+    float3 avgSplinePos = float3(0,0,0);
+    float3 avgBaseDir = float3(0,0,0);
+    float3 avgSplineDir = float3(0,0,0);
     float4 avgVertexRot = float4(0,0,0,0);
     float3 avgVertexScale = float3(0,0,0);
+    float4 avgSplineRot = float4(0,0,0,0);
+    float3 avgSplineScale = float3(0,0,0);
+
+    float4x4 accum = float4x4(0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0);
+
+    float3 baseTrianglePos[8];
+    float3 splineTrianglePos[8];
+    float3 baseTriangleTangent[8];
+    float3 splineTriangleTangent[8];
+
+    float newWeights[8];
+
+    // Get New weights based on change in splines
+    bool found = false;
+    [unroll]
+    for (int i = 0; i < 8; i++) {
+        int triangleId = _SplatLinks[idx].triangleIds[i];
+        float weight = _SplatLinks[idx].triangleWeights[i];
+        if (triangleId != -1 && weight > 0) {
+            found = true;
+            VertexProperties v0 = _VertexProps[_TriangleProps[triangleId].vertexId1];
+            VertexProperties v1 = _VertexProps[_TriangleProps[triangleId].vertexId2];
+            VertexProperties v2 = _VertexProps[_TriangleProps[triangleId].vertexId3];
+
+            float3 p0 = v0.pos + v0.posMod;
+            float3 p1 = v1.pos + v1.posMod;
+            float3 p2 = v2.pos + v2.posMod;
+
+            float x = _SplatLinks[idx].triangleX[i];
+            float y = _SplatLinks[idx].triangleY[i];
+
+            float3 CPE0A = p0 + RotateVectorByQuaternion(v0.rotMod, v1.pos - v0.pos);
+            float3 CPE0B = p1 + RotateVectorByQuaternion(v1.rotMod, v0.pos - v1.pos);
+            float3 CPE1A = p1 + RotateVectorByQuaternion(v1.rotMod, v2.pos - v1.pos);
+            float3 CPE1B = p2 + RotateVectorByQuaternion(v2.rotMod, v1.pos - v2.pos);
+            float3 CPE2A = p2 + RotateVectorByQuaternion(v2.rotMod, v0.pos - v2.pos);
+            float3 CPE2B = p0 + RotateVectorByQuaternion(v0.rotMod, v2.pos - v0.pos);
+
+            float3 CPE0ABase = v0.pos + RotateVectorByQuaternion(v0.rotMod, v1.pos - v0.pos);
+            float3 CPE0BBase = v1.pos + RotateVectorByQuaternion(v1.rotMod, v0.pos - v1.pos);
+            float3 CPE1ABase = v1.pos + RotateVectorByQuaternion(v1.rotMod, v2.pos - v1.pos);
+            float3 CPE1BBase = v2.pos + RotateVectorByQuaternion(v2.rotMod, v1.pos - v2.pos);
+            float3 CPE2ABase = v2.pos + RotateVectorByQuaternion(v2.rotMod, v0.pos - v2.pos);
+            float3 CPE2BBase = v0.pos + RotateVectorByQuaternion(v0.rotMod, v2.pos - v0.pos);
     
-    bool found = false; // Track if any valid links were found
+            float3 CPCenter = (p0 + p1 + p2) / 3.0;
+            float3 CPBaseCenter = (v0.pos + v1.pos + v2.pos) / 3.0;
 
-    // Calculate properties
-    [unroll]
-    for (int i = 0; i < 8; i++) {
-        int triangleId = _SplatLinks[idx].triangleIds[i];
-        float weight = _SplatLinks[idx].triangleWeights[i];
-        if (triangleId == -1 || weight <= 0) continue;
-        
-        TriangleSet t;
-        t.p0 = _VertexProps[_TriangleProps[triangleId].vertexId1];
-        t.p1 = _VertexProps[_TriangleProps[triangleId].vertexId2];
-        t.p2 = _VertexProps[_TriangleProps[triangleId].vertexId3];
+            // Compute Bézier surface points
+            splineTrianglePos[i] = CubicBezierTriangle(p0, p1, p2, 
+                CPE0A, CPE0B, CPE1A, CPE1B, CPE2A, CPE2B, 
+                CPCenter, x, y);
 
-        props[i] = calcModSplat(t, splat, _SplatLinks[idx].triangleX[i], _SplatLinks[idx].triangleY[i]);
-        
-        found = true;
-    }
+            baseTrianglePos[i] = CubicBezierTriangle(v0.pos, v1.pos, v2.pos, 
+                CPE0ABase, CPE0BBase, CPE1ABase, CPE1BBase, CPE2ABase, CPE2BBase, 
+                CPBaseCenter, x, y);
 
+            splineTriangleTangent[i] = CubicBezierTriangleTangent(p0, p1, p2, 
+                CPE0A, CPE0B, CPE1A, CPE1B, CPE2A, CPE2B, 
+                CPCenter, x, y);
 
-    // Process up to 8 potential triangle links
-    [unroll]
-    for (int i = 0; i < 8; i++) {
-        int triangleId = _SplatLinks[idx].triangleIds[i];
-        float weight = _SplatLinks[idx].triangleWeights[i];
-        
-        // Skip invalid or zero-weight triangles
-        if (triangleId == -1 || weight <= 0) continue;
-        
-        // Fetch triangle vertices
-        TriangleSet t;
-        t.p0 = _VertexProps[_TriangleProps[triangleId].vertexId1];
-        t.p1 = _VertexProps[_TriangleProps[triangleId].vertexId2];
-        t.p2 = _VertexProps[_TriangleProps[triangleId].vertexId3];
-
-        // Accumulate position with weight
-        returnProp.pos += props[i].pos * weight;
-
-        if (length(returnProp.rot) > 0) {
-            returnProp.rot = normalize(returnProp.rot);
-            returnProp.rot = normalize(lerp(returnProp.rot, props[i].rot, weight / (weight)));
-        } else {
-            returnProp.rot = props[i].rot * weight;
+            baseTriangleTangent[i] = CubicBezierTriangleTangent(v0.pos, v1.pos, v2.pos, 
+                CPE0ABase, CPE0BBase, CPE1ABase, CPE1BBase, CPE2ABase, CPE2BBase, 
+                CPBaseCenter, x, y);
         }
-
-        returnProp.scale += log(props[i].scale) * weight;
     }
 
+    // No links exist, just render normal splat
+    if (!found) {
+        VertexProperties returnProp;
+        returnProp.pos = splat.pos;
+        returnProp.posMod = splat.pos;  
+        returnProp.rotMod = splat.rot;
+        returnProp.scaleMod = pow(2.714, splat.scale);
+        return returnProp;
+    }
 
-    // Normalize accumulated values
-    returnProp.scale = exp(returnProp.scale);
-    returnProp.rot = normalize(returnProp.rot);
+    float avgWeight = 0.0;
+    int activeCount = 0;
+    for (int i = 0; i < 8; i++) {
+        if (_SplatLinks[idx].triangleWeights[i] > 0) {
+            avgWeight += _SplatLinks[idx].triangleWeights[i];
+            activeCount += 1;
+        }
+    }
+    avgWeight /= activeCount;
+
+    float total = 0;
+    for (int i = 0; i < 8; i++) {
+        if (_SplatLinks[idx].triangleWeights[i] > 0) {
+            float weight = _SplatLinks[idx].triangleWeights[i];
+            weight = weight * avgWeight + weight * abs(splineTrianglePos[i] - baseTrianglePos[i]);
+            total += weight;
+            newWeights[i] = weight;
+        } else {
+            newWeights[i] = 0;
+        }
+    }
+    for (int i = 0; i < 8; i++) {
+        newWeights[i] /= total;
+    }
+
+    // Calculate averages
+    [unroll]
+    for (int i = 0; i < 8; i++) {
+        int triangleId = _SplatLinks[idx].triangleIds[i];
+        float weight = newWeights[i];
+        if (triangleId != -1 && weight > 0) {
+
+            VertexProperties v0 = _VertexProps[_TriangleProps[triangleId].vertexId1];
+            VertexProperties v1 = _VertexProps[_TriangleProps[triangleId].vertexId2];
+            VertexProperties v2 = _VertexProps[_TriangleProps[triangleId].vertexId3];
+
+            float x = _SplatLinks[idx].triangleX[i];
+            float y = _SplatLinks[idx].triangleY[i];
+
+            float u = x;
+            float v = y;
+            float w = 1.0f - u - v;
+    
+            float3 vertexScale = v0.scaleMod * u + v1.scaleMod * v + v2.scaleMod * w;
+            float4 vertexRot = v0.rotMod * u + v1.rotMod * v + v2.rotMod * w;
+
+            avgSplinePos += splineTrianglePos[i] * weight;
+            avgBasePos += baseTrianglePos[i] * weight;
+            avgBaseDir += baseTriangleTangent[i] * weight;
+            avgSplineDir += splineTriangleTangent[i] * weight;
+            avgVertexRot += vertexRot * weight;
+            avgVertexScale += vertexScale * weight;       
+        }
+    }
+
+    float3 weightedScaleOffset = (float3)(0.0f, 0.0f, 0.0f);
+    float3 weightedRotOffset = (float3)(0.0f, 0.0f, 0.0f);
+
+    for (int i = 0; i < 8; i++) {
+        float weight = newWeights[i];        
+        weightedScaleOffset += (splat.pos - avgBasePos) * avgVertexScale * weight;
+    }
+    
+    for (int i = 0; i < 8; i++) {
+        float weight = newWeights[i];  
+        int linkId = _SplatLinks[idx].triangleIds[i];
+
+        float3 rotatedPos = RotatePointAroundCenter(
+            splat.pos,
+            avgBasePos,
+            avgVertexRot
+        ) - splat.pos;
+
+        weightedRotOffset += rotatedPos * weight;
+    }
+    
+    avgSplinePos += weightedRotOffset + weightedScaleOffset + splat.pos - avgBasePos;    
+
+
+    [unroll]
+    for (int i = 0; i < 8; i++) {
+        int id = _SplatLinks[idx].triangleIds[i];
+        float weight = newWeights[i];
+        if (id != -1 && weight > 0) {
+            VertexProperties v1 = _VertexProps[_TriangleProps[id].vertexId1];
+            VertexProperties v2 = _VertexProps[_TriangleProps[id].vertexId2];
+            float3 p1 = v1.pos + v1.posMod;
+            float3 p2 = v2.pos + v2.posMod;
+            // float t = _SplatLinks[idx].edgeT[i];
+
+            // rotate splat in direction of spline
+            float originalDist = length(v2.pos - v1.pos);
+            float modifiedDist = length(p2 - p1);
+            // float tWeight = (t - 0.5f) * 4; // scale from -2 to 2
+            // float gaussianWeight = exp(-tWeight * tWeight / (2.0f));
+            float stretchFactor = abs(log(modifiedDist / originalDist) - avgVertexScale);
+
+            float alignmentFactor = clamp((stretchFactor - 1.0f) / max(stretchFactor, 1.0f), 0, 1);
+            float4 splineDir = RotationFromXAxis(avgSplineDir, MaxElementToOne(splat.scale));
+            float4 splatDir = QuatMul(avgVertexRot, splat.rot);
+
+            avgSplineRot += QuatSlerp(splatDir, splineDir, stretchFactor) * weight;
+        }
+    }
+
+    // avgSplineRot = float4(1.0, 0.0, 0.0, 0.0);
+    // // Perform iterative power method for dominant eigenvector
+    // for (int iter = 0; iter < 64; iter++)
+    // {
+    //     // Multiply accum by the guess vector
+    //     float4 newGuess = mul(accum, avgSplineRot);
+
+    //     // Normalize the result
+    //     float magnitude = sqrt(dot(newGuess, newGuess));
+    //     if (magnitude < 1e-8)
+    //         break;
+
+    //         avgSplineRot = newGuess / magnitude;
+    // }
+
+    // // Normalize final eigenvector
+    // avgSplineRot = normalize(avgSplineRot);
+
+    // // Ensure quaternion is in the positive hemisphere
+    // if (avgSplineRot.w < 0.0)
+    //     avgSplineRot = -avgSplineRot;
+
+
+    [unroll]
+    for (int i = 0; i < 8; i++) {
+        int edgeId = _SplatLinks[idx].triangleIds[i];
+        float weight = newWeights[i];
+        if (edgeId != -1 && weight > 0) {
+            VertexProperties v1 = _VertexProps[_TriangleProps[edgeId].vertexId1];
+            VertexProperties v2 = _VertexProps[_TriangleProps[edgeId].vertexId2];
+            float3 p1 = v1.pos + v1.posMod;
+            float3 p2 = v2.pos + v2.posMod;
+            // float t = _SplatLinks[idx].edgeT[i];
+
+            // scale splat in direction of spline
+            float originalDist = length(v2.pos - v1.pos);
+            float modifiedDist = length(p2 - p1);
+            // float tWeight = (t - 0.5f) * 4; // scale from -2 to 2
+            // float gaussianWeight = exp(-tWeight * tWeight / (2.0f));
+            float stretchFactor = abs(log((modifiedDist) / originalDist - avgVertexScale));
+
+            if (stretchFactor != 0) {
+                // invert full rotation of splats, apply scale to base
+                float4x4 rotMatrix = transpose(QuaternionToMatrix(avgSplineRot));
+                float3 xAxis = float3(rotMatrix[0].xyz);
+                float3 yAxis = float3(rotMatrix[1].xyz);
+                float3 zAxis = float3(rotMatrix[2].xyz);
+
+                // weight scale based on alignment with spline
+                float dotX = dot(xAxis, avgSplineDir);
+                float dotY = dot(yAxis, avgSplineDir);
+                float dotZ = dot(zAxis, avgSplineDir);
+
+                // Scale axes based on their projection
+                float3 scaleModifier = normalize(abs(float3(
+                    dotX, 
+                    dotY, 
+                    dotZ
+                )));
+
+                // add smoothness factor to scale; 
+                float3 newScale = (0.5 + scaleModifier * 0.5f);
+
+                avgSplineScale += sqrt(newScale) * sqrt(stretchFactor) * weight;
+            }
+        }
+    }
+
+    VertexProperties returnProp;
+
+    returnProp.pos = avgBasePos;
+    returnProp.posMod = avgSplinePos;
+    returnProp.rotMod = avgSplineRot;
+    returnProp.scaleMod = pow(2.714, avgVertexScale + avgSplineScale);
 
     return returnProp;
 }
+
+// float3 calcPosOffset(int idx, float3 splatPos, VertexPropertiesArray vertexProps) {
+//     float3 weightedPosOffset = (float3)(0.0f, 0.0f, 0.0f);
+//     float3 weightedScaleOffset = (float3)(0.0f, 0.0f, 0.0f);
+//     float3 weightedRotOffset = (float3)(0.0f, 0.0f, 0.0f);
+    
+//     for (int i = 0; i < 8; i++) {
+//         float weight = _SplatLinks[idx].triangleWeights[i];        
+//         weightedPosOffset += vertexProps.vertices[i].posMod * weight;
+//     }
+
+//     for (int i = 0; i < 8; i++) {
+//         float weight = _SplatLinks[idx].triangleWeights[i];        
+//         weightedScaleOffset += (splatPos - vertexProps.vertices[i].pos) * vertexProps.vertices[i].scaleMod * weight;
+//     }
+    
+//     for (int i = 0; i < 8; i++) {
+//         float weight = _SplatLinks[idx].triangleWeights[i];        
+//         int linkId = _SplatLinks[idx].triangleIds[i];
+
+//         float3 rotatedPos = RotatePointAroundCenter(
+//             splatPos,
+//             vertexProps.vertices[i].pos,
+//             vertexProps.vertices[i].rotMod
+//         ) - splatPos;
+
+//         weightedRotOffset += rotatedPos * weight;
+//     }
+    
+//     return weightedPosOffset + weightedScaleOffset + weightedRotOffset;
+// }
+
+
+// float3 calcScaleOffset(int idx, VertexPropertiesArray vertexProps) {
+//     float3 weightedOffset = (float3)(0.0f, 0.0f, 0.0f);
+//     for (int i = 0; i < 8; i++) {
+//         float weight = _SplatLinks[idx].triangleWeights[i];
+//         weightedOffset += vertexProps.vertices[i].scaleMod * weight;
+//     }
+//     return pow(2.714, weightedOffset);
+// }
+
+
+
+// float4 calcRot(int idx, float4 splatRot, VertexPropertiesArray vertexProps) {
+//     float4 weightedOffset = (float4)(0.0f, 0.0f, 0.0f, 0.0f);
+
+//     for (int i = 0; i < 8; i++) {
+//         float weight = _SplatLinks[idx].triangleWeights[i];
+//         weightedOffset += QuatMul(vertexProps.vertices[i].rotMod, splatRot) * weight;
+//     }
+//     return weightedOffset;
+// }
+
+
+// half3 IdToColor(uint id)
+// {
+//     // Calculate the quantization step size
+//     float step = 1.0 / _ColorClustersPerChannel;
+
+//     // Extract the cluster indices for each channel from the ID
+//     uint bCluster = id / (_ColorClustersPerChannel * _ColorClustersPerChannel);
+//     uint gCluster = (id / _ColorClustersPerChannel) % _ColorClustersPerChannel;
+//     uint rCluster = id % _ColorClustersPerChannel;
+
+//     // Calculate the center color for each cluster
+//     half rCenter = (rCluster + 0.5) * step;
+//     half gCenter = (gCluster + 0.5) * step;
+//     half bCenter = (bCluster + 0.5) * step;
+
+//     // Return the color as a half3
+//     return half3(rCenter, gCenter, bCenter);
+// }
+
+// half3 calcColorOffset(int idx, half3 baseColor) {
+//     half3 colOffset = float3(0.0f, 0.0f, 0.0f);
+//     for (int i = 0; i < 4; i++) {
+//         float weight = _SplatLinks[idx].triangleWeights[i];
+//         int linkId = _SplatLinks[idx].triangleIds[i];
+//         VertexProperties v = _VertexProps[linkId];
+//         for (int j = 0; j < 4; j++) {
+//             if (v.colors[j] >= 0) {
+//                 float3 color = IdToColor(v.colors[j]);
+//                 float dist = length(baseColor - color);
+//                 colOffset += v.colorMods[j] * 1 / (1 + dist);
+//             }
+//         }
+//     }
+//     return colOffset;
+// }
 
 
 [numthreads(GROUP_SIZE,1,1)]
@@ -484,7 +666,9 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
     uint origIdx = _SplatSortKeys[idx];
 
     SplatData splat = LoadSplatData(origIdx);
-    float3 pos = calcSplineVertices(origIdx, splat).pos;
+    float3 pos = splat.pos;
+    VertexProperties splineVertex = calcSplineVertices(origIdx, splat);
+    pos +=  splineVertex.posMod;
     pos = mul(_MatrixMV, float4(pos.xyz, 1)).xyz;
 
     _SplatSortDistances[idx] = FloatToSortableUint(pos.z);
@@ -606,9 +790,11 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     SplatData splat = LoadSplatData(idx);
     SplatViewData view = (SplatViewData)0;
 
-    ModSplat modSplat = calcSplineVertices(idx, splat);
+    VertexProperties splineVertex = calcSplineVertices(idx, splat);
+    float3 posOffset = splineVertex.posMod;
+
     
-    float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(modSplat.pos ,1)).xyz;
+    float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(posOffset ,1)).xyz;
     float4 centerClipPos = mul(_MatrixVP, float4(centerWorldPos, 1));
     half opacityScale = _SplatOpacityScale;
     float splatScale = _SplatScale;
@@ -617,15 +803,17 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     bool behindCam = centerClipPos.w <= 0;
     if (!behindCam)
     {
-        float4 boxRot = modSplat.rot;
-        float3 boxSize = modSplat.scale * splatScale;
+        float3 scaleMod = splineVertex.scaleMod;//calcScaleOffset(idx, splineVertices);
+
+        float4 boxRot = splineVertex.rotMod;//calcRot(idx, splat.rot, splineVertices);
+        float3 boxSize = float3(1,1,1) * 0.001;//splat.scale * scaleMod * 
 
         float3x3 splatRotScaleMat = CalcMatrixFromRotationScale(boxRot, boxSize);
 
         float3 cov3d0, cov3d1;
         CalcCovariance3D(splatRotScaleMat, cov3d0, cov3d1);
 
-        float3 cov2d = CalcCovariance2D(modSplat.pos, cov3d0, cov3d1, _MatrixMV, _MatrixP, _VecScreenParams);
+        float3 cov2d = CalcCovariance2D(posOffset, cov3d0, cov3d1, _MatrixMV, _MatrixP, _VecScreenParams);
         
         DecomposeCovariance(cov2d, view.axis1, view.axis2);
 
@@ -636,6 +824,8 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
         half4 col;
         col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
         col.a = min(splat.opacity * opacityScale, 65000);
+
+        // col.rgb += calcColorOffset(idx, col.rgb);
 
         view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
         view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);

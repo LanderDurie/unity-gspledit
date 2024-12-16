@@ -19,13 +19,13 @@ namespace UnityEngine.GsplEdit
         {
             public Vector3 center;
             public fixed float vertices[12 * 3];
-            public fixed uint indices[60];
+            public fixed int indices[60];
             public float opacity;
             public Vector3 boundMin;
             public Vector3 boundMax;
 
             public static int GetSize() {
-                return sizeof(float) * (3 + 12*3 + 1 + 3 + 3) + sizeof(uint) * 60;
+                return sizeof(float) * (3 + 12*3 + 1 + 3 + 3) + sizeof(int) * 60;
             }
         }
 
@@ -35,7 +35,7 @@ namespace UnityEngine.GsplEdit
         public ComputeShader m_VoxelizeIcosahedron;
 
 
-        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref uint[] indexList) {
+        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref int[] indexList) {
             int splatCount = context.splatData.splatCount;
             int itemsPerDispatch = 65535;
 
@@ -150,7 +150,7 @@ namespace UnityEngine.GsplEdit
             }
 
             for(int i = 0; i < indices.Count; i++) {
-                indexList[i] = (uint)indices[i];
+                indexList[i] = indices[i];
             }
 
             // Cleanup

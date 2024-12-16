@@ -131,7 +131,7 @@ namespace UnityEngine.GsplEdit
                 mpb.SetBuffer(GSRenderer.Props.OrderBuffer, gs.m_GpuSortKeys);
                 mpb.SetBuffer("_VertexProps", gs.m_SharedContext.gpuMeshVerts);
                 mpb.SetBuffer("_SplatLinks", gs.m_SharedContext.gpuForwardLinks);
-                mpb.SetBuffer("_EdgeProps", gs.m_SharedContext.gpuMeshEdges);
+                mpb.SetBuffer("_TriangleProps", gs.m_SharedContext.gpuMeshTriangles);
 
                 // mpb.SetInt("_ColorsPerChannel", gs.m_ColorsPerChannel);
                 mpb.SetFloat(GSRenderer.Props.SplatScale, gs.m_SplatScale);

@@ -9,8 +9,9 @@ namespace UnityEngine.GsplEdit
     {
 
         private Vertex[] m_Vertices;
-        private uint[] m_Indices;
+        private int[] m_Indices;
         private Edge[] m_Edges;
+        private Triangle[] m_Triangles;
         
         public ComputeBuffer m_IndexBuffer;
         public GraphicsBuffer m_VertexBuffer; // Stores base vertices before running modifier system
@@ -19,6 +20,7 @@ namespace UnityEngine.GsplEdit
         public ComputeShader m_CSVertexUtilities;
         public Material m_WireframeMaterial;
         public Material m_SelectedVertexMaterial;
+        public Material m_FillMaterial;
         private CommandBuffer m_Cmd;
         public bool m_StaticModifierPass = true;
         public bool m_DynamicModifierPass = true;
@@ -52,16 +54,18 @@ namespace UnityEngine.GsplEdit
             VertexTransform
         }
 
-        public void Initialize(ref SharedComputeContext context, ref ModifierSystem modSystem, Vertex[] vertices, uint[] indices, Edge[] edges)
+        public void Initialize(ref SharedComputeContext context, ref ModifierSystem modSystem, Vertex[] vertices, int[] indices, Edge[] edges, Triangle[] triangles)
         {
             m_Indices = indices;
             m_Vertices = vertices;
             m_Edges = edges;
+            m_Triangles = triangles;
             m_Context = context;
             m_ModifierSystem = modSystem;
 
             m_Context.vertexCount = m_Vertices.Length;
             m_Context.edgeCount = m_Edges.Length;
+            m_Context.triangleCount = m_Triangles.Length;
 
             m_LocalPos = new Vector3();
             m_LocalRot = new Quaternion(0, 0, 0, 1);
@@ -127,6 +131,9 @@ namespace UnityEngine.GsplEdit
 
                 m_Context.gpuMeshEdges = new ComputeBuffer(m_Context.edgeCount, sizeof(Edge));
                 m_Context.gpuMeshEdges.SetData(m_Edges);
+                m_Context.gpuMeshTriangles = new ComputeBuffer(m_Context.triangleCount, sizeof(Triangle));
+                m_Context.gpuMeshTriangles.SetData(m_Triangles);
+
 
                 // Create arguments buffer
                 if (m_ArgsBuffer != null)
@@ -311,6 +318,27 @@ namespace UnityEngine.GsplEdit
             m_SelectionGroup.m_SelectedVerticesBuffer.SetData(m_SelectionGroup.m_SelectedBits);
         }
 
+        public void DrawFill()
+        {
+            if (m_Context == null || m_Context.gpuMeshVerts == null || m_SelectionGroup.m_SelectedVerticesBuffer == null || !m_SelectedVertexMaterial)
+                return;
+
+            // Set up material properties
+            m_FillMaterial.SetBuffer("_VertexProps", m_Context.gpuMeshVerts);
+            m_FillMaterial.SetBuffer("_IndexBuffer", m_IndexBuffer);
+            m_FillMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
+
+            m_Cmd.DrawProceduralIndirect(
+                Matrix4x4.identity,
+                m_FillMaterial,
+                0,
+                MeshTopology.Triangles,
+                m_ArgsBuffer,
+                0
+            );
+
+        }
+
         public void DrawSelectedVertices()
         {
             if (m_Context == null || m_Context.gpuMeshVerts == null || m_SelectionGroup.m_SelectedVerticesBuffer == null || !m_SelectedVertexMaterial)
@@ -336,23 +364,10 @@ namespace UnityEngine.GsplEdit
             m_WireframeMaterial.SetBuffer("_IndexBuffer", m_IndexBuffer);
             m_WireframeMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
 
-            // Draw back faces
-            m_WireframeMaterial.SetPass(0);
             m_Cmd.DrawProceduralIndirect(
                 Matrix4x4.identity,
                 m_WireframeMaterial,
                 0,
-                MeshTopology.Triangles,
-                m_ArgsBuffer,
-                0
-            );
-
-            // Draw front faces
-            m_WireframeMaterial.SetPass(1);
-            m_Cmd.DrawProceduralIndirect(
-                Matrix4x4.identity,
-                m_WireframeMaterial,
-                1,
                 MeshTopology.Triangles,
                 m_ArgsBuffer,
                 0
@@ -369,6 +384,7 @@ namespace UnityEngine.GsplEdit
             // Apply Modifier System
             m_ModifierSystem.RunAll(m_StaticModifierPass, m_DynamicModifierPass);
 
+            DrawFill();
             DrawWireframe();
             DrawSelectedVertices();
             Graphics.ExecuteCommandBuffer(m_Cmd);

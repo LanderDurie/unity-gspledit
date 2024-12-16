@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace UnityEngine.GsplEdit
 {
-    public class MahalanobisGen : LinkGenBase
+    public class MahalanobisGen : LinkGenForwardBase
     {
         [System.Serializable]
         public class Settings
@@ -30,11 +30,11 @@ namespace UnityEngine.GsplEdit
 
             m_MahalanobisBasedLinkageCompute.SetBuffer(0, "_VertexProps", context.gpuMeshVerts);
             m_MahalanobisBasedLinkageCompute.SetBuffer(0, "_SplatLinkBuffer", context.gpuForwardLinks);
-            m_MahalanobisBasedLinkageCompute.SetBuffer(0, "_EdgeProps", context.gpuMeshEdges);
+            m_MahalanobisBasedLinkageCompute.SetBuffer(0, "_TriangleProps", context.gpuMeshTriangles);
 
             m_MahalanobisBasedLinkageCompute.SetInt("_SplatCount", context.splatData.splatCount);
             m_MahalanobisBasedLinkageCompute.SetInt("_VertexCount", context.vertexCount);
-            m_MahalanobisBasedLinkageCompute.SetInt("_EdgeCount", context.edgeCount);
+            m_MahalanobisBasedLinkageCompute.SetInt("_TriangleCount", context.triangleCount);
             m_MahalanobisBasedLinkageCompute.SetFloat("_GlobalSigma", m_Settings.sigmaSize);
 
             // Calculate number of thread groups needed

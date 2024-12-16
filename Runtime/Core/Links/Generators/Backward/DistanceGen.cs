@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace UnityEngine.GsplEdit
 {
-    public class DistanceGen : LinkGenBase
+    public class BackwardDistanceGen : LinkGenBackwardBase
     {
         [System.Serializable]
         public class Settings

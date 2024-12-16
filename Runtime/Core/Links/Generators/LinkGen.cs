@@ -5,26 +5,41 @@ namespace UnityEngine.GsplEdit
 {
     public class LinkGen
     {
-        public enum GenType {Distance, Mahalanobis};
+        public enum ForwardGenType {Distance, Mahalanobis};
+        public enum BackwardGenType {Distance};
 
-        public GenType m_SelectedType;
-        public Dictionary<GenType, LinkGenBase> m_Generators;
+        public ForwardGenType m_ForwardSelectedType;
+        public BackwardGenType m_BackwardSelectedType;
+
+        public Dictionary<ForwardGenType, LinkGenForwardBase> m_ForwardGenerators;
+        public Dictionary<BackwardGenType, LinkGenBackwardBase> m_BackwardGenerators;
+
         public SharedComputeContext m_Context;
 
         public LinkGen(ref SharedComputeContext context) {
             m_Context = context;
-            m_SelectedType = GenType.Distance;
+            m_ForwardSelectedType = ForwardGenType.Distance;
+            
 
-            m_Generators = new Dictionary<GenType, LinkGenBase>
+            m_ForwardGenerators = new Dictionary<ForwardGenType, LinkGenForwardBase>
             {
-                { GenType.Distance, ScriptableObject.CreateInstance<DistanceGen>() },
-                { GenType.Mahalanobis, ScriptableObject.CreateInstance<MahalanobisGen>() }
+                { ForwardGenType.Distance, ScriptableObject.CreateInstance<DistanceGen>() },
+                { ForwardGenType.Mahalanobis, ScriptableObject.CreateInstance<MahalanobisGen>() }
+            };
+
+            m_BackwardGenerators = new Dictionary<BackwardGenType, LinkGenBackwardBase>
+            {
             };
         }
 
-        public void Generate()
+        public void GenerateForward()
         {
-            m_Generators[m_SelectedType].Generate(m_Context);
+            m_ForwardGenerators[m_ForwardSelectedType].Generate(m_Context);
+        }
+
+        public void GenerateBackward()
+        {
+            // m_BackwardGenerators[m_BackwardSelectedType].Generate(m_Context);
         }
     }
 }

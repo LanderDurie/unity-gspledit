@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: VertexPoints
-  m_Shader: {fileID: 4800000, guid: b94245bf06b3ca50486d747efe2beead, type: 3}
+  m_Name: FillMaterial
+  m_Shader: {fileID: 4800000, guid: 8dda2b0f1c43f0b068d89cff0e8b9db4, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -22,12 +22,23 @@ Material:
   m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
-    m_TexEnvs: []
+    m_TexEnvs:
+    - _MainTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _PointSize: 0.58
+    - _Shininess: 0.7
+    - _SurfaceOpacity: 0.5
+    - _TessEdgeLength: 20
+    - _TessPhongStrength: 0.5
+    - _TessellationEdgeLength: 20
+    - _TessellationFactor: 16
     m_Colors:
-    - _DefaultColor: {r: 1, g: 0.17465141, b: 0, a: 0.62352943}
-    - _SelectedColor: {r: 0, g: 0, b: 0, a: 0}
+    - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _FillColor: {r: 1, g: 1, b: 1, a: 1}
+    - _LightColor: {r: 1, g: 1, b: 1, a: 1}
+    - _SpecColor: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

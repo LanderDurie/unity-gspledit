@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Codice.CM.SEIDInfo;
 
 namespace UnityEngine.GsplEdit
 {
@@ -27,19 +28,21 @@ namespace UnityEngine.GsplEdit
         {
 
             Vertex[] vertexList = new Vertex[0];
-            uint[] indexList = new uint[0];
+            int[] indexList = new int[0];
             Edge[] edgeList = new Edge[0];
+            Triangle[] triangleList = new Triangle[0];
 
             m_Generators[m_SelectedType].Generate(m_Context, ref vertexList, ref indexList);
 
             MeshGenUtils.OptimizeMesh(ref vertexList, ref indexList);
 
             MeshGenUtils.ExtractUniqueEdges(indexList, ref edgeList);
+            MeshGenUtils.ExtractUniqueTriangles(indexList, ref triangleList);
 
             Debug.Log($"Mesh Generated: {vertexList.Length} vertices, {indexList.Length} indices.");
 
             EditableMesh m = ScriptableObject.CreateInstance<EditableMesh>();
-            m.Initialize(ref m_Context, ref modSystem, vertexList, indexList, edgeList);
+            m.Initialize(ref m_Context, ref modSystem, vertexList, indexList, edgeList, triangleList);
 
             return m;
         }

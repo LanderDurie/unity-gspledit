@@ -31,12 +31,6 @@
 #include "DeviceRadixSort.hlsl"
 #include "GaussianSplatting.hlsl"
 
-#define QUATERNION_IDENTITY float4(0, 0, 0, 1)
-
-#ifndef PI
-#define PI 3.14159265359f
-#endif 
-
 struct SplatLink {
     int triangleIds[8];
     float triangleWeights[8];
@@ -106,6 +100,376 @@ void CSSetIndices (uint3 id : SV_DispatchThreadID)
         return;
 
     _SplatSortKeys[idx] = idx;
+}
+
+struct TrianglePoints {
+    float3 p0;
+    float3 p1;
+    float3 p2;
+};
+
+float3 ComputeCentroid(float3x3 trianglePoints) {
+    return (trianglePoints[0] + trianglePoints[1] + trianglePoints[2]) / 3.0;
+}
+
+float3x3 TranslateToCentroid(float3x3 trianglePoints, float3 triangleCentroid) {
+    float3x3 translatedTriangle;
+    translatedTriangle[0] = trianglePoints[0] - triangleCentroid;
+    translatedTriangle[1] = trianglePoints[1] - triangleCentroid;
+    translatedTriangle[2] = trianglePoints[2] - triangleCentroid;
+    return translatedTriangle;
+}
+
+// Singular Value Decomposition for a 3x3 matrix
+struct SVDResult {
+    float3x3 U;   // Left singular vectors
+    float3 S;     // Singular values
+    float3x3 Vt;  // Transposed right singular vectors
+};
+
+float3x3 matrix_identity() {
+    return float3x3(
+        1, 0, 0,
+        0, 1, 0,
+        0, 0, 1
+    );
+}
+
+// Compute eigenvectors for symmetric matrix
+float3x3 ComputeEigenvectors(float3x3 A, float3 eigenvalues) {
+    float3x3 eigenvectors;
+    
+    // Compute eigenvectors using inverse iteration or analytical method
+    for (int i = 0; i < 3; i++) {
+        float3x3 B = A - eigenvalues[i] * matrix_identity();
+        
+        // Find non-zero vector in null space of B
+        float3 v = float3(1.0, 0.0, 0.0);
+        if (abs(B[0][0]) < 1e-6 && abs(B[0][1]) < 1e-6 && abs(B[0][2]) < 1e-6) {
+            v = float3(0.0, 1.0, 0.0);
+        }
+        
+        // Normalize eigenvector
+        eigenvectors[i] = normalize(v);
+    }
+    
+    return eigenvectors;
+}
+
+// Symmetric Eigensolver (3x3 matrix specific)
+void SymmetricEigensolve(float3x3 A, out float3 eigenvalues, out float3x3 eigenvectors) {
+    // Compute characteristic polynomial coefficients
+    float p1 = A[0][1] * A[0][1] + A[0][2] * A[0][2] + A[1][2] * A[1][2];
+    float q = (A[0][0] + A[1][1] + A[2][2]) / 3.0;
+    
+    float p2 = ((A[0][0] - q) * (A[0][0] - q) + 
+                (A[1][1] - q) * (A[1][1] - q) + 
+                (A[2][2] - q) * (A[2][2] - q) + 2.0 * p1) / 6.0;
+    
+    float p = sqrt(p2);
+    float det = 0.5 * (q * q * q - q * p2 + p1 * (2.0 * q - p1) / 3.0);
+    
+    // Compute eigenvalues
+    float phi = (det > 0.0) ? acos(clamp(det / (p * p * p), -1.0, 1.0)) / 3.0 : 0.0;
+    
+    eigenvalues.x = q + 2.0 * p * cos(phi);
+    eigenvalues.y = q + 2.0 * p * cos(phi + 2.0 * 3.14 / 3.0);
+    eigenvalues.z = q + 2.0 * p * cos(phi + 4.0 * 3.14 / 3.0);
+    
+    // Compute corresponding eigenvectors (simplified for 3x3)
+    eigenvectors = ComputeEigenvectors(A, eigenvalues);
+}
+
+// Sort eigenvalues and eigenvectors in descending order
+void SortEigenDescending(inout float3 eigenvalues, inout float3x3 eigenvectors) {
+    // Bubble sort for 3 elements
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2 - i; j++) {
+            if (eigenvalues[j] < eigenvalues[j + 1]) {
+                // Swap eigenvalues
+                float temp = eigenvalues[j];
+                eigenvalues[j] = eigenvalues[j + 1];
+                eigenvalues[j + 1] = temp;
+                
+                // Swap corresponding eigenvectors
+                float3 tempVec = eigenvectors[j];
+                eigenvectors[j] = eigenvectors[j + 1];
+                eigenvectors[j + 1] = tempVec;
+            }
+        }
+    }
+}
+
+// NVIDIA GESVDA SVD Implementation for 3x3 Matrix
+SVDResult SVD_3x3(float3x3 A) {
+    SVDResult result;
+    
+    // Symmetric part of A^T * A
+    float3x3 ATA = mul(transpose(A), A);
+    
+    // Compute eigendecomposition of A^T * A
+    float3 eigenvalues;
+    float3x3 eigenvectors;
+    
+    // Symmetric eigenvalue decomposition
+    SymmetricEigensolve(ATA, eigenvalues, eigenvectors);
+    
+    // Sort eigenvalues and eigenvectors in descending order
+    SortEigenDescending(eigenvalues, eigenvectors);
+    
+    // Compute singular values (square roots of eigenvalues)
+    result.S = sqrt(max(eigenvalues, float3(0.0, 0.0, 0.0)));
+    
+    // Right singular vectors (V) are the eigenvectors of A^T * A
+    result.Vt[0] = eigenvectors[0];
+    result.Vt[1] = eigenvectors[1];
+    result.Vt[2] = eigenvectors[2];
+    
+    // Left singular vectors (U) computation
+    result.U[0] = (result.S.x > 0.0) ? normalize(mul(A, result.Vt[0])) : float3(1.0, 0.0, 0.0);
+    result.U[1] = (result.S.y > 0.0) ? normalize(mul(A, result.Vt[1])) : float3(0.0, 1.0, 0.0);
+    result.U[2] = (result.S.z > 0.0) ? normalize(mul(A, result.Vt[2])) : float3(0.0, 0.0, 1.0);
+    
+    // Handle sign ambiguity and ensure right-handed coordinate system
+    if (dot(cross(result.U[0], result.U[1]), result.U[2]) < 0.0) {
+        result.U[2] = -result.U[2];
+    }
+    
+    return result;
+}
+
+float ComputeTriangleArea(float3x3 trianglePoints) {
+    // Compute two edge vectors
+    float3 edge1 = trianglePoints[1] - trianglePoints[0];
+    float3 edge2 = trianglePoints[2] - trianglePoints[0];
+
+    // Compute the cross product of the two edges
+    float3 crossProduct = cross(edge1, edge2);
+
+    // Area is half the magnitude of the cross product
+    return length(crossProduct) * 0.5;
+}
+
+// Function to compute the uniform scale factor between two triangles in 3D
+float ComputeScale(float3x3 baseTranslated, float3x3 modTranslated) {
+    // Compute areas of the base and modified triangles
+    float baseArea = ComputeTriangleArea(baseTranslated);
+    float modArea = ComputeTriangleArea(modTranslated);
+
+    // If either triangle is degenerate, return a scale factor of 0
+    if (baseArea == 0.0 || modArea == 0.0) {
+        return 0.0;
+    }
+
+    // Compute scale factor as the square root of the area ratio
+    return sqrt(modArea / baseArea);
+}
+
+struct Transform {
+    float3x3 rot;
+    float3 scale;
+    float3 translation;
+};
+
+
+float3x3 NormalizeTriangle(float3x3 t) {
+    for (int i = 0; i < 3; i++) {
+        float mag = length(t[i]);
+        if (mag > 0.0f) {
+            t[i] /= mag;
+        }
+    }
+    return t;
+}
+
+float3x3 Orthonormalize(float3x3 mat) {
+    mat[0] = normalize(mat[0]);
+    mat[1] = normalize(mat[1] - dot(mat[1], mat[0]) * mat[0]);
+    mat[2] = cross(mat[0], mat[1]);
+    return mat;
+}
+
+float3 ComputeNonUniformScale(float3x3 baseTranslated, float3x3 modTranslated) {
+    float3 scale;
+    for (int i = 0; i < 3; i++) {
+        scale[i] = length(modTranslated[i]) / length(baseTranslated[i]);
+    }
+    return scale;
+}
+
+
+
+Transform computeTriangleTransform(TriangleSet t) {
+    // Create arrays to hold the triangle vertices
+    float3x3 baseTriangle, modTriangle;
+
+    // Populate the base and modified triangles
+    baseTriangle[0] = t.p0.pos;
+    baseTriangle[1] = t.p1.pos;
+    baseTriangle[2] = t.p2.pos;
+
+    modTriangle[0] = t.p0.pos + t.p0.posMod;
+    modTriangle[1] = t.p1.pos + t.p1.posMod;
+    modTriangle[2] = t.p2.pos + t.p2.posMod;
+
+    // Compute centroids
+    float3 baseCentroid = ComputeCentroid(baseTriangle);
+    float3 modCentroid = ComputeCentroid(modTriangle);
+
+    // Translate triangles to the origin (center around centroids)
+    baseTriangle = TranslateToCentroid(baseTriangle, baseCentroid);
+    modTriangle = TranslateToCentroid(modTriangle, modCentroid);
+
+    // Step 1: Compute scaling factor using the ratio of distances between corresponding points
+    float baseDist1 = length(baseTriangle[1] - baseTriangle[0]);
+    float baseDist2 = length(baseTriangle[2] - baseTriangle[0]);
+    float modDist1 = length(modTriangle[1] - modTriangle[0]);
+    float modDist2 = length(modTriangle[2] - modTriangle[0]);
+
+    // Compute uniform scaling factor by comparing the distances
+    float scaleX = modDist1 / baseDist1;
+    float scaleY = modDist2 / baseDist2;
+
+    // Step 2: Compute rotation matrix (rotation aligns the base triangle to the modified triangle)
+    // Using cross product and dot product to find the optimal rotation axis
+
+    // Vectors for base and modified triangles
+    float3 baseVec1 = baseTriangle[1] - baseTriangle[0];
+    float3 baseVec2 = baseTriangle[2] - baseTriangle[0];
+    float3 modVec1 = modTriangle[1] - modTriangle[0];
+    float3 modVec2 = modTriangle[2] - modTriangle[0];
+
+    // Rotation matrix (we are assuming 3D rotation here)
+    float3 crossProduct = cross(baseVec1, baseVec2);
+    float rotationAngle = acos(dot(baseVec1, modVec1) / (length(baseVec1) * length(modVec1)));
+
+    // Compute rotation axis using cross product (cross(baseVec1, modVec1))
+    float3 rotationAxis = cross(baseVec1, modVec1);
+    rotationAxis = normalize(rotationAxis);
+
+    // Build rotation matrix (using Rodrigues' rotation formula)
+    float cosTheta = cos(rotationAngle);
+    float sinTheta = sin(rotationAngle);
+
+    float3x3 rotationMatrix = float3x3(
+        cosTheta + rotationAxis.x * rotationAxis.x * (1 - cosTheta),
+        rotationAxis.x * rotationAxis.y * (1 - cosTheta) - rotationAxis.z * sinTheta,
+        rotationAxis.x * rotationAxis.z * (1 - cosTheta) + rotationAxis.y * sinTheta,
+
+        rotationAxis.y * rotationAxis.x * (1 - cosTheta) + rotationAxis.z * sinTheta,
+        cosTheta + rotationAxis.y * rotationAxis.y * (1 - cosTheta),
+        rotationAxis.y * rotationAxis.z * (1 - cosTheta) - rotationAxis.x * sinTheta,
+
+        rotationAxis.z * rotationAxis.x * (1 - cosTheta) - rotationAxis.y * sinTheta,
+        rotationAxis.z * rotationAxis.y * (1 - cosTheta) + rotationAxis.x * sinTheta,
+        cosTheta + rotationAxis.z * rotationAxis.z * (1 - cosTheta)
+    );
+
+    // Step 3: Construct the transformation (rotation + scaling + translation)
+    Transform trans;
+    trans.rot = rotationMatrix;  // The optimal rotation matrix
+    trans.scale = float3(scaleX, scaleY, 1.0f);  // Non-uniform scale (we can apply this for X and Y)
+    trans.translation = modCentroid - baseCentroid;  // Translation from base centroid to mod centroid
+
+    return trans;
+}
+
+
+// Step 1: Normalize the rotation matrix (to make sure it's a valid 3D rotation matrix)
+float3x3 NormalizeRotationMatrix(const float3x3 mat) {
+    float3x3 result = mat;
+
+    // Orthogonalize the matrix using Gram-Schmidt process
+    result[0] = normalize(result[0]);
+    result[1] = normalize(result[1] - dot(result[1], result[0]) * result[0]); // orthogonalize row 2
+    result[2] = normalize(result[2] - dot(result[2], result[0]) * result[0] - dot(result[2], result[1]) * result[1]); // orthogonalize row 3
+
+    // Ensure the determinant is +1 for a valid rotation matrix
+    if (determinant(result) < 0) {
+        result[2] = -result[2]; // Flip the last row if determinant is negative
+    }
+
+    return result;
+}
+
+float3 ComputeBarycentricCoordinates(float3 p, float3x3 trianglePoints) {
+    float3 v0 = trianglePoints[1] - trianglePoints[0];
+    float3 v1ToV3 = trianglePoints[2] - trianglePoints[0];
+    float3 vPoint = p - trianglePoints[0];
+
+    float d00 = dot(v0, v0);
+    float d01 = dot(v0, v1ToV3);
+    float d11 = dot(v1ToV3, v1ToV3);
+    float d20 = dot(vPoint, v0);
+    float d21 = dot(vPoint, v1ToV3);
+
+    float denom = d00 * d11 - d01 * d01;
+    float w1 = (d11 * d20 - d01 * d21) / denom;
+    float w2 = (d00 * d21 - d01 * d20) / denom;
+    float w3 = 1.0 - w1 - w2;
+
+    return float3(w1, w2, w3);
+}
+
+// Helper function to map barycentric coordinates to Cartesian coordinates
+float3 MapBarycentricToCartesian2D(float2 baryCoords, float3x3 trianglePoints) {
+    // Compute the plane's normal
+    float3 v0 = trianglePoints[1] - trianglePoints[0];
+    float3 v1 = trianglePoints[2] - trianglePoints[0];
+    float3 planeNormal = normalize(cross(v0, v1));
+    
+    // Compute the third barycentric coordinate to ensure sum is 1
+    float w = 1.0 - baryCoords.x - baryCoords.y;
+    
+    // Linear interpolation of triangle vertices
+    return 
+        baryCoords.x * trianglePoints[0] + 
+        baryCoords.y * trianglePoints[1] + 
+        w * trianglePoints[2];
+}
+
+float3 MapBarycentricToCartesian3D(float3 baryCoords, float3x3 trianglePoints) {
+    return baryCoords.x * trianglePoints[0] + baryCoords.y * trianglePoints[1] + baryCoords.z * trianglePoints[2];
+}
+
+// Function to apply a quaternion rotation to a vector
+float3 ApplyQuaternionToVector(float4 quaternion, float3 vector) {
+    // Extract the quaternion components
+    float w = quaternion.w;
+    float3 qVec = quaternion.xyz;
+
+    // Calculate the rotated vector
+    float3 uv = cross(qVec, vector);
+    float3 uuv = cross(qVec, uv);
+
+    return vector + 2.0 * (uv * w + uuv);
+}
+
+// Function to compute the normal of a triangle
+float3 ComputeTriangleNormal(float3x3 trianglePoints) {
+    float3 edge1 = trianglePoints[1] - trianglePoints[0];
+    float3 edge2 = trianglePoints[2] - trianglePoints[0];
+    return normalize(cross(edge1, edge2));
+}
+
+// Function to find the vector closest to the triangle's normal
+int FindClosestToNormal(float3x3 trianglePoints, float3 vec1, float3 vec2, float3 vec3) {
+    // Compute the triangle normal
+    float3 normal = ComputeTriangleNormal(trianglePoints);
+
+    // Compute dot products between the normal and the input vectors
+    float dot1 = dot(normal, normalize(vec1));
+    float dot2 = dot(normal, normalize(vec2));
+    float dot3 = dot(normal, normalize(vec3));
+
+    // Find the vector with the largest dot product (closest to the normal)
+    if (dot1 >= dot2 && dot1 >= dot3) {
+        return 0;
+    } else if (dot2 >= dot1 && dot2 >= dot3) {
+        return 1;
+    } else {
+        return 2;
+    }
 }
 
 float3 calculateTriangleNormal(float3x3 trianglePoints) {
@@ -188,75 +552,107 @@ float3 positionFromBarycentric(float3x3 trianglePoints, float3 barycentricData) 
     return externalPoint;
 }
 
-float3 mapPoint(float3x3 baseTriangle, float3x3 modTriangle, float3 extPos) {
-    float3 baseClamped = barycentricFromPosition(baseTriangle, extPos, true);
-    float3 baseUnclamped = barycentricFromPosition(baseTriangle, extPos, false);
-
-    float3 basePosClamped = positionFromBarycentric(baseTriangle, baseClamped);
-    float3 modPosClamped = positionFromBarycentric(modTriangle, baseClamped);
-    float3 modPosUnclamped = positionFromBarycentric(modTriangle, baseUnclamped);
-
-    if (baseUnclamped.z < 0 || baseUnclamped.y < 0 || baseUnclamped.y + baseUnclamped.z > 1) {
-        float outsideDist = length(extPos - basePosClamped);
-        float3 direction = normalize(modPosUnclamped - modPosClamped);
-        return modPosClamped + direction * outsideDist;
+float4 calculateQuaternionRotation(float3 from, float3 to)
+{
+    // Robust vector normalization with safety checks
+    float fromLength = length(from);
+    float toLength = length(to);
+    
+    // Early exit for zero vectors
+    if (fromLength < 1e-6f || toLength < 1e-6f)
+    {
+        return float4(0, 0, 0, 1); // Identity quaternion
     }
-
-    return modPosUnclamped;    
-}
-
-// Normalize the input vectors
-float3 normalizeVector(float3 v) {
-    return v / length(v);
-}
-
-// Quaternion constructor from axis and angle
-float4 quaternionFromAxisAngle(float3 axis, float angle) {
-    float halfAngle = angle * 0.5;
+    
+    from /= fromLength;
+    to /= toLength;
+    
+    // Compute dot product for angle calculation
+    float cosTheta = dot(from, to);
+    
+    // Handle near-parallel cases more robustly
+    if (cosTheta > 0.9999f) 
+    {
+        return float4(0, 0, 0, 1); // No rotation needed
+    }
+    
+    // Handle near-opposite cases
+    if (cosTheta < -0.9999f)
+    {
+        // Rotate 180 degrees around an orthogonal axis
+        float3 axis = abs(from.x) > abs(from.z) 
+            ? float3(-from.y, from.x, 0)
+            : float3(0, -from.z, from.y);
+        axis = normalize(axis);
+        return float4(axis.x, axis.y, axis.z, 0);
+    }
+    
+    // Compute rotation axis using optimized cross product
+    float3 axis = normalize(cross(from, to));
+    
+    // More numerically stable quaternion calculation
+    float halfAngle = acos(cosTheta) * 0.5f;
     float s = sin(halfAngle);
     float c = cos(halfAngle);
-    return float4(axis.x * s, axis.y * s, axis.z * s, c);
+    
+    return float4(
+        axis.x * s, 
+        axis.y * s, 
+        axis.z * s, 
+        c
+    );
 }
 
-// Function to calculate the rotation quaternion between two vectors
-float4 calculateQuaternionRotation(float3 u, float3 v) {
-    // Normalize the vectors
-    u = normalizeVector(u);
-    v = normalizeVector(v);
-
-    // Calculate the dot product
-    float cosTheta = dot(u, v);
-
-    // Check for the case where the vectors are parallel
-    if (cosTheta > 0.9999f) {
-        // Vectors are already aligned, no rotation needed
-        return float4(0, 0, 0, 1);  // Identity quaternion (no rotation)
+float4 calculateShortestNormalRotation(float3 from, float3 to)
+{
+    // Ensure input normals are normalized
+    from = normalize(from);
+    to = normalize(to);
+    
+    // Check if we should use inverse direction to get shorter rotation
+    float forwardDot = dot(from, to);
+    float inverseDot = dot(from, -to);
+    
+    // Use the direction that gives the smallest rotation angle
+    float3 targetDirection = abs(forwardDot) >= abs(inverseDot) ? to : -to;
+    
+    // Compute dot product for angle calculation
+    float cosTheta = dot(from, targetDirection);
+    
+    // Handle near-parallel cases
+    if (cosTheta > 0.9999f) 
+    {
+        return float4(0, 0, 0, 1); // No rotation needed
     }
-
-    // Handle the case where the vectors are opposite
-    if (cosTheta < -0.9999f) {
-        // Vectors are opposite, 180 degree rotation around any orthogonal vector
-        // Pick an arbitrary axis perpendicular to u and v
-        float3 axis = cross(u, float3(1, 0, 0));
-        if (length(axis) < 1e-6f) {
-            // In case u and v are pointing in the same direction, we pick a perpendicular axis
-            axis = cross(u, float3(0, 1, 0));
-        }
+    
+    // Handle near-opposite cases
+    if (cosTheta < -0.9999f)
+    {
+        // Rotate 180 degrees around an orthogonal axis
+        float3 axis = abs(from.x) > abs(from.z) 
+            ? float3(-from.y, from.x, 0)
+            : float3(0, -from.z, from.y);
         axis = normalize(axis);
-        return quaternionFromAxisAngle(axis, 3.14159265359f); // 180 degree rotation
+        return float4(axis.x, axis.y, axis.z, 0);
     }
-
-    // Calculate the axis of rotation (cross product of u and v)
-    float3 axis = cross(u, v);
-    axis = normalize(axis);
-
-    // Calculate the angle between the vectors
-    float angle = acos(cosTheta);
-
-    // Construct the quaternion
-    return quaternionFromAxisAngle(axis, angle);
+    
+    // Compute rotation axis
+    float3 axis = normalize(cross(from, targetDirection));
+    
+    // More numerically stable quaternion calculation
+    float halfAngle = acos(cosTheta) * 0.5f;
+    float s = sin(halfAngle);
+    float c = cos(halfAngle);
+    
+    return float4(
+        axis.x * s, 
+        axis.y * s, 
+        axis.z * s, 
+        c
+    );
 }
 
+// Helper function to transform a point by a quaternion
 float3 RotatePointByQuaternion(float3 p, float4 quat) {
     float3 qvec = quat.xyz;
     float w = quat.w;
@@ -265,71 +661,123 @@ float3 RotatePointByQuaternion(float3 p, float4 quat) {
     return p + (2.0f * uv * w) + (2.0f * uuv);
 }
 
-float3 computeProjection(float3 axis, float3 p1, float3 p2, float3 p3) {
-    float dotP1 = abs(dot(axis, normalize(p1)));
-    float dotP2 = abs(dot(axis, normalize(p2)));
-    float dotP3 = abs(dot(axis, normalize(p3)));
+// Project ellipsoid onto a plane
+// Inputs:
+// - ellipsoidCenter: center of the ellipsoid in world space (float3)
+// - ellipsoidRotation: quaternion representing the ellipsoid rotation (float4)
+// - ellipsoidScale: scale of the ellipsoid along its axes (float3)
+// - planeTriangle: 3 points defining the plane (float3[3])
+// Output:
+// - A struct containing the 2D ellipse properties (center, axes lengths, rotation)
 
-    float total = dotP1 + dotP2 + dotP3;
+struct Ellipse2D {
+    float2 center;
+    float2 axes;   // Major and minor axes lengths
+    float rotation; // Angle of the major axis relative to the x-axis in radians
+};
+
+Ellipse2D ProjectEllipsoidOntoPlane(
+    float3 ellipsoidCenter,
+    float4 ellipsoidRotation,
+    float3 ellipsoidScale,
+    float3x3 planeTriangle
+) {
+    // Compute the plane normal and tangent vectors
+    float3 planeNormal = normalize(cross(
+        planeTriangle[1] - planeTriangle[0],
+        planeTriangle[2] - planeTriangle[0]
+    ));
     
-    return float3(dotP1 / total, dotP2 / total, dotP3 / total);
+    float3 planeTangent1 = normalize(planeTriangle[1] - planeTriangle[0]);
+    float3 planeTangent2 = cross(planeNormal, planeTangent1);
+
+    // Transform ellipsoid axes to world space
+    float3 ellipsoidX = RotatePointByQuaternion(float3(ellipsoidScale.x, 0.0, 0.0), ellipsoidRotation);
+    float3 ellipsoidY = RotatePointByQuaternion(float3(0.0, ellipsoidScale.y, 0.0), ellipsoidRotation);
+    float3 ellipsoidZ = RotatePointByQuaternion(float3(0.0, 0.0, ellipsoidScale.z), ellipsoidRotation);
+
+    // Project ellipsoid center onto the plane
+    float distanceToPlane = dot(planeNormal, ellipsoidCenter - planeTriangle[0]);
+    float3 projectedCenter = ellipsoidCenter - distanceToPlane * planeNormal;
+
+    // Project ellipsoid axes onto the plane
+    float2 axis1 = float2(dot(planeTangent1, ellipsoidX), dot(planeTangent2, ellipsoidX));
+    float2 axis2 = float2(dot(planeTangent1, ellipsoidY), dot(planeTangent2, ellipsoidY));
+    float2 axis3 = float2(dot(planeTangent1, ellipsoidZ), dot(planeTangent2, ellipsoidZ));
+
+    // Compute the ellipse's major and minor axes lengths
+    float axis1Length = length(axis1);
+    float axis2Length = length(axis2);
+    float axis3Length = length(axis3);
+
+    // The major and minor axes lengths are the largest and second largest projections
+    float2 axes = float2(max(axis1Length, max(axis2Length, axis3Length)),
+                         min(max(axis1Length, axis2Length), axis3Length));
+
+    // Compute the ellipse's rotation angle (major axis direction)
+    float2 majorAxis = (axis1Length > axis2Length && axis1Length > axis3Length) ? axis1 :
+                       (axis2Length > axis3Length) ? axis2 : axis3;
+    float rotation = atan2(majorAxis.y, majorAxis.x);
+
+    // Return the 2D ellipse properties
+    Ellipse2D ellipse;
+    ellipse.center = float2(dot(planeTangent1, projectedCenter), dot(planeTangent2, projectedCenter));
+    ellipse.axes = axes;
+    ellipse.rotation = rotation;
+    return ellipse;
 }
 
-float4 q_slerp(in float4 a, in float4 b, float t)
-{
-    // if either input is zero, return the other.
-    if (length(a) == 0.0)
-    {
-        if (length(b) == 0.0)
-        {
-            return QUATERNION_IDENTITY;
-        }
-        return b;
-    }
-    else if (length(b) == 0.0)
-    {
-        return a;
-    }
+struct Ellipsoid3D {
+    float3 scale;
+    float4 rotation; // Quaternion representing rotation
+};
 
-    float cosHalfAngle = a.w * b.w + dot(a.xyz, b.xyz);
+Ellipsoid3D RecreateEllipsoidFromProjection(
+    Ellipse2D ellipse,
+    float3x3 planeTriangle
+) {
+    // Compute the plane normal and tangent vectors
+    float3 planeNormal = normalize(cross(
+        planeTriangle[1] - planeTriangle[0],
+        planeTriangle[2] - planeTriangle[0]
+    ));
+    
+    float3 planeTangent1 = normalize(planeTriangle[1] - planeTriangle[0]);
+    float3 planeTangent2 = cross(planeNormal, planeTangent1);
 
-    if (cosHalfAngle >= 1.0 || cosHalfAngle <= -1.0)
-    {
-        return a;
-    }
-    else if (cosHalfAngle < 0.0)
-    {
-        b.xyz = -b.xyz;
-        b.w = -b.w;
-        cosHalfAngle = -cosHalfAngle;
-    }
+    // Compute the ellipsoid's axes in 3D
+    float3 majorAxis3D = ellipse.axes.x * planeTangent1 + ellipse.axes.y * planeTangent2;
+    float3 minorAxis3D = ellipse.axes.y * planeTangent2; // Assuming orthogonal projection
 
-    float blendA;
-    float blendB;
-    if (cosHalfAngle < 0.99)
-    {
-        // do proper slerp for big angles
-        float halfAngle = acos(cosHalfAngle);
-        float sinHalfAngle = sin(halfAngle);
-        float oneOverSinHalfAngle = 1.0 / sinHalfAngle;
-        blendA = sin(halfAngle * (1.0 - t)) * oneOverSinHalfAngle;
-        blendB = sin(halfAngle * t) * oneOverSinHalfAngle;
-    }
-    else
-    {
-        // do lerp if angle is really small.
-        blendA = 1.0 - t;
-        blendB = t;
-    }
+    // Reconstruct the ellipsoid's scale (approximated by projected lengths)
+    float3 scale;
+    scale.x = length(majorAxis3D);
+    scale.y = length(minorAxis3D);
+    scale.z = scale.x; // Assuming symmetry for simplicity
 
-    float4 result = float4(blendA * a.xyz + blendB * b.xyz, blendA * a.w + blendB * b.w);
-    if (length(result) > 0.0)
-    {
-        return normalize(result);
-    }
-    return QUATERNION_IDENTITY;
+    // Reconstruct the rotation (approximated by plane alignment)
+    float4 rotation;
+    rotation = float4(planeTangent1.x, planeTangent1.y, planeTangent1.z, 0.0); // Placeholder for full quaternion calculation
+
+    // Return the ellipsoid parameters
+    Ellipsoid3D ellipsoid;
+    ellipsoid.scale = scale;
+    ellipsoid.rotation = rotation;
+    return ellipsoid;
 }
 
+float3 getBarycentricOnTriangle(float3 barycentricData, float3x3 trianglePoints) {
+    
+    float barycentricX = barycentricData.y;
+    float barycentricY = barycentricData.z;
+    float barycentricZ = 1.0f - barycentricX - barycentricY;
+
+    float3 pointOnTriangle = barycentricZ * trianglePoints[0] + 
+                              barycentricX * trianglePoints[1] + 
+                              barycentricY * trianglePoints[2];
+
+    return pointOnTriangle;
+}
 
 
 ModSplat calcModSplat(TriangleSet t, SplatData splat, float triangleX, float triangleY) {
@@ -346,96 +794,75 @@ ModSplat calcModSplat(TriangleSet t, SplatData splat, float triangleX, float tri
     float3 modTriangleNormal = calculateTriangleNormal(modTriangle);
 
     // Compute new center
-    float3 newPos = mapPoint(baseTriangle, modTriangle, splat.pos);
+    float3 clampedBarycentric = barycentricFromPosition(baseTriangle, splat.pos, true);
+    float3 modPos = positionFromBarycentric(modTriangle, clampedBarycentric);
+    float3 basePos = positionFromBarycentric(baseTriangle, clampedBarycentric);
+    float3 newCenter = splat.pos + modPos - basePos;
 
-    // Align normals to Z-axis
-    float4 baseNormalToCenter = calculateQuaternionRotation(baseTriangleNormal, float3(0, 0, 1));
-    float4 modNormalToCenter = calculateQuaternionRotation(modTriangleNormal, float3(0, 0, 1));
-    float4 normRot = calculateQuaternionRotation(baseTriangleNormal, modTriangleNormal);
+    // Compute new rot
+    float3 rotOffset = ApplyQuaternionToVector(splat.rot, float3(1,0,0));
+    float3 unclampedBarycentric = barycentricFromPosition(baseTriangle, splat.pos, false);
+    float3 unclampedModPos = positionFromBarycentric(modTriangle, unclampedBarycentric);
+    float3 barycentricRotHandle = barycentricFromPosition(baseTriangle, splat.pos + rotOffset, false);
+    float3 rotPos = positionFromBarycentric(modTriangle, barycentricRotHandle);
 
-    // Center points
-    float3 baseCenter = (baseTriangle[0] + baseTriangle[1] + baseTriangle[2]) / 3.0;
-    float3 modCenter = (modTriangle[0] + modTriangle[1] + modTriangle[2]) / 3.0;
+    float4 normalRot = calculateQuaternionRotation(baseTriangleNormal, modTriangleNormal);
+    float4 newRot = QuatMul(splat.rot, normalRot);
 
-    // Rotate points to align normals
-    float3 baseP1Vec = RotatePointByQuaternion(baseTriangle[0] - baseCenter, baseNormalToCenter);
-    float3 baseP2Vec = RotatePointByQuaternion(baseTriangle[1] - baseCenter, baseNormalToCenter);
-    float3 baseP3Vec = RotatePointByQuaternion(baseTriangle[2] - baseCenter, baseNormalToCenter);
+    float3 xUp = splat.pos + float3(1,0,0);
+    float3 xDown = splat.pos + float3(-1,0,0);
+    float3 yUp = splat.pos + float3(0,1,0);
+    float3 yDown = splat.pos + float3(0,-1,0);
+    float3 zUp = splat.pos + float3(0,0,1);
+    float3 zDown = splat.pos + float3(0,0,-1);
 
-    float3 modP1Vec = RotatePointByQuaternion(modTriangle[0] - modCenter, modNormalToCenter);
-    float3 modP2Vec = RotatePointByQuaternion(modTriangle[1] - modCenter, modNormalToCenter);
-    float3 modP3Vec = RotatePointByQuaternion(modTriangle[2] - modCenter, modNormalToCenter);
+    // Calculate scale along X, Y, and Z using correct barycentric coordinates for each axis
+    float3 barycentricXUp = barycentricFromPosition(baseTriangle, xUp, false);
+    float3 barycentricYUp = barycentricFromPosition(baseTriangle, yUp, false);
+    float3 barycentricZUp = barycentricFromPosition(baseTriangle, zUp, false);
+    float3 barycentricXDown = barycentricFromPosition(baseTriangle, xDown, false);
+    float3 barycentricYDown = barycentricFromPosition(baseTriangle, yDown, false);
+    float3 barycentricZDown = barycentricFromPosition(baseTriangle, zDown, false);
 
-    // Calculate rotational differences for each point
-    float4 rotP1 = calculateQuaternionRotation(baseP1Vec, modP1Vec);
-    float4 rotP2 = calculateQuaternionRotation(baseP2Vec, modP2Vec);
-    float4 rotP3 = calculateQuaternionRotation(baseP3Vec, modP3Vec);
+    float4 triangleRotX = calculateQuaternionRotation(normalize(getBarycentricOnTriangle(barycentricXDown, baseTriangle) - getBarycentricOnTriangle(barycentricXUp, baseTriangle)), normalize(getBarycentricOnTriangle(barycentricXDown, modTriangle) - getBarycentricOnTriangle(barycentricXUp, modTriangle)));
+    float4 triangleRotY = calculateQuaternionRotation(normalize(getBarycentricOnTriangle(barycentricYDown, baseTriangle) - getBarycentricOnTriangle(barycentricYUp, baseTriangle)), normalize(getBarycentricOnTriangle(barycentricYDown, modTriangle) - getBarycentricOnTriangle(barycentricYUp, modTriangle)));
+    float4 triangleRotZ = calculateQuaternionRotation(normalize(getBarycentricOnTriangle(barycentricZDown, baseTriangle) - getBarycentricOnTriangle(barycentricZUp, baseTriangle)), normalize(getBarycentricOnTriangle(barycentricZDown, modTriangle) - getBarycentricOnTriangle(barycentricZUp, modTriangle)));
+    newRot = QuatMul(splat.rot, (triangleRotX * splat.scale[0] + triangleRotY * splat.scale[1] + triangleRotZ * splat.scale[2]));
 
-    // Average the quaternions
-    float4 avgRot = normalize(rotP1 + rotP2 + rotP3);
-    float4 newRot = QuatMul(QuatInverse(modNormalToCenter), QuatMul(avgRot, QuatMul(baseNormalToCenter, splat.rot)));    
+    float xProj = abs(dot(normalize(xUp - xDown), normalize(getBarycentricOnTriangle(barycentricXUp, baseTriangle) - getBarycentricOnTriangle(barycentricXDown, baseTriangle))));
+    float yProj = abs(dot(normalize(yUp - yDown), normalize(getBarycentricOnTriangle(barycentricYUp, baseTriangle) - getBarycentricOnTriangle(barycentricYDown, baseTriangle))));
+    float zProj = abs(dot(normalize(zUp - zDown), normalize(getBarycentricOnTriangle(barycentricZUp, baseTriangle) - getBarycentricOnTriangle(barycentricZDown, baseTriangle))));
 
-    // Scale
-    float xAxis = RotatePointByQuaternion(float3(1,0,0), splat.rot);
-    float yAxis = RotatePointByQuaternion(float3(0,1,0), splat.rot);
-    float zAxis = RotatePointByQuaternion(float3(0,0,1), splat.rot);
+    float xProjNorm = abs(dot(normalize(xUp - xDown), baseTriangleNormal));
+    float yProjNorm = abs(dot(normalize(yUp - yDown), baseTriangleNormal));
+    float zProjNorm = abs(dot(normalize(zUp - zDown), baseTriangleNormal));
 
-    float scaleP1 = length(modP1Vec) / length(baseP1Vec);
-    float scaleP2 = length(modP2Vec) / length(baseP2Vec);
-    float scaleP3 = length(modP3Vec) / length(baseP3Vec);
-
-    float3 dotXAxis = computeProjection(xAxis, modP1Vec, modP2Vec, modP3Vec);
-    float3 dotYAxis = computeProjection(yAxis, modP1Vec, modP2Vec, modP3Vec);
-    float3 dotZAxis = computeProjection(zAxis, modP1Vec, modP2Vec, modP3Vec);
-
-    float3 newScale;
-    newScale.x = (dotXAxis.x * scaleP1 + dotXAxis.y * scaleP2 + dotXAxis.z * scaleP3);    
-    newScale.y = (dotYAxis.x * scaleP1 + dotYAxis.y * scaleP2 + dotYAxis.z * scaleP3);
-    newScale.z = (dotZAxis.x * scaleP1 + dotZAxis.y * scaleP2 + dotZAxis.z * scaleP3);
-    newScale = sqrt(newScale);
-    newScale *= splat.scale;    
+    // Apply scale factor for each axis
+    float xScale = splat.scale.x * xProjNorm + xProj * splat.scale.x * (length(positionFromBarycentric(modTriangle, barycentricXDown) - positionFromBarycentric(modTriangle, barycentricXUp)) / length(positionFromBarycentric(baseTriangle, barycentricXDown) - positionFromBarycentric(baseTriangle, barycentricXUp)));
+    float yScale = splat.scale.y * yProjNorm + yProj * splat.scale.y * (length(positionFromBarycentric(modTriangle, barycentricYDown) - positionFromBarycentric(modTriangle, barycentricYUp)) / length(positionFromBarycentric(baseTriangle, barycentricYDown) - positionFromBarycentric(baseTriangle, barycentricYUp)));
+    float zScale = splat.scale.z * zProjNorm + zProj * splat.scale.z * (length(positionFromBarycentric(modTriangle, barycentricZDown) - positionFromBarycentric(modTriangle, barycentricZUp)) / length(positionFromBarycentric(baseTriangle, barycentricZDown) - positionFromBarycentric(baseTriangle, barycentricZUp)));
+    float3 newScale = float3(xScale, yScale, zScale);
 
     // Populate result
     ModSplat result;
-    result.pos = newPos;
-    result.scale = newScale;
+    result.pos = newCenter;
+    result.scale = splat.scale;
     result.rot = newRot;
 
     return result;
 }
 
+
+
+
 ModSplat calcSplineVertices(int idx, SplatData splat) {
-
-    ModSplat props[8];
-    float newWeights[8];
-
     ModSplat returnProp;
     returnProp.pos = float3(0, 0, 0);
     returnProp.rot = float4(0, 0, 0, 0);
     returnProp.scale = float3(0, 0, 0);
-
-    float4 avgVertexRot = float4(0,0,0,0);
-    float3 avgVertexScale = float3(0,0,0);
     
-    bool found = false; // Track if any valid links were found
-
-    // Calculate properties
-    [unroll]
-    for (int i = 0; i < 8; i++) {
-        int triangleId = _SplatLinks[idx].triangleIds[i];
-        float weight = _SplatLinks[idx].triangleWeights[i];
-        if (triangleId == -1 || weight <= 0) continue;
-        
-        TriangleSet t;
-        t.p0 = _VertexProps[_TriangleProps[triangleId].vertexId1];
-        t.p1 = _VertexProps[_TriangleProps[triangleId].vertexId2];
-        t.p2 = _VertexProps[_TriangleProps[triangleId].vertexId3];
-
-        props[i] = calcModSplat(t, splat, _SplatLinks[idx].triangleX[i], _SplatLinks[idx].triangleY[i]);
-        
-        found = true;
-    }
-
+    // Flag to track if any valid transformations were found
+    bool found = false;
 
     // Process up to 8 potential triangle links
     [unroll]
@@ -451,28 +878,40 @@ ModSplat calcSplineVertices(int idx, SplatData splat) {
         t.p0 = _VertexProps[_TriangleProps[triangleId].vertexId1];
         t.p1 = _VertexProps[_TriangleProps[triangleId].vertexId2];
         t.p2 = _VertexProps[_TriangleProps[triangleId].vertexId3];
-
-        // Accumulate position with weight
-        returnProp.pos += props[i].pos * weight;
-
-        if (length(returnProp.rot) > 0) {
-            returnProp.rot = normalize(returnProp.rot);
-            returnProp.rot = normalize(lerp(returnProp.rot, props[i].rot, weight / (weight)));
-        } else {
-            returnProp.rot = props[i].rot * weight;
-        }
-
-        returnProp.scale += log(props[i].scale) * weight;
+        
+        // Compute modified splat for this triangle
+        ModSplat m = calcModSplat(t, splat, _SplatLinks[idx].triangleX[i], _SplatLinks[idx].triangleY[i]);
+        
+        // Accumulate with weighting
+        returnProp.pos += m.pos * weight;
+        
+        // Quaternion blending (using slerp-like approach)
+        float4 normalizedWeight = weight / (length(returnProp.rot) + weight);
+        returnProp.rot = m.rot * weight;
+        
+        // Scale blending (geometric mean)
+        returnProp.scale += log(m.scale) * weight;
+        
+        // Mark that we found at least one valid transformation
+        found = true;
     }
-
-
-    // Normalize accumulated values
+    
+    // No links exist or no valid transformations, return original splat
+    if (!found) {
+        returnProp.pos = splat.pos;
+        returnProp.rot = splat.rot;
+        returnProp.scale = splat.scale;
+        return returnProp;
+    }
+    
+    // Convert scale from log space back to linear
     returnProp.scale = exp(returnProp.scale);
+    
+    // Ensure final quaternion is normalized
     returnProp.rot = normalize(returnProp.rot);
-
+    
     return returnProp;
 }
-
 
 [numthreads(GROUP_SIZE,1,1)]
 void CSCalcDistances (uint3 id : SV_DispatchThreadID)

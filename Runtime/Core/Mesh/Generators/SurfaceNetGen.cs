@@ -25,8 +25,9 @@ namespace UnityEngine.GsplEdit
             public Vector3 boundMin;
             public Vector3 boundMax;
 
-            public static int GetSize() {
-                return sizeof(float) * (3 + 12*3 + 1 + 3 + 3) + sizeof(uint) * 60;
+            public static int GetSize()
+            {
+                return sizeof(float) * (3 + 12 * 3 + 1 + 3 + 3) + sizeof(uint) * 60;
             }
         }
 
@@ -36,7 +37,7 @@ namespace UnityEngine.GsplEdit
         public ComputeShader m_IcosahedronComputeShader;
 
 
-        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref uint[] indexList)
+        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref int[] indexList)
         {
             int splatCount = context.splatData.splatCount;
 
@@ -53,9 +54,9 @@ namespace UnityEngine.GsplEdit
             uint maxGridDimension = (uint)Mathf.Max(x, y, z);
             float voxelScale = maxSize / (maxGridDimension - 1);
             Vector3 startPos = new Vector3(
-                context.splatData.boundsMin.x - voxelScale/2, 
-                context.splatData.boundsMin.y - voxelScale/2, 
-                context.splatData.boundsMin.z - voxelScale/2
+                context.splatData.boundsMin.x - voxelScale / 2,
+                context.splatData.boundsMin.y - voxelScale / 2,
+                context.splatData.boundsMin.z - voxelScale / 2
             );
             int itemsPerDispatch = 65535;
 
@@ -80,12 +81,12 @@ namespace UnityEngine.GsplEdit
                 m_IcosahedronComputeShader.Dispatch(0, currentDispatchSize, 1, 1);
             }
 
-           
+
             Vector3Int voxelDims = new(x, y, z);
-            int[] voxelDimsInt = {x, y, z};
+            int[] voxelDimsInt = { x, y, z };
             int voxelCount = x * y * z;
             ComputeBuffer voxelBuffer = new(voxelCount, sizeof(float));
-                        float[] d = new float[voxelCount];
+            float[] d = new float[voxelCount];
             voxelBuffer.SetData(d);
             m_VoxelizeIcosahedron.SetBuffer(0, "_SplatChunks", context.gpuGSChunks);
             m_VoxelizeIcosahedron.SetInt("_SplatChunkCount", context.gpuGSChunksValid ? context.gpuGSChunks.count : 0);
@@ -110,13 +111,13 @@ namespace UnityEngine.GsplEdit
 
             // Step 1: Create a 1D array to store the data from the buffer
             float[] voxelData = new float[voxelCount];
-                // Retrieve voxel data
-                voxelBuffer.GetData(voxelData);
+            // Retrieve voxel data
+            voxelBuffer.GetData(voxelData);
 
-                // Surface Nets mesh generation
-                List<Vector3> vertices = new List<Vector3>();
-                List<int> indices = new List<int>();
-                GenerateSurfaceNetsMesh(voxelData, x, y, z, voxelScale, startPos, vertices, indices);
+            // Surface Nets mesh generation
+            List<Vector3> vertices = new List<Vector3>();
+            List<int> indices = new List<int>();
+            GenerateSurfaceNetsMesh(voxelData, x, y, z, voxelScale, startPos, vertices, indices);
 
 
 
@@ -131,155 +132,155 @@ namespace UnityEngine.GsplEdit
 
             for (int i = 0; i < indices.Count; i++)
             {
-                indexList[i] = (uint)indices[i];
+                indexList[i] = indices[i];
             }
             voxelBuffer.Dispose();
         }
 
-private static readonly int[] cubeEdges = {
-    0, 1,  // Bottom face edge 0
-    1, 2,  // Bottom face edge 1
-    2, 3,  // Bottom face edge 2
-    3, 0,  // Bottom face edge 3
-    4, 5,  // Top face edge 4
-    5, 6,  // Top face edge 5
-    6, 7,  // Top face edge 6
-    7, 4,  // Top face edge 7
-    0, 4,  // Vertical edge connecting v0 -> v4
-    1, 5,  // Vertical edge connecting v1 -> v5
-    2, 6,  // Vertical edge connecting v2 -> v6
-    3, 7   // Vertical edge connecting v3 -> v7
-};
+        private static readonly int[] cubeEdges = {
+            0, 1,  // Bottom face edge 0
+            1, 2,  // Bottom face edge 1
+            2, 3,  // Bottom face edge 2
+            3, 0,  // Bottom face edge 3
+            4, 5,  // Top face edge 4
+            5, 6,  // Top face edge 5
+            6, 7,  // Top face edge 6
+            7, 4,  // Top face edge 7
+            0, 4,  // Vertical edge connecting v0 -> v4
+            1, 5,  // Vertical edge connecting v1 -> v5
+            2, 6,  // Vertical edge connecting v2 -> v6
+            3, 7   // Vertical edge connecting v3 -> v7
+        };
 
 
 
 
-private void GenerateSurfaceNetsMesh(
-    float[] voxelData, 
-    int width, 
-    int height, 
-    int depth, 
-    float voxelScale, 
-    Vector3 gridOffset, 
-    List<Vector3> vertices, 
-    List<int> indices)
-{
-    // Buffers for processing
-    int[,,] vertexIndices = new int[width, height, depth];
-    for (int i = 0; i < width; i++)
-        for (int j = 0; j < height; j++)
-            for (int k = 0; k < depth; k++)
-                vertexIndices[i, j, k] = -1;
-
-    // Iterators and corner grid
-    float[] grid = new float[8];
-    int[] pos = new int[3];
-
-    for (pos[2] = 0; pos[2] < depth - 1; pos[2]++)
-    {
-        for (pos[1] = 0; pos[1] < height - 1; pos[1]++)
+        private void GenerateSurfaceNetsMesh(
+            float[] voxelData,
+            int width,
+            int height,
+            int depth,
+            float voxelScale,
+            Vector3 gridOffset,
+            List<Vector3> vertices,
+            List<int> indices)
         {
-            for (pos[0] = 0; pos[0] < width - 1; pos[0]++)
+            // Buffers for processing
+            int[,,] vertexIndices = new int[width, height, depth];
+            for (int i = 0; i < width; i++)
+                for (int j = 0; j < height; j++)
+                    for (int k = 0; k < depth; k++)
+                        vertexIndices[i, j, k] = -1;
+
+            // Iterators and corner grid
+            float[] grid = new float[8];
+            int[] pos = new int[3];
+
+            for (pos[2] = 0; pos[2] < depth - 1; pos[2]++)
             {
-                // Compute voxel index and sample the 8 corners
-                int cornerMask = 0;
-
-                for (int i = 0; i < 8; i++)
+                for (pos[1] = 0; pos[1] < height - 1; pos[1]++)
                 {
-                    int cx = pos[0] + (i & 1);
-                    int cy = pos[1] + ((i >> 1) & 1);
-                    int cz = pos[2] + ((i >> 2) & 1);
-
-                    grid[i] = voxelData[cz * width * height + cy * width + cx];
-
-                    if (grid[i] > m_Settings.threshold)
-                        cornerMask |= (1 << i);
-                }
-
-                // Skip cubes entirely inside or outside the isosurface
-                if (cornerMask == 0 || cornerMask == 255)
-                    continue;
-
-                // Compute vertex position
-                Vector3 vertex = Vector3.zero;
-                int edgeCount = 0;
-
-                for (int i = 0; i < 12; i++)
-                {
-                    int v0 = cubeEdges[i * 2];
-                    int v1 = cubeEdges[i * 2 + 1];
-
-                    if (((cornerMask >> v0) & 1) != ((cornerMask >> v1) & 1))
+                    for (pos[0] = 0; pos[0] < width - 1; pos[0]++)
                     {
-                        float t = (m_Settings.threshold - grid[v0]) / (grid[v1] - grid[v0]);
-                        t = Mathf.Clamp01(t);
+                        // Compute voxel index and sample the 8 corners
+                        int cornerMask = 0;
 
-                        Vector3 interpolatedVertex = Vector3.zero;
-                        for (int j = 0; j < 3; j++)
+                        for (int i = 0; i < 8; i++)
                         {
-                            int c0 = (v0 >> j) & 1;
-                            int c1 = (v1 >> j) & 1;
-                            interpolatedVertex[j] = Mathf.Lerp(c0, c1, t) + pos[j];
+                            int cx = pos[0] + (i & 1);
+                            int cy = pos[1] + ((i >> 1) & 1);
+                            int cz = pos[2] + ((i >> 2) & 1);
+
+                            grid[i] = voxelData[cz * width * height + cy * width + cx];
+
+                            if (grid[i] > m_Settings.threshold)
+                                cornerMask |= (1 << i);
                         }
 
-                        vertex += interpolatedVertex;
-                        edgeCount++;
+                        // Skip cubes entirely inside or outside the isosurface
+                        if (cornerMask == 0 || cornerMask == 255)
+                            continue;
+
+                        // Compute vertex position
+                        Vector3 vertex = Vector3.zero;
+                        int edgeCount = 0;
+
+                        for (int i = 0; i < 12; i++)
+                        {
+                            int v0 = cubeEdges[i * 2];
+                            int v1 = cubeEdges[i * 2 + 1];
+
+                            if (((cornerMask >> v0) & 1) != ((cornerMask >> v1) & 1))
+                            {
+                                float t = (m_Settings.threshold - grid[v0]) / (grid[v1] - grid[v0]);
+                                t = Mathf.Clamp01(t);
+
+                                Vector3 interpolatedVertex = Vector3.zero;
+                                for (int j = 0; j < 3; j++)
+                                {
+                                    int c0 = (v0 >> j) & 1;
+                                    int c1 = (v1 >> j) & 1;
+                                    interpolatedVertex[j] = Mathf.Lerp(c0, c1, t) + pos[j];
+                                }
+
+                                vertex += interpolatedVertex;
+                                edgeCount++;
+                            }
+                        }
+
+                        // Average vertex position
+                        if (edgeCount > 0)
+                        {
+                            vertex /= edgeCount;
+                            vertex = gridOffset + vertex * voxelScale;
+
+                            // Store vertex index
+                            vertexIndices[pos[0], pos[1], pos[2]] = vertices.Count;
+                            vertices.Add(vertex);
+                        }
                     }
-                }
-
-                // Average vertex position
-                if (edgeCount > 0)
-                {
-                    vertex /= edgeCount;
-                    vertex = gridOffset + vertex * voxelScale;
-
-                    // Store vertex index
-                    vertexIndices[pos[0], pos[1], pos[2]] = vertices.Count;
-                    vertices.Add(vertex);
                 }
             }
-        }
-    }
 
-    // Generate faces
-    for (pos[2] = 0; pos[2] < depth - 1; pos[2]++)
-    {
-        for (pos[1] = 0; pos[1] < height - 1; pos[1]++)
-        {
-            for (pos[0] = 0; pos[0] < width - 1; pos[0]++)
+            // Generate faces
+            for (pos[2] = 0; pos[2] < depth - 1; pos[2]++)
             {
-                // Check if a vertex was generated for this cell
-                int cellVertexIndex = vertexIndices[pos[0], pos[1], pos[2]];
-                if (cellVertexIndex == -1)
-                    continue;
-
-                // Check neighboring vertices
-                int[] neighborIndices = new int[8];
-                bool hasNeighbors = false;
-
-                for (int i = 0; i < 8; i++)
+                for (pos[1] = 0; pos[1] < height - 1; pos[1]++)
                 {
-                    int nx = pos[0] + (i & 1);
-                    int ny = pos[1] + ((i >> 1) & 1);
-                    int nz = pos[2] + ((i >> 2) & 1);
-
-                    if (nx < width - 1 && ny < height - 1 && nz < depth - 1)
+                    for (pos[0] = 0; pos[0] < width - 1; pos[0]++)
                     {
-                        neighborIndices[i] = vertexIndices[nx, ny, nz];
-                        if (neighborIndices[i] != -1)
-                            hasNeighbors = true;
-                    }
-                    else
-                    {
-                        neighborIndices[i] = -1;
-                    }
-                }
+                        // Check if a vertex was generated for this cell
+                        int cellVertexIndex = vertexIndices[pos[0], pos[1], pos[2]];
+                        if (cellVertexIndex == -1)
+                            continue;
 
-                if (!hasNeighbors)
-                    continue;
+                        // Check neighboring vertices
+                        int[] neighborIndices = new int[8];
+                        bool hasNeighbors = false;
 
-                // Generate faces for the cube
-                int[][] faceIndices = new int[][] {
+                        for (int i = 0; i < 8; i++)
+                        {
+                            int nx = pos[0] + (i & 1);
+                            int ny = pos[1] + ((i >> 1) & 1);
+                            int nz = pos[2] + ((i >> 2) & 1);
+
+                            if (nx < width - 1 && ny < height - 1 && nz < depth - 1)
+                            {
+                                neighborIndices[i] = vertexIndices[nx, ny, nz];
+                                if (neighborIndices[i] != -1)
+                                    hasNeighbors = true;
+                            }
+                            else
+                            {
+                                neighborIndices[i] = -1;
+                            }
+                        }
+
+                        if (!hasNeighbors)
+                            continue;
+
+                        // Generate faces for the cube
+                        int[][] faceIndices = new int[][] {
                     new int[] {0, 1, 3, 2},  // Bottom face
                     new int[] {4, 5, 7, 6},  // Top face
                     new int[] {0, 4, 1, 5},  // Front face
@@ -288,37 +289,35 @@ private void GenerateSurfaceNetsMesh(
                     new int[] {0, 2, 4, 6}   // Left face
                 };
 
-                foreach (int[] face in faceIndices)
-                {
-                    int[] faceVertices = new int[4];
-                    int validVertices = 0;
-
-                    for (int i = 0; i < 4; i++)
-                    {
-                        int idx = neighborIndices[face[i]];
-                        if (idx != -1)
+                        foreach (int[] face in faceIndices)
                         {
-                            faceVertices[validVertices++] = idx;
+                            int[] faceVertices = new int[4];
+                            int validVertices = 0;
+
+                            for (int i = 0; i < 4; i++)
+                            {
+                                int idx = neighborIndices[face[i]];
+                                if (idx != -1)
+                                {
+                                    faceVertices[validVertices++] = idx;
+                                }
+                            }
+
+                            // Triangulate the face
+                            if (validVertices == 4)
+                            {
+                                indices.Add(faceVertices[0]);
+                                indices.Add(faceVertices[1]);
+                                indices.Add(faceVertices[2]);
+
+                                indices.Add(faceVertices[0]);
+                                indices.Add(faceVertices[2]);
+                                indices.Add(faceVertices[3]);
+                            }
                         }
-                    }
-
-                    // Triangulate the face
-                    if (validVertices == 4)
-                    {
-                        indices.Add(faceVertices[0]);
-                        indices.Add(faceVertices[1]);
-                        indices.Add(faceVertices[2]);
-
-                        indices.Add(faceVertices[0]);
-                        indices.Add(faceVertices[2]);
-                        indices.Add(faceVertices[3]);
                     }
                 }
             }
         }
-    }
-}
-
-       
     }
 }
