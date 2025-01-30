@@ -1,0 +1,81 @@
+\newcommand{\nocontentsline}[3]{}
+\let\origcontentsline\addcontentsline
+\newcommand\stoptoc{\let\addcontentsline\nocontentsline}
+\newcommand\resumetoc{\let\addcontentsline\origcontentsline}
+
+\chapter{Data Structure Representations}
+\stoptoc
+
+This appendix provides an overview of various mesh data structures commonly used in computational geometry and computer graphics. Each structure is presented with its corresponding code representation.
+
+\section{Triangle Neighbor Structure}
+\label{app:triangle-neighbor-structure}
+
+The \textbf{Triangle Neighbor Structure} enhances mesh traversal by storing adjacency information between triangles. Each triangle maintains references to its three neighboring triangles and associated vertices, facilitating efficient local connectivity queries.
+
+\begin{minted}{cpp}
+struct Triangle {
+    Edge nbr[3];
+    Vertex vertex[3];
+};
+
+struct Edge {
+    // The i-th edge of triangle t
+    Triangle t;
+    int i; // Index in {0,1,2}
+    // In practice, t and i share 32 bits
+};
+
+struct Vertex {
+    // Per-vertex data
+    Edge e; // Any edge leaving the vertex
+};
+\end{minted}
+
+\section{Winged-Edge Structure}
+\label{app:winged-edge-structure}
+
+The \textbf{Winged-Edge Structure} provides a comprehensive representation of mesh connectivity by storing references to the adjacent faces, vertices, and neighboring edges. This enables efficient traversal and modification of the mesh topology.
+
+\begin{minted}{cpp}
+struct Edge {
+    Edge *hl, *hr, *tl, *tr; // Adjacent edges
+    Vertex *h, *t;           // Head and tail vertices
+    Face *l, *r;             // Left and right adjacent faces
+};
+
+struct Face {
+    // Per-face data
+    Edge *e; // Any adjacent edge
+};
+
+struct Vertex {
+    // Per-vertex data
+    Edge *e; // Any incident edge
+};
+\end{minted}
+
+\section{Half-Edge Representation}
+\label{app:half-edge-representation}
+
+The \textbf{Half-Edge Representation} is a widely used data structure that splits each edge into two directed half-edges, allowing for efficient traversal and topological modifications. Each half-edge stores references to its opposite, next half-edge, and the associated vertex and face.
+
+\begin{minted}{cpp}
+struct HEdge {
+    HEdge *pair, *next;  // Opposite and next half-edge
+    Vertex *v;           // Originating vertex
+    Face *f;             // Associated face
+};
+
+struct Face {
+    // Per-face data
+    HEdge *h; // Any adjacent half-edge
+};
+
+struct Vertex {
+    // Per-vertex data
+    HEdge *h; // Any incident half-edge
+};
+\end{minted}
+
+\resumetoc

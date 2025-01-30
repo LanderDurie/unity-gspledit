@@ -1,0 +1,103 @@
+\chapter{Mesh Extraction}
+
+\label{mesh-extraction}
+
+A mesh is one of the most common representations of 3D geometry in computer graphics and computational modeling. Composed of vertices, edges, and faces, a mesh defines the structure of a surface in 3D space, enabling it to approximate complex shapes with varying levels of detail. This representation is highly versatile, finding applications in fields ranging from real-time rendering to finite element analysis.
+
+For a mesh to be useful in many contexts, it often must adhere to certain constraints. One of the most important of these is the concept of a manifold. A manifold mesh is characterized by a local neighborhood around every point on its surface that resembles a 2D plane. This implies that each edge in the mesh is shared by exactly two faces (except for boundary edges, which are shared by only one).
+
+Manifold properties are essential for numerous applications, such as enabling smooth subdivision, accurate simulations, and compatibility with algorithms that require well-defined surface topology. Non-manifold edges or vertices, where edges are shared by three or more faces, introduce ambiguity in the geometry and can lead to failures in processing or analysis. Addressing such issues is a critical aspect of mesh generation and manipulation.
+
+\textbf {The Role of Meshes in This Work}
+
+In this work, the traditional role of a mesh is fundamentally altered. Typically, meshes are employed to visually render objects, providing a framework for textures, lighting, and shading to create realistic representations. However, in this study, the mesh is not intended for rendering. Instead, it serves as an underlying framework that imposes structure onto the Gaussian splat representation.
+
+This chapter explores the methodologies and principles used to transform Gaussian splats into coherent and functional meshes. It also examines the unique challenges posed by this transition, such as maintaining fidelity to the splat data while producing a mesh that meets the desired structural constraints.
+What properties do we want from our mesh?
+What is expected from the underlying structure?
+
+The first important question to address is: What is the expected role of the mesh as an underlying structure? Should it represent only the surface of the object defined by the Gaussian splat, or should it include internal connections throughout the object? To determine this, it is useful to examine several regions of the 3D space:
+
+\begin{itemize}
+    \item \textbf{Object Surface}: The surface is the most important region to represent, as it defines the visible and functional boundaries of the object. It is essential for determining normals, shadows, collision detection, and other surface-based properties. Moreover, the surface encapsulates the object’s overall shape, serving as the primary interface for interactions, whether visual or physical. A well-defined surface is therefore crucial for ensuring the mesh can support these roles effectively.
+    \item \textbf{Outside Object}: The region outside the object is generally irrelevant to the mesh structure, as it does not contribute to the object’s geometry or functionality. While external space could be relevant in certain scenarios, such as when incorporating deformation or environmental effects, this would impose unnecessary complexity and limit the flexibility of the mesh. Keeping the focus on the object’s surface allows the mesh to remain compact and purpose-driven.
+    \item \textbf{Inside Object}: Internal Gaussian points typically influence multiple surface directions, and directly including internal connections in the mesh adds ambiguity to their representation. If internal structure were added, it would allow these Gaussian points to be modified independently of the surfaces they contribute to, potentially resulting in visual inconsistencies or structural inaccuracies. By contrast, relying on the surface to control these points ensures that the interior is represented implicitly, aligning with the way these points naturally interact with the object’s shape.
+\end{itemize}
+
+Based on this analysis, the ideal mesh for this work will focus on representing the surface of the object defined by the Gaussian splat.
+
+We want the polygons in our mesh to be triangles because they are simpler and more versatile than quads or other polygons. Unlike quads, which can become non-planar in 3D space, triangles are always planar, ensuring numerical stability and reducing ambiguities. Triangles are also universally supported by rendering pipelines and mesh-processing algorithms, whereas quads often require additional processing or tessellation, making triangles the most efficient and reliable choice.
+
+The level of detail required in the mesh depends on its intended purpose. For tasks such as rough shape modification, a low-polygon mesh suffices.
+For applications involving specific lighting models, detailed surface normals are critical, requiring a more refined mesh. However, Gaussian splats inherently lack a well-defined surface, so any mesh generated will be an approximation. Overly detailed meshes may misrepresent the structure due to this approximation. Therefore, the goal is to produce a mesh with minimal detail while still capturing the essential shape. Ideally, the mesh should allow for varying levels of detail to account for the non-uniform quality of the Gaussian splat. For example, regions with more references or simpler geometries may be represented with higher fidelity.
+
+Finally, should the mesh be a manifold?
+Technically, since the mesh is not rendered, the manifold constraint could be discarded. However, removing this constraint also eliminates the benefits manifold meshes offer. Many algorithms for editing and processing meshes rely on the assumption that the mesh is a manifold. Non-manifold meshes often cause such algorithms to fail. Thus, while it is not strictly necessary, it is highly preferable to generate manifold meshes to ensure compatibility with existing tools and techniques.
+
+Now that a basic idea of the properties we want has been established, the mesh needs to be generated. There are several existing high level techniques for this, however most of them will not be applicable here. The reason why lies in the received input, a set of Gaussian points.
+
+A straightforward approach that could be taken is to interpret the set as a point-cloud, with each point being the center of a Gaussian point. Numerous techniques exist to generate a mesh from a point-cloud. To name a few: Alpha Shapes, Convex Hull, Delauny Triangulation ... All of these methods have one large flaw, they use the points in the point-cloud as their vertices. However with Gaussian splatting, this will usually be a bad approach since the center of a Gaussian Point does not accurately represent the shape of the Gaussian, especially when the scale is on the larger side. This would result in the mesh going through large Gaussians while ignoring their scale and rotation completely. We can safely assume that techniques where the vertices are equal to the centers of the Gaussian points can be discarded.
+
+To generate a mesh, we need a technique that creates vertices directly on the surface of the object. The challenge lies in the fact that the surface is not explicitly defined—there is no mathematical function that clearly distinguishes surface regions from the surrounding space. However, when a Gaussian splat is rendered from a specific angle, humans can intuitively identify the surface based on the variations in opacity at different points. This perceptual property can serve as the foundation for defining the surface computationally. Because the opacities of Gaussian splats are additive, simply examining points around the center of each splat is insufficient. Instead, the opacity at any given point in space must be calculated as the cumulative sum of opacities contributed by all Gaussian points. By analyzing this cumulative opacity, the surface can be identified where the opacity meets a specified threshold. This approach is precisely what ISO surface generation techniques accomplish, making them well-suited for this task.
+
+\section{Iso Surface Generation}
+
+As discussed earlier, ISO surface generation is a technique that creates a mesh representing an isosurface—a three-dimensional surface that connects points with the same scalar value, which, in this case, is the cumulative opacity within a given volume of space. The scalar value that defines the isosurface is commonly referred to as the iso-value. In a theoretical sense, this iso-value can be continuously measured throughout the entire volume, providing a precise representation of where the surface lies. This is also called a scalar field. However, continuously measuring the scalar value across all points in space would be computationally impossible, especially when dealing with complex scenes.
+
+Given this limitation, practical implementations of ISO surface generation rely on heuristics and approximations to identify where the iso-value should be evaluated. Rather than computing the value at every point in space, these heuristics focus on strategically sampling locations where significant changes in the scalar field are likely to occur. This can involve selecting points based on factors such as spatial density, gradient magnitudes, or areas of high opacity variation, which are more likely to contribute to meaningful features of the surface. These heuristics help balance the trade-off between computational efficiency and the accuracy of the resulting isosurface. By selectively sampling the scalar field at key locations, the method can still generate an accurate approximation of the surface while reducing the computational load. Furthermore, this approach allows for adaptive sampling, where the resolution of the surface can vary depending on the complexity of the geometry or the level of detail required. For instance, regions with high variation in opacity may be sampled more densely to capture finer details, while smoother areas may require less sampling to achieve a reasonable approximation.
+
+Once the set of sample points for measuring the iso-value has been determined, a threshold is applied to classify each point as being either inside or outside the object. This classification is based on whether the iso-value at the sample point exceeds the specified threshold. Following this step, a mesh is generated by identifying the regions where the classification transitions from outside to inside. Vertices are placed along these boundaries that are then connected by edges into a mesh.
+
+\section{Point Sampling}
+
+Various techniques can be used to define the set of sample points, each offering unique advantages depending on the complexity and requirements of the scene. Multiple approaches will be examined, evaluating their suitability for constructing a high-quality isosurface while minimizing computational cost.
+
+\subsection{Grid Point Sampling}
+
+Grid point sampling is the simplest and most commonly used approach to sample the scalar field. In this method, the volume is divided into a regular grid, and the scalar field is evaluated at each grid vertex. This uniform distribution of sample points ensures that the entire volume is systematically covered.
+
+The main advantage of grid sampling lies in its simplicity and ease of implementation. It is particularly effective for generating isosurfaces in regions with relatively uniform detail. However, its fixed resolution can lead to inefficiencies in areas with sparse scalar field variations, as unnecessary samples are taken in low-detail regions. Additionally, fine details in regions with high variations may require an impractically high grid resolution, increasing computational cost. This will inevitably lead to under or over-sampling since scenes rarely have the same amount of detail in each area.
+
+\subsection{Octree-Based Sampling}
+
+Octree-based sampling provides a more adaptive approach by dividing the volume into a hierarchical structure of cubes, or "nodes," with varying levels of detail. The octree begins with a single large cube that encompasses the entire volume. This cube is recursively subdivided into eight smaller cubes, with finer subdivisions occurring in regions of higher scalar field variation. The scalar field is sampled at the vertices of the cubes at the leaves of the octree, allowing the method to focus computational resources on areas of interest.
+
+This approach offers significant advantages over grid sampling, particularly in volumes with non-uniform detail. By concentrating sampling points in regions with high scalar field gradients, octree-based sampling captures fine details while avoiding unnecessary computations in homogeneous areas.
+
+\subsection{FP-Tree-Based Sampling}
+
+% FP-tree-based sampling, or Feature-Preserving Tree sampling, builds on the adaptive principles of octree sampling while placing greater emphasis on capturing sharp features and preserving important geometric details. This method identifies regions where the scalar field undergoes abrupt changes—such as edges, corners, or transitions in the volume—and prioritizes sampling in those areas. By doing so, FP-tree sampling ensures that critical features of the isosurface are accurately represented.
+
+% The FP-tree method balances efficiency and detail by dynamically adjusting the sampling density based on both scalar field variation and the importance of specific features. This makes it particularly suitable for complex scenes with intricate structures or regions of high detail. However, the feature detection and refinement process can increase computational complexity, requiring careful tuning to achieve the desired balance between performance and accuracy.
+
+\section{Extraction Methods}
+
+Once the sample points have been determined, the next step is to generate the mesh, which involves finding the vertices and connecting them. The process of selecting vertices can be divided into two main categories: primal and dual methods.
+
+Primal methods focus on generating vertices based on the geometry of the object. In these methods, vertices are typically placed at the intersections of the iso-surface with the grid cells. These methods are efficient and can closely follow the underlying geometry but may struggle with sharp features or complex geometries.
+
+Dual methods, on the other hand, place vertices in the center of the grid cells, rather than on their edges or corners. By doing so, dual methods can produce smoother meshes with more evenly distributed points, which helps reduce issues like jagged surfaces however they are less efficient to compute.
+
+Once the vertices are placed, the next step is to connect them into a mesh, which depends on the type of isosurface reconstruction and point sampling method used. The choice between primal and dual methods influences both the mesh quality and computational efficiency.
+
+\subsection{Marching Cubes (Primal Method)}
+
+Marching Cubes is the most commonly used primal method for isosurface extraction. The technique works by iterating through a 3D grid of cubes, where each cube is defined by eight sample points. For each cube, the method examines the iso-values at the eight vertices and determines which edges of the cube intersect the iso-surface. By using a lookup table that encodes the possible configurations of intersections, Marching Cubes generates the surface within each cube, which is then combined to form the complete mesh.
+
+\subsection{Surface Nets (Dual Method)}
+
+Surface Nets is a dual method for isosurface extraction that operates on the concept of duality in grid structures. Unlike primal methods, which generate vertices at the sample points, Surface Nets places vertices at the center of the grid cells. These central points are computed by averaging the iso-values of the surrounding sample points. Once the vertices are placed, the algorithm connects them to form a mesh. The advantage of Surface Nets lies in its ability to generate a smoother, less jagged surface compared to primal methods, particularly in regions with irregular or noisy data. However, Surface Nets can struggle with generating topologically correct meshes, particularly in the presence of complex features or ambiguities in the data.
+
+\subsection{Manifold Dual Contouring (Extension)}
+
+\section{Optimization}
+
+% Any mesh generated with one of the methods specified above can be significantly optimized.
+
+\subsection{Smoothing}
+
+
+
+\subsection{Simplification}
+
+We will

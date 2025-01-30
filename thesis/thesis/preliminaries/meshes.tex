@@ -1,0 +1,106 @@
+\section{Meshes}
+
+A mesh is one of the most fundamental and widely used representations for 3D objects in computer graphics. It is a collection of vertices, edges, and faces that define the shape of a 3D object in space. Meshes are a discrete representation of a continuous 3D surface and are typically used to model complex geometries and structures in virtual environments.
+
+
+
+\subsection{Representation}
+
+A mesh consists of the following primary components:
+
+\begin{itemize}
+    \item \textbf{Vertices}: A vertex is a point in 3D space, defined by its coordinates \((x, y, z) \in \mathbb{R}^3\). Vertices are the basic building blocks of a mesh and serve as the reference points for constructing the object’s geometry.
+  
+    \item \textbf{Edges}: Linear connections between vertex pairs \((V_i, V_j)\) establishing topological relationships and surface boundaries.
+
+    \item \textbf{Faces}: Planar polygons, typically a triangle or quadrilateral, bounded by edges. The faces represent the surface of the mesh. Triangular meshes are the most commonly used polygon due to: their efficiency in rasterization because of hardware acceleration, they guarantee planarity (3 non-collinear points will always define exactly one hyperplane in 3D space)
+\end{itemize}
+
+A mesh \( \mathcal{M} \) is formally defined as:
+
+\begin{equation}
+\mathcal{M} = (\mathbf{V}, \mathbf{F}), \quad \mathbf{V} = \{ V_1, \dots, V_n \}, \quad \mathbf{F} = \{ F_1, \dots, F_m \}
+\end{equation}
+
+where:
+\begin{itemize}
+    \item \( \mathbf{V} \) is the set of vertices, with each vertex \( V_k \) represented as:
+    \begin{equation}
+    V_k = (x, y, z) \in \mathbb{R}^3
+    \end{equation}
+    \item \( \mathbf{F} \) is the set of faces, with each face \( F_k \) represented as:
+    \begin{equation}
+    F_k = (V_i, V_j, V_l)
+    \end{equation}
+\end{itemize}
+
+Here, \( V_k \) represents a coordinate in \( \mathbb{R}^3 \) space, and \( F_k \) represents a triangular face defined by three vertices \( V_i, V_j, V_l \), referenced through their indices. In practical implementations, vertices are typically stored as a contiguous floating-point array:
+\[
+\{x_1, y_1, z_1, x_2, y_2, z_2, \dots, x_n, y_n, z_n\}
+\]
+The indices used by \( F_k \) correspond to positions in this vertex array, enabling efficient storage and access.
+
+\subsubsection*{Alternative Mesh Representations}
+
+While the index-based representation is the most straightforward and memory-efficient way to store meshes, alternative data structures have been developed to optimize specific operations. These alternatives trade memory efficiency for faster topological queries or specialized processing capabilities, making them suitable for different applications in computer graphics and computational geometry.
+
+\begin{itemize}
+    \item One such alternative is the \textbf{Triangle Neighbor Structure} \citep{botsch2006openmesh}, which enhances mesh traversal by storing adjacency information between triangles. In this representation, each triangle maintains references to its three neighboring triangles, enabling efficient access to adjacent faces. This structure is particularly useful for algorithms that rely on local connectivity, such as mesh smoothing, subdivision, or remeshing, where frequent queries about neighboring faces are required (see Appendix~\ref{app:triangle-neighbor-structure}).
+
+    \item Another class of representations focuses on edges as the primary element rather than triangles. These edge-based structures provide more detailed connectivity information, enabling complex topological operations. The \textbf{Winged-Edge} \citep{baumgart1975winged} representation, for instance, stores references for each edge to its two vertices, two adjacent faces, and the next/previous edges in both faces. This allows for efficient traversal of the mesh's topology, making it suitable for applications like mesh editing or analysis (see Appendix~\ref{app:winged-edge-structure}).
+
+    \item A more compact and versatile variant is the \textbf{Half-Edge} \citep{mantyla1988introduction} representation, which splits each edge into two directed "half-edges." Each half-edge stores references to its starting vertex, the opposite half-edge, the next half-edge in the face, and the face it belongs to. This structure is widely used in computational geometry due to its ability to handle non-manifold meshes and support complex topological operations, such as mesh cutting, merging, or hole filling. The half-edge representation strikes a balance between memory usage and functionality, making it a popular choice for advanced mesh processing tasks (see Appendix~\ref{app:half-edge-representation}).
+\end{itemize}
+
+These alternative representations highlight the flexibility of polygonal meshes as a foundational tool in computer graphics. By choosing the appropriate data structure, developers and researchers can optimize their workflows for specific tasks, whether it involves real-time rendering, physical simulation, or geometric modeling. However, the choice of representation ultimately depends on the application's requirements, such as the need for efficient topology traversal, memory constraints, or support for dynamic modifications.
+
+
+
+
+
+
+\subsection{Properties of Meshes}
+
+For a mesh to be a valid representation of a 3D object, it must satisfy certain topological properties, one of which is that it must be a \textit{manifold}. In computer graphics and computational geometry, a \textit{manifold} is a space where each point has a neighborhood that is homeomorphic to Euclidean space (i.e., locally it looks like a flat space). In the context of meshes, this means that the surface represented by the mesh must be continuous and without self-intersections.
+
+For a mesh to be considered a 2-manifold, it must meet the following conditions:
+
+\begin{itemize}
+    \item \textbf{Vertex Degree}: Every vertex in the mesh must have at least two adjacent edges (i.e., no isolated vertices).
+    
+    \item \textbf{Edge Connectivity}: The edges should connect in a manner that does not create any sharp discontinuities or holes in the surface.
+    
+    \item \textbf{Non-Self-Intersecting}: The mesh should not intersect itself. This would create ambiguities and lead to incorrect representations of the surface.
+    
+    \item \textbf{Face Consistency}: Each face in the mesh should be a polygon that can be described by connecting the edges without any overlap. Typically, triangles or quadrilaterals are used, and the arrangement of faces should not create regions that are "clipped" or otherwise disconnected from the rest of the surface.
+\end{itemize}
+
+In simpler terms, a mesh must form a smooth, continuous surface without holes, overlaps, or discontinuities. If a mesh fails to meet these criteria, it is no longer a valid 2-manifold, and this can lead to problems in rendering, simulation, and other applications where a continuous surface is required.
+
+\textbf{Why Manifolds Matter for Meshes}:  
+A mesh does not necessarily need to be a manifold to be shown on a screen, but this has certain downsides. A non-manifold mesh can lead to rendering artifacts, issues in 3D modeling, and problems when applying algorithms that rely on the mesh's topology, such as Boolean operations, mesh simplifications, physics simulations ....
+
+
+
+
+
+
+
+
+
+
+\subsection{Editing}
+
+The versatility of polygonal meshes stems from the wide array of editing techniques developed over decades of research and practice. These techniques enable artists and engineers to manipulate meshes in ways that range from subtle geometric adjustments to complex physical simulations, making them indispensable in fields such as animation, gaming, and scientific visualization.
+
+\subsubsection{Geometric Deformation}
+
+At the core of mesh editing lies the ability to deform geometry. This is often achieved through direct manipulation of vertices, where artists adjust the positions of individual points to sculpt the desired shape. For more structured deformations, skeletal animation provides a powerful framework. By attaching vertices to a virtual "skeleton," animators can control complex movements through a hierarchy of transformations, enabling realistic articulation of characters and objects. In physics-based applications, vertices are dynamically updated according to physical laws, simulating phenomena such as cloth draping, fluid flow, or soft-body collisions. These simulations rely on solving differential equations that govern the behavior of the mesh under external forces, creating lifelike motion and interaction.
+
+\subsubsection{Appearance Enhancement}
+
+Beyond geometry, meshes are enriched through techniques that enhance their visual appearance without altering their underlying structure. Texturing plays a central role here, where 2D images are mapped onto 3D surfaces using UV coordinates. This process assigns each vertex a corresponding point on the texture image, allowing detailed patterns and colors to be projected onto the mesh. For finer surface details, normal mapping modifies the way light interacts with the mesh, creating the illusion of bumps, wrinkles, or scratches without adding geometric complexity. Displacement mapping takes this further by physically displacing vertices based on a height map, adding intricate details that enhance realism while maintaining a manageable polygon count.
+
+\subsubsection{Physical Interaction}
+
+Meshes also serve as the foundation for simulating physical interactions in virtual environments. Light transport models, such as diffuse and specular reflection, rely on face normals to determine how surfaces interact with light sources, creating realistic shading and highlights. Shadows are computed by tracing rays between light sources and mesh surfaces, establishing spatial relationships that enhance depth and realism. In interactive applications like video games, collision detection ensures that objects interact believably. This is often optimized using bounding volumes—simplified geometric shapes that approximate the mesh—enabling efficient computation of collisions without processing the full complexity of the mesh.

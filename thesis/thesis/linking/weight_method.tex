@@ -1,0 +1,51 @@
+\section{Weight Methods}
+
+Since the weights of the links should not be uniform but rather proximity-based, a method is required to compute these weights. It is computed based on an anchor point and a Gaussian point. A larger weight indicates that the influence of a modification on the anchor point will have more impact on how the Gaussian point is changed. Since each Gaussian point will have links to several different anchor points, it is in our best interest to normalize these link weights. This normalization ensures that the weighted combination of transformations on the Gaussian point will sum to one.
+
+\subsection{Euclidean Weights}
+
+The first method to generate these weights is by using the Euclidean distance. The distance is calculated between an anchor point and the center of a Gaussian point. The Euclidean distance between two points \(x_i\) and \(\bar{x}\) is given by:
+
+\[
+d_{\text{E}} = \|x_i - \bar{x}\| = \sqrt{\sum_{j=1}^n (x_{ij} - \bar{x}_j)^2}
+\]
+
+where \(x_i = (x_{i1}, x_{i2}, \dots, x_{in})\) represents the coordinates of the anchor point in \(n\)-dimensional space, \(\bar{x} = (\bar{x}_1, \bar{x}_2, \dots, \bar{x}_n)\) is the center of the Gaussian distribution, and \(d_{\text{E}}\) is the scalar distance between the anchor point and the center of the Gaussian distribution.
+
+Weights are typically inversely proportional to this distance, such that closer points receive higher weights while distant points receive lower weights. A commonly used approach is to invert these distances using a Gaussian function:
+
+\[
+w_{\text{E}} = \exp\left(-\frac{d_{\text{E}}^2}{2\sigma^2}\right)
+\]
+
+where \(w_{\text{E}}\) is the Euclidean weight, \(d_{\text{E}}\) is the Euclidean distance, and \(\sigma\) is the standard deviation that controls the spread of the Gaussian function.
+
+This Gaussian function ensures that weights decay smoothly as the distance increases. The parameter \(\sigma\) can be adjusted based on the scale and sensitivity of the application. Finally, the weights are normalized to ensure that the total weight of all links sums to one:
+
+\[
+w_{\text{E}, \text{norm}} = \frac{w_{\text{E}}}{\sum_{i} w_{\text{E}, i}}
+\]
+
+\subsection{Mahalanobis Weights}
+
+Euclidean weights have a limitation: they do not account for the shape and orientation of a Gaussian distribution. For instance, if a Gaussian distribution is stretched in a specific direction, the weight should not depend solely on the Euclidean distance to the center. Instead, it should reflect the distance relative to the shape of the Gaussian distribution.
+
+This issue is addressed by the Mahalanobis distance, which considers the covariance of the distribution. The Mahalanobis distance for a given point is defined as:
+
+\[
+d_M = \sqrt{(x_i - \bar{x})^\top C^{-1} (x_i - \bar{x})}
+\]
+
+where \(x_i\) is the anchor point, \(\bar{x}\) is the mean of the distribution (i.e., the center of the Gaussian distribution), and \(C\) is the covariance matrix of the Gaussian distribution.
+
+The Mahalanobis distance incorporates the covariance matrix, \(C\), which measures the variance and correlations of the data along different dimensions. This ensures that the calculated weight reflects the relative position of the point within the Gaussian distribution, accounting for its shape, orientation, and scale. 
+
+The Mahalanobis weight can similarly be computed using an exponential function:
+
+\[
+w_{\text{M}} = \exp\left(-\frac{d_M^2}{2}\right)
+\]
+
+where \(w_{\text{M}}\) is the Mahalanobis weight. Normalization is applied in the same manner as with Euclidean weights to ensure the total weight of all links sums to one.
+
+By using Mahalanobis weights, we achieve a more accurate representation of the relationship between the anchor point and the Gaussian point, particularly when the data exhibits complex covariance structures.
