@@ -27,7 +27,7 @@ Material:
     m_Floats:
     - _PointSize: 0.58
     m_Colors:
-    - _DefaultColor: {r: 1, g: 0.17465141, b: 0, a: 0.62352943}
+    - _DefaultColor: {r: 0, g: 0.028598787, b: 1, a: 0}
     - _SelectedColor: {r: 0, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

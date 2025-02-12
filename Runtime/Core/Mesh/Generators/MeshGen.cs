@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Codice.CM.SEIDInfo;
 
 namespace UnityEngine.GsplEdit
 {
     public class MeshGen
     {
-        public enum GenType {Icosahedron, MarchingCubes, SurfaceNets};
+        public enum GenType {Icosahedron, MarchingCubes, SurfaceNets, DualContouringGen};
 
         public GenType m_SelectedType;
         public Dictionary<GenType, MeshGenBase> m_Generators;
@@ -16,12 +17,25 @@ namespace UnityEngine.GsplEdit
             m_Context = context;
             m_SelectedType = GenType.MarchingCubes;
 
+            GameObject generatorHolder = new GameObject("MeshGenerators");
+            generatorHolder.hideFlags = HideFlags.HideAndDontSave; // Hide in hierarchy and don't save
+
             m_Generators = new Dictionary<GenType, MeshGenBase>
             {
-                { GenType.Icosahedron, ScriptableObject.CreateInstance<IcosaehdronGen>() },
-                { GenType.MarchingCubes, ScriptableObject.CreateInstance<MarchingCubesGen>() },
-                { GenType.SurfaceNets, ScriptableObject.CreateInstance<SurfaceNetsGen>() }
+                { GenType.Icosahedron, generatorHolder.AddComponent<IcosaehdronGen>() },
+                { GenType.MarchingCubes, generatorHolder.AddComponent<MarchingCubesGen>() },
+                { GenType.SurfaceNets, generatorHolder.AddComponent<SurfaceNetsGen>() },
+                { GenType.DualContouringGen, generatorHolder.AddComponent<DualContouringGen>() }
             };
+        }
+
+        ~MeshGen() {
+            if (m_Generators != null && m_Generators.Count > 0) {
+                var firstGen = m_Generators.Values.First();
+                if (firstGen != null) {
+                    GameObject.DestroyImmediate(firstGen.gameObject);
+                }
+            }
         }
 
         public EditableMesh Generate(ref ModifierSystem modSystem)

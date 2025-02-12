@@ -1,0 +1,51 @@
+#pragma kernel CSMain
+
+struct VertexProperties {
+    float3 pos;
+    float3 normal;
+    uint colorIds[4];
+    float3 posMod;
+    float4 rotMod; 
+    float3 scaleMod;
+    uint colorModIds[4];
+};
+
+// RW buffer (read-write)
+RWStructuredBuffer<VertexProperties> vertexBuffer;
+RWByteAddressBuffer _VertexSelectedBits;
+
+
+// Time variable for animations
+float time;
+
+bool isSelected(int idx) {
+    uint wordIndex = idx >> 5;  // Divide by 32 to get word index
+    uint bitPosition = idx & 31; // Get position within the 32-bit word (0-31)
+    uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
+
+    // Extract the specific bit for this vertex
+    uint isBitSet = (selectionWord >> bitPosition) & 1;
+    return isBitSet;
+}
+
+// Thread group size
+[numthreads(256, 1, 1)]
+void CSMain(uint id : SV_DispatchThreadID)
+{
+    // Ensure we don't go out of bounds
+    if (id >= vertexBuffer.Length)
+        return;
+
+    if (!isSelected(id.x))
+        return;
+
+    // Read the current vertex
+    VertexProperties vertex = vertexBuffer[id];
+
+    // Example: Apply animation (oscillation on y-axis)
+    vertex.posMod.x += sin(time + vertex.pos.x/2) * 0.02f;
+    vertex.posMod.y += sin(time + vertex.pos.z/2) * 0.02f;
+
+    // Write back the modified vertex
+    vertexBuffer[id] = vertex;
+}

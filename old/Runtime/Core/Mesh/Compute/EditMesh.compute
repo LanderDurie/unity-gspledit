@@ -1,0 +1,233 @@
+#define GROUP_SIZE 1024
+
+#include "../../Gaussian/Compute/GaussianSplatting.hlsl"
+
+#pragma kernel CSSelectionUpdate
+#pragma kernel CSVertexTransform
+#pragma kernel CSColorExtract
+
+struct VertexProperties {
+    float3 pos;
+    float3 normal;
+    uint colorIds[4];
+    float3 posMod;
+    float4 rotMod;
+    float3 scaleMod;
+    uint colorModIds[4];
+};
+
+struct SplatLinks {
+    int linkIds[10];
+    float linkWeights[10];
+};
+
+RWStructuredBuffer<SplatLinks> _SplatLinkBuffer;
+RWStructuredBuffer<VertexProperties> _VertexProps;
+RWByteAddressBuffer _VertexSelectedBits;
+RWStructuredBuffer<float> _ColorClusterSelected;
+uint _VertexCount;
+uint _SplatCount;
+float4 _SelectionRect;
+uint _ColorClustersPerChannel;
+
+float4x4 _MatrixObjectToWorld;
+float4x4 _MatrixVP;
+float4 _VecScreenParams;
+
+[numthreads(GROUP_SIZE,1,1)]
+void CSSelectionUpdate (uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+    if (idx >= _VertexCount)
+        return;
+
+    float3 pos = _VertexProps[idx].pos + _VertexProps[idx].posMod;
+
+
+    float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(pos,1)).xyz;
+    float4 centerClipPos = mul(_MatrixVP, float4(centerWorldPos, 1));
+    bool behindCam = centerClipPos.w <= 0;
+    if (behindCam)
+        return;
+
+    float2 pixelPos = (centerClipPos.xy / centerClipPos.w * float2(0.5, -0.5) + 0.5) * _VecScreenParams.xy;
+    if (pixelPos.x < _SelectionRect.x || pixelPos.x > _SelectionRect.z ||
+        pixelPos.y < _SelectionRect.y || pixelPos.y > _SelectionRect.w)
+    {
+        return;
+    }
+    uint wordIdx = idx / 32;
+    uint bitIdx = idx & 31;
+    if (true)
+        _VertexSelectedBits.InterlockedOr(wordIdx * 4, 1u << bitIdx); // +
+    else
+        _VertexSelectedBits.InterlockedAnd(wordIdx * 4, ~(1u << bitIdx)); // -
+}
+
+
+float3 _PositionDiff;
+float4 _RotationDiff; // _RotationDiff4
+float3 _ScaleDiff;
+float3 _PivotPoint; // pivot point for rotation and scale
+
+// Function to convert a 3x3 matrix to a 4x4 matrix
+float4x4 Convert3x3To4x4(float3x3 mat3x3)
+{
+    return float4x4(
+        float4(mat3x3[0], 0.0f),  // First row with 0 for homogeneous coordinates
+        float4(mat3x3[1], 0.0f),  // Second row with 0 for homogeneous coordinates
+        float4(mat3x3[2], 0.0f),  // Third row with 0 for homogeneous coordinates
+        float4(0.0f, 0.0f, 0.0f, 1.0f)  // Homogeneous coordinates and translation (set to 0 for no translation)
+    );
+}
+
+// Function to convert a quaternion to a 4x4 rotation matrix
+float4x4 quatToMatrix(float4 quat)
+{
+    float3x3 rotationMat = float3x3(
+        1.0f - 2.0f * (quat.y * quat.y + quat.z * quat.z),  2.0f * (quat.x * quat.y - quat.w * quat.z),  2.0f * (quat.x * quat.z + quat.w * quat.y),
+        2.0f * (quat.x * quat.y + quat.w * quat.z),  1.0f - 2.0f * (quat.x * quat.x + quat.z * quat.z),  2.0f * (quat.y * quat.z - quat.w * quat.x),
+        2.0f * (quat.x * quat.z - quat.w * quat.y),  2.0f * (quat.y * quat.z + quat.w * quat.x),  1.0f - 2.0f * (quat.x * quat.x + quat.y * quat.y)
+    );
+    return Convert3x3To4x4(rotationMat);
+}
+
+// Constants
+#define PI 3.14159265359f
+#define RAD2DEG 57.29578f
+
+float CopySign(float x, float y)
+{
+    return abs(x) * sign(y);
+}
+
+float3 QuatToEuler(float4 q)
+{
+    float3 euler;
+    
+    // Roll (x-axis rotation)
+    float sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
+    float cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
+    euler.x = atan2(sinr_cosp, cosr_cosp);
+
+    // Pitch (y-axis rotation)
+    float sinp = 2 * (q.w * q.y - q.z * q.x);
+    if (abs(sinp) >= 1)
+    {
+        // Use 90 degrees if out of range
+        euler.y = CopySign(PI / 2, sinp);
+    }
+    else
+    {
+        euler.y = asin(sinp);
+    }
+
+    // Yaw (z-axis rotation)
+    float siny_cosp = 2 * (q.w * q.z + q.x * q.y);
+    float cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
+    euler.z = atan2(siny_cosp, cosy_cosp);
+
+    // Convert to degrees and ensure proper range
+    euler = euler * RAD2DEG;
+    
+    // Ensure angles are in the range [-180, 180]
+    euler = euler % 360.0f;
+    euler += (euler < 0.0f) ? 360.0f : 0.0f;
+    euler -= (euler > 180.0f) ? 360.0f : 0.0f;
+    
+    return euler;
+}
+
+// Helper function if you need to handle gimbal lock cases
+bool IsGimbalLock(float4 q)
+{
+    float sinp = 2 * (q.w * q.y - q.z * q.x);
+    return abs(abs(sinp) - 1.0f) < 0.000001f;
+}
+
+float4 QuaternionMultiply(float4 q1, float4 q2) {
+    return float4(
+        q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,  // x
+        q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,  // y
+        q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w,  // z
+        q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z   // w
+    );
+}
+
+[numthreads(GROUP_SIZE, 1, 1)]
+void CSVertexTransform(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+    if (idx >= _VertexCount)
+        return;
+
+    uint wordIndex = idx >> 5;  // Divide by 32 to get word index
+    uint bitPosition = idx & 31; // Get position within the 32-bit word (0-31)
+
+    // Load the 32-bit word containing our bit
+    uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
+
+    // Extract the specific bit for this vertex
+    uint isBitSet = (selectionWord >> bitPosition) & 1;
+
+    if (isBitSet) {
+        // Apply position translation
+        _VertexProps[idx].posMod += _PositionDiff;
+
+        float3 translatedPos = _VertexProps[idx].pos + _VertexProps[idx].posMod - _PivotPoint;  // Translate to origin
+        float4x4 rotationMatrix = quatToMatrix(_RotationDiff);  // Get the 4x4 rotation matrix
+        float3 rotatedPos = mul(rotationMatrix, float4(translatedPos, 1.0f)).xyz;  // Rotate using matrix multiplication
+        _VertexProps[idx].posMod = rotatedPos + _PivotPoint;  // Translate back
+        float3 scaledPos = (_VertexProps[idx].posMod - _PivotPoint) * (1.0f + _ScaleDiff);  // Scale relative to pivot
+        _VertexProps[idx].posMod = scaledPos + _PivotPoint - _VertexProps[idx].pos;  // Translate back
+
+        _VertexProps[idx].scaleMod += _ScaleDiff;
+        _VertexProps[idx].rotMod = QuatMul(_VertexProps[idx].rotMod, _RotationDiff);
+    }
+}
+
+
+
+
+uint ColorToId(half3 color)
+{
+    // Calculate the quantization step size
+    float step = 1.0 / _ColorClustersPerChannel;
+
+    // Quantize each color channel to its cluster
+    uint rCluster = (uint)(color.r / step);
+    uint gCluster = (uint)(color.g / step);
+    uint bCluster = (uint)(color.b / step);
+
+    // Clamp clusters to ensure they don't exceed the range [0, clustersPerChannel-1]
+    rCluster = min(rCluster, _ColorClustersPerChannel - 1);
+    gCluster = min(gCluster, _ColorClustersPerChannel - 1);
+    bCluster = min(bCluster, _ColorClustersPerChannel - 1);
+
+    // Compute a unique ID using the cluster indices
+    return rCluster + gCluster * _ColorClustersPerChannel + bCluster * _ColorClustersPerChannel * _ColorClustersPerChannel;
+}
+
+
+
+[numthreads(GROUP_SIZE, 1, 1)]
+void CSColorExtract(uint3 id : SV_DispatchThreadID)
+{
+    // uint idx = id.x;
+    // if (idx >= _SplatCount)
+    //     return;
+
+    // for(int i = 0; i < 10; i++) {
+    //     int vertexId = _SplatLinkBuffer[idx].linkIds[i];
+    //     uint wordIndex = vertexId >> 5;
+    //     uint bitPosition = vertexId & 31;
+    //     uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
+    //     uint isBitSet = (selectionWord >> bitPosition) & 1;
+
+    //     if (isBitSet) {
+    //         SplatData splat = LoadSplatData(idx);
+    //         uint colorClusterId = ColorToId(splat.sh.col);
+    //         _ColorClusterSelected[colorClusterId] += splat.opacity * length(splat.scale;
+    //     }
+    // }
+}

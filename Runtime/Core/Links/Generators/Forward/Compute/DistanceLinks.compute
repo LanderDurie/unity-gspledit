@@ -1,5 +1,5 @@
 #pragma kernel OpacityContributions
-#include "../../../Gaussian/Compute/GaussianSplatting.hlsl"
+#include "../../../../Gaussian/Compute/GaussianSplatting.hlsl"
 
 struct VertexProperties {
     float3 pos;          // 12 bytes (3 * 4)

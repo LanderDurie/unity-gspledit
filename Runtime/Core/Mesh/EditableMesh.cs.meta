@@ -4,9 +4,8 @@ MonoImporter:
   externalObjects: {}
   serializedVersion: 2
   defaultReferences:
-  - m_Shadows: {fileID: 2100000, guid: 9f78a298f510c7d4ba967ac4f0f0c4ca, type: 2}
   - m_CSVertexUtilities: {fileID: 7200000, guid: 41ef2e764e8820d4db5ced649b3d4d01, type: 3}
-  - m_WireframeMaterial: {fileID: 2100000, guid: 7c77a488fee3a404da13ca4c27651d11, type: 2}
+  - m_WireframeMaterial: {fileID: 2100000, guid: 92ac03a9cbfa07c449d711a6cf169163, type: 2}
   - m_SelectedVertexMaterial: {fileID: 2100000, guid: f5cfd0115ca62f84e9e1e23fe7a97b63, type: 2}
   - m_FillMaterial: {fileID: 2100000, guid: f05957118a8ff614397a75a3d6b7c034, type: 2}
   - m_GlobalTransform: {instanceID: 0}
