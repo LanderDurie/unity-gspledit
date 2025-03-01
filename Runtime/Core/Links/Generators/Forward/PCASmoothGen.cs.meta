@@ -1,0 +1,12 @@
+fileFormatVersion: 2
+guid: 2fde366906e9c544db7d1cf5bbe6d9fb
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - m_PCASmoothLinkageCompute: {fileID: 7200000, guid: e06eb17d3b6c62148b7e0772409178e8, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

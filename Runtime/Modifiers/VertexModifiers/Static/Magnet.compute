@@ -1,0 +1,54 @@
+#pragma kernel CSAttractRepel
+
+struct VertexProperties {
+    float3 pos;
+    float3 normal;
+    uint colorIds[4];
+    float3 posMod;
+    float4 rotMod;
+    float3 scaleMod;
+    uint colorModIds[4];
+};
+
+RWStructuredBuffer<VertexProperties> vertexBuffer;
+RWByteAddressBuffer _VertexSelectedBits;
+float3 attractorPos;
+float attractionStrength;
+float repulsionRadius;
+float time;
+
+bool isSelected(int idx) {
+    uint wordIndex = idx >> 5;
+    uint bitPosition = idx & 31;
+    uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
+    return (selectionWord >> bitPosition) & 1;
+}
+
+[numthreads(256, 1, 1)]
+void CSAttractRepel(uint id : SV_DispatchThreadID)
+{
+    if (id >= vertexBuffer.Length || !isSelected(id))
+        return;
+        
+    VertexProperties vertex = vertexBuffer[id];
+    
+    float3 toAttractor = attractorPos - vertex.pos;
+    float distance = length(toAttractor);
+    
+    // Prevent division by zero
+    if (distance > 0.001) {
+        float3 direction = toAttractor / distance;
+        
+        // Attraction or repulsion based on distance
+        float force = distance < repulsionRadius ? 
+            -attractionStrength * (1.0 - distance / repulsionRadius) : 
+            attractionStrength * exp(-distance * 0.1);
+            
+        // Oscillate the force with time
+        force *= (1.0 + 0.2 * sin(time * 3.0));
+        
+        vertex.posMod += direction * force;
+    }
+    
+    vertexBuffer[id] = vertex;
+}

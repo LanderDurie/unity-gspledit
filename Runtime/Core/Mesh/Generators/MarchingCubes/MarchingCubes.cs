@@ -19,7 +19,7 @@ namespace UnityEngine.GsplEdit.MarchingCubes
         /// <summary>
         /// MarchCube performs the Marching Cubes algorithm on a single cube
         /// </summary>
-        protected override void March(float x, float y, float z, float[] cube, IList<Vector3> vertList, IList<int> indexList)
+        protected override void March(float x, float y, float z, float[] cube, IList<Vertex> vertList, IList<int> indexList)
         {
             int i, j, vert, idx;
             int flagIndex = 0;
@@ -59,7 +59,9 @@ namespace UnityEngine.GsplEdit.MarchingCubes
                 {
                     vert = TriangleConnectionTable[flagIndex, 3 * i + j];
                     indexList.Add(idx + WindingOrder[j]);
-                    vertList.Add(EdgeVertex[vert]);
+					Vertex v = new Vertex();
+					v.position = EdgeVertex[vert];
+                    vertList.Add(v);
                 }
             }
         }

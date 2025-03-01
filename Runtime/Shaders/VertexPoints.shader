@@ -5,6 +5,7 @@ Shader "Custom/ProceduralPointAroundVertices"
         _DefaultColor("Default Color", Color) = (1, 0, 0, 1)
         _SelectedColor("Selected Color", Color) = (0, 1, 0, 1)
         _PointSize("Point Size", Float) = 2.0
+        _Enable("Enable / disable", float) = 1.0 // 1.0 for enabled, 0.0 for disabled
     }
     SubShader
     {
@@ -53,6 +54,7 @@ Shader "Custom/ProceduralPointAroundVertices"
 
             ByteAddressBuffer _VertexSelectedBits;
             float4x4 _ObjectToWorld;
+            float _Enable;
 
             v2g vert(uint vid : SV_VertexID)
             {
@@ -76,6 +78,8 @@ Shader "Custom/ProceduralPointAroundVertices"
             [maxvertexcount(6)]
             void geom(point v2g input[1], inout TriangleStream<g2f> triStream)
             {
+                if (_Enable < 0.5) return;
+
                 float size = _PointSize * 0.01;
                 float aspectRatio = _ScreenParams.y / _ScreenParams.x;
                 float4 center = input[0].pos;
@@ -105,6 +109,8 @@ Shader "Custom/ProceduralPointAroundVertices"
 
             fixed4 frag(g2f i) : SV_Target
             {
+                if (_Enable < 0.5) discard;
+
                 return i.color;
             }
             ENDCG

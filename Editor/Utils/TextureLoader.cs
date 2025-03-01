@@ -1,4 +1,3 @@
-using GluonGui.WorkspaceWindow.Views.WorkspaceExplorer.Explorer;
 using UnityEngine;
 
 namespace UnityEditor.GsplEdit.Utils

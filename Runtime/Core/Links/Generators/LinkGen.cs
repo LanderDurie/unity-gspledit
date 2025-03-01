@@ -1,30 +1,46 @@
-using System;
 using System.Collections.Generic;
 
 namespace UnityEngine.GsplEdit
 {
     public class LinkGen
     {
-        public enum GenType {Distance, Mahalanobis};
+        public enum ForwardGenType {Euclidean, Mahalanobis, Interpolate, PCASmooth};
+        public enum BackwardGenType {Euclidean};
 
-        public GenType m_SelectedType;
-        public Dictionary<GenType, LinkGenBase> m_Generators;
+        public ForwardGenType m_ForwardSelectedType;
+        public BackwardGenType m_BackwardSelectedType;
+
+        public Dictionary<ForwardGenType, LinkGenForwardBase> m_ForwardGenerators;
+        public Dictionary<BackwardGenType, LinkGenBackwardBase> m_BackwardGenerators;
+
         public SharedComputeContext m_Context;
 
         public LinkGen(ref SharedComputeContext context) {
             m_Context = context;
-            m_SelectedType = GenType.Distance;
+            m_ForwardSelectedType = ForwardGenType.Euclidean;
+            
 
-            m_Generators = new Dictionary<GenType, LinkGenBase>
+            m_ForwardGenerators = new Dictionary<ForwardGenType, LinkGenForwardBase>
             {
-                { GenType.Distance, ScriptableObject.CreateInstance<DistanceGen>() },
-                { GenType.Mahalanobis, ScriptableObject.CreateInstance<MahalanobisGen>() }
+                { ForwardGenType.Euclidean, ScriptableObject.CreateInstance<EuclideanGen>() },
+                { ForwardGenType.Mahalanobis, ScriptableObject.CreateInstance<MahalanobisGen>() },
+                { ForwardGenType.Interpolate, ScriptableObject.CreateInstance<InterpolateGen>() },
+                { ForwardGenType.PCASmooth, ScriptableObject.CreateInstance<PCASmoothGen>() }
+            };
+
+            m_BackwardGenerators = new Dictionary<BackwardGenType, LinkGenBackwardBase>
+            {
             };
         }
 
-        public void Generate()
+        public void GenerateForward()
         {
-            m_Generators[m_SelectedType].Generate(m_Context);
+            m_ForwardGenerators[m_ForwardSelectedType].Generate(m_Context);
+        }
+
+        public void GenerateBackward()
+        {
+            // m_BackwardGenerators[m_BackwardSelectedType].Generate(m_Context);
         }
     }
 }

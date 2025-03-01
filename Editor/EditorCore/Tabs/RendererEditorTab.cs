@@ -74,7 +74,7 @@ namespace UnityEditor.GsplEdit
             }
 
             DrawUtils.Separator();
-            GUILayout.Label("Mesh Render Settings", EditorStyles.boldLabel);
+            GUILayout.Label("Wireframe Render Settings", EditorStyles.boldLabel);
             GUILayout.Space(10);
 
             EditableMesh mesh = gs.GetMesh();
@@ -86,6 +86,7 @@ namespace UnityEditor.GsplEdit
 
             Material vertexMaterial = mesh.m_SelectedVertexMaterial;
             Material wireframeMaterial = mesh.m_WireframeMaterial;
+            Material fillMaterial = mesh.m_FillMaterial;
 
             // Ensure the vertexMaterial is assigned
             if (vertexMaterial == null)
@@ -127,12 +128,12 @@ namespace UnityEditor.GsplEdit
             vertexMaterial.SetColor("_SelectedColor", selectedColor);
 
             // Wireframe Selected Color
-            Color wireframeColor = wireframeMaterial.GetColor("_WireframeFrontColour");
+            Color wireframeColor = wireframeMaterial.GetColor("_WireframeColour");
             wireframeColor = EditorGUILayout.ColorField(
                 new GUIContent("Wireframe Color", "The color for wireframe"),
                 wireframeColor
             );
-            wireframeMaterial.SetColor("_WireframeFrontColour", wireframeColor);
+            wireframeMaterial.SetColor("_WireframeColour", wireframeColor);
 
             // Wireframe Alias
             float wireframeAlias = wireframeMaterial.GetFloat("_WireframeAliasing");
@@ -143,6 +144,50 @@ namespace UnityEditor.GsplEdit
                 2.0f
             );
             wireframeMaterial.SetFloat("_WireframeAliasing", wireframeAlias);
+
+            // Wireframe Enabled
+            float wireframeEnabledFloat = wireframeMaterial.GetFloat("_Enable");
+            bool wireframeEnabled = wireframeEnabledFloat > 0.5f;
+            bool newWireframeEnabled = EditorGUILayout.Toggle("Wireframe Enabled", wireframeEnabled);
+            if (newWireframeEnabled != wireframeEnabled)
+            {
+                wireframeMaterial.SetFloat("_Enable", newWireframeEnabled ? 1.0f : 0.0f);
+                vertexMaterial.SetFloat("_Enable", newWireframeEnabled ? 1.0f : 0.0f);
+                EditorUtility.SetDirty(wireframeMaterial);
+                EditorUtility.SetDirty(vertexMaterial);
+            }
+
+            DrawUtils.Separator();
+            GUILayout.Label("Mesh Render Settings", EditorStyles.boldLabel);
+            GUILayout.Space(10);
+
+            // Mesh Selected Color
+            Color meshColor = fillMaterial.GetColor("_Color");
+            meshColor = EditorGUILayout.ColorField(
+                new GUIContent("Mesh Color", "The color of the Mesh"),
+                meshColor
+            );
+            fillMaterial.SetColor("_Color", meshColor);
+
+            // Shadow Toggles
+            mesh.m_CastShadow = EditorGUILayout.Toggle(new GUIContent("Cast Shadows", "Enable shadow casting"), mesh.m_CastShadow);
+            bool receiveShadows = fillMaterial.GetFloat("_ReceiveShadows") > 0.5f;
+
+            receiveShadows = EditorGUILayout.Toggle(new GUIContent("Receive Shadows", "Enable shadow reception"), receiveShadows);
+
+            fillMaterial.SetFloat("_CastShadows", mesh.m_CastShadow ? 1f : 0f);
+            fillMaterial.SetFloat("_ReceiveShadows", receiveShadows ? 1f : 0f);
+
+            // // Enable Shader Keywords
+            // if (castShadows) 
+            //     fillMaterial.EnableKeyword("_CAST_SHADOWS");
+            // else 
+            //     fillMaterial.DisableKeyword("_CAST_SHADOWS");
+
+            // if (receiveShadows) 
+            //     fillMaterial.EnableKeyword("_RECEIVE_SHADOWS");
+            // else 
+            //     fillMaterial.DisableKeyword("_RECEIVE_SHADOWS");
 
         }
     }

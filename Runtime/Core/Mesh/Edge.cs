@@ -7,10 +7,10 @@ namespace UnityEngine.GsplEdit
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct Edge
     {
-        public uint vertexId1;
-        public uint vertexId2;
+        public int vertexId1;
+        public int vertexId2;
 
-        public Edge(uint v1, uint v2)
+        public Edge(int v1, int v2)
         {
             if (v1 < v2)
             {

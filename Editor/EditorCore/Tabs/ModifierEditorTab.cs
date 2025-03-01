@@ -14,6 +14,7 @@ namespace UnityEditor.GsplEdit
         private int m_SelectedIndex = -1;
 
         public override void Init(DynamicSplat gs) {
+
             if (gs == null) {
                 m_SelectionGroups = null;
                 m_ScrollPosition = new Vector2(0, 0);
@@ -110,14 +111,13 @@ namespace UnityEditor.GsplEdit
             if (m_ReorderableList == null || ms == null || m_SelectionGroups == null)
                 return;
 
-            if (GUILayout.Button("Run All"))
-            {
-                ms.RunAll();
-            }
-
+            // if (GUILayout.Button("Run All"))
+            // {
+            //     ms.RunAll();
+            // }
 
             // Add new modifier button
-            if (GUILayout.Button("Add Selection Group"))
+            if (GUILayout.Button("Add Group"))
             {
                 m_SelectionGroups.Add(CreateInstance<SelectionGroupBox>());
                 ms.Insert();

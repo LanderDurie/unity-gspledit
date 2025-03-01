@@ -265,7 +265,7 @@ namespace UnityEngine.GsplEdit
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.OrderBuffer, m_GpuSortKeys);
             cmb.SetComputeBufferParam(cs, kernelIndex, "_VertexProps", m_SharedContext.gpuMeshVerts);
             cmb.SetComputeBufferParam(cs, kernelIndex, "_SplatLinks", m_SharedContext.gpuForwardLinks);
-            cmb.SetComputeBufferParam(cs, kernelIndex, "_EdgeProps", m_SharedContext.gpuMeshEdges);
+            cmb.SetComputeBufferParam(cs, kernelIndex, "_TriangleProps", m_SharedContext.gpuMeshTriangles);
 
             // cmb.SetComputeIntParam(cs, "_ColorsPerChannel", m_SharedContext.m_ColorsPerChannel);
 
@@ -399,8 +399,8 @@ namespace UnityEngine.GsplEdit
             cmd.SetComputeTextureParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatColor, m_SharedContext.gpuGSColorData);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_VertexProps", m_SharedContext.gpuMeshVerts);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_SplatLinks", m_SharedContext.gpuForwardLinks);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_EdgeProps", m_SharedContext.gpuMeshEdges);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, "_ColorsPerChannel", 0);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_TriangleProps", m_SharedContext.gpuMeshTriangles);
+            // cmd.SetComputeIntParam(m_CSSplatUtilities, "_ColorsPerChannel", 0);
             cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, (int)m_SharedContext.splatData.posFormat);
             cmd.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMV, worldToCamMatrix * matrix);
             cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, m_SharedContext.splatCount);

@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using PlasticPipe.PlasticProtocol.Messages;
 
 namespace UnityEngine.GsplEdit
 {

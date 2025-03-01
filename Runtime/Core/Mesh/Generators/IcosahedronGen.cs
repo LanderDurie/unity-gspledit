@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 namespace UnityEngine.GsplEdit
@@ -8,8 +9,8 @@ namespace UnityEngine.GsplEdit
         [System.Serializable]
         public class Settings
         {
-            public float scale = 1;
-            public float threshold = 0;
+            public float scale = 2;
+            public int limit = 50000;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -17,20 +18,24 @@ namespace UnityEngine.GsplEdit
         {
             public Vector3 center;
             public fixed float vertices[12 * 3];
-            public fixed uint indices[60];
+            public fixed int indices[60];
             public float opacity;
             public Vector3 boundMin;
             public Vector3 boundMax;
+            public Quaternion rot;
+            public Vector3 scale;
 
-            public static int GetSize() {
-                return sizeof(float) * (3 + 12*3 + 1 + 3 + 3) + sizeof(uint) * 60;
+            public static int GetSize()
+            {
+                return sizeof(float) * (3 + 12 * 3 + 1 + 3 + 3 + 4 + 3) + sizeof(int) * 60;
             }
         }
+
 
         public Settings m_Settings = new();
         public ComputeShader m_IcosahedronComputeShader;
 
-        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref uint[] indexList) {
+        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref int[] indexList) {
 
             int splatCount = context.splatData.splatCount;
             int itemsPerDispatch = 65535;
@@ -64,30 +69,34 @@ namespace UnityEngine.GsplEdit
             int totalVertices = splatCount * 12;
             int totalIndices = splatCount * 60;
 
-            // Resize the arrays to fit the total vertices and indices
-            Array.Resize(ref vertexList, totalVertices);
-            Array.Resize(ref indexList, totalIndices);
+            List<Vertex> verts = new List<Vertex>();
+            List<int> indices = new List<int>();
 
-            uint vertexIndex = 0;
-            uint indexIndex = 0;
             foreach (var icosahedron in icosahedrons)
             {
+                if (verts.Count > m_Settings.limit)
+                    break;
+
+                int vertexCount = verts.Count;
+
                 // Add vertices
                 for (int i = 0; i < 12; i++)
                 {
                     Vector3 vertexPosition = new Vector3(icosahedron.vertices[i * 3], icosahedron.vertices[i * 3 + 1], icosahedron.vertices[i * 3 + 2]);
-                    vertexList[vertexIndex] = Vertex.Default();
-                    vertexList[vertexIndex].position = vertexPosition;
-                    vertexIndex++;
+                    Vertex v = Vertex.Default();
+                    v.position = vertexPosition;
+                    verts.Add(v);
                 }
 
                 // Add indices
                 for (int j = 0; j < 60; j++)
                 {
-                    indexList[indexIndex] = (uint)icosahedron.indices[j];
-                    indexIndex++;
+                    indices.Add(icosahedron.indices[j]);
                 }
             }
+
+            indexList = indices.ToArray();
+            vertexList = verts.ToArray();
         }
     }
 }

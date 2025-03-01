@@ -7,6 +7,7 @@ MonoImporter:
   - m_CSVertexUtilities: {fileID: 7200000, guid: 41ef2e764e8820d4db5ced649b3d4d01, type: 3}
   - m_WireframeMaterial: {fileID: 2100000, guid: 7c77a488fee3a404da13ca4c27651d11, type: 2}
   - m_SelectedVertexMaterial: {fileID: 2100000, guid: f5cfd0115ca62f84e9e1e23fe7a97b63, type: 2}
+  - m_FillMaterial: {fileID: 2100000, guid: 3e5ef55075ed20d46a960d2e91c806b7, type: 2}
   - m_GlobalTransform: {instanceID: 0}
   executionOrder: 0
   icon: {instanceID: 0}

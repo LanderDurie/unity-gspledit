@@ -43,15 +43,18 @@ namespace UnityEngine.GsplEdit
                 // Create mesh buffers
                 m_Context.vertexCount = 1;
                 m_Context.edgeCount = 1;
+                m_Context.triangleCount = 1;
                 m_Context.gpuMeshVerts = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.vertexCount, sizeof(Vertex)) { name = "MeshVertices" };
                 m_Context.gpuMeshVerts.SetData(Enumerable.Repeat(Vertex.Default(), m_Context.vertexCount).ToArray());
                 m_Context.gpuMeshEdges = new ComputeBuffer(m_Context.edgeCount, sizeof(Edge));
                 m_Context.gpuMeshEdges.SetData(Enumerable.Repeat(new Edge(0, 0), m_Context.edgeCount).ToArray());
+                m_Context.gpuMeshTriangles = new ComputeBuffer(m_Context.triangleCount, sizeof(Triangle));
+                m_Context.gpuMeshTriangles.SetData(Enumerable.Repeat(new Triangle(0, 0, 0), m_Context.triangleCount).ToArray());
 
                 // Create link buffers
                 m_Context.gpuForwardLinks = new ComputeBuffer(m_Context.splatData.splatCount, sizeof(ForwardLink));
                 m_Context.gpuForwardLinks.SetData(Enumerable.Repeat(ForwardLink.Default(), m_Context.splatData.splatCount).ToArray());
-                m_Context.gpuBackwardLinks = new ComputeBuffer(1, (int)BackwardLink.StructSize());
+                m_Context.gpuBackwardLinks = new ComputeBuffer(1, sizeof(BackwardLink));
                 m_Context.gpuBackwardLinks.SetData(Enumerable.Repeat(BackwardLink.Default(), 1).ToArray());
             }
         }
@@ -76,6 +79,8 @@ namespace UnityEngine.GsplEdit
             m_Context.gpuMeshVerts = null;
             m_Context.gpuMeshEdges?.Dispose();
             m_Context.gpuMeshEdges = null;
+            m_Context.gpuMeshTriangles?.Dispose();
+            m_Context.gpuMeshTriangles = null;
             m_Context.gpuForwardLinks?.Dispose();
             m_Context.gpuForwardLinks = null;
             m_Context.gpuBackwardLinks?.Dispose();
@@ -125,12 +130,14 @@ namespace UnityEngine.GsplEdit
                 m_Mesh?.DestroyBuffers();
                 m_Mesh = m_MeshGenerator.Generate(ref m_ModifierSystem);
                 m_ModifierSystem.SetMesh(ref m_Mesh);
-                m_LinkGenerator.Generate();
+                m_LinkGenerator.GenerateForward();
+                m_LinkGenerator.GenerateBackward();
             }
         }
 
         public void GenerateLinks() {
-            m_LinkGenerator.Generate();
+            m_LinkGenerator.GenerateForward();
+            m_LinkGenerator.GenerateBackward();
         }
 
         public void Update()

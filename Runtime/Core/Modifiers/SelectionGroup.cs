@@ -57,20 +57,20 @@ namespace UnityEngine.GsplEdit
         {
             for (int i = 0; i < m_Modifiers.Count; i++)
             {
-                if (m_Modifiers[i].m_Enabled &&
-                (m_Modifiers[i].m_IsAnimation && runDynamic || m_Modifiers[i].m_IsAnimation && runStatic))
-                {
-                    m_Modifiers[i].Run();
-                }
+                // if (m_Modifiers[i].m_Enabled &&
+                // (m_Modifiers[i].m_IsAnimation && runDynamic || m_Modifiers[i].m_IsAnimation && runStatic))
+                // {
+                    // m_Modifiers[i].Run();
+                // }
             }
         }
 
         public void RunModifier(int modId, bool runStatic = true, bool runDynamic = true)
         {
-            if (m_Modifiers[modId].m_IsAnimation && runDynamic || m_Modifiers[modId].m_IsAnimation && runStatic)
-            {
-                m_Modifiers[modId].Run();
-            }
+            // if (m_Modifiers[modId].m_IsAnimation && runDynamic || m_Modifiers[modId].m_IsAnimation && runStatic)
+            // {
+                // m_Modifiers[modId].Run();
+            // }
         }
     }
 }
