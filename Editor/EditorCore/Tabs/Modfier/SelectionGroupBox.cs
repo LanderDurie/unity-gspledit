@@ -102,28 +102,19 @@ namespace UnityEditor.GsplEdit
 
         public void Draw(SelectionGroup group)
         {
-            // // Add new modifier button
-            // if (GUILayout.Button("Add Modifier to group"))
+            // ModifierFactory.ShowModifierDropdown((modifier) =>
             // {
+            //     // Handle the selected modifier
+            //     Debug.Log($"Selected Modifier: {modifier.m_Name}");
+            //     // Add the modifier to your list or group
+            //     // ModifierBox newModifier = CreateInstance<ModifierBox>();
+
             //     m_Modifiers.Add(CreateInstance<ModifierBox>());
             //     group.Insert();
             //     m_Modifiers[m_Modifiers.Count - 1].Init(group.m_Modifiers[m_Modifiers.Count - 1]);
             //     m_SelectedIndex = m_Modifiers.Count - 1;
-            // }
 
-            ModifierFactory.ShowModifierDropdown((modifier) =>
-            {
-                // Handle the selected modifier
-                Debug.Log($"Selected Modifier: {modifier.m_Name}");
-                // Add the modifier to your list or group
-                // ModifierBox newModifier = CreateInstance<ModifierBox>();
-
-                m_Modifiers.Add(CreateInstance<ModifierBox>());
-                group.Insert();
-                m_Modifiers[m_Modifiers.Count - 1].Init(group.m_Modifiers[m_Modifiers.Count - 1]);
-                m_SelectedIndex = m_Modifiers.Count - 1;
-
-            });
+            // });
             
             // Scroll view for ReorderableList with forced scrollbar
             m_ScrollPosition = EditorGUILayout.BeginScrollView(m_ScrollPosition,

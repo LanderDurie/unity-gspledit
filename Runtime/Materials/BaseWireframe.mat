@@ -26,9 +26,9 @@ Material:
     m_Ints: []
     m_Floats:
     - _WireThickness: 0.02
-    - _WireframeAliasing: 0.01
+    - _WireframeAliasing: 0.055
     - _WireframeThickness: 0.02
     m_Colors:
     - _WireColor: {r: 1, g: 1, b: 1, a: 1}
-    - _WireframeColour: {r: 0.89433956, g: 0, b: 1, a: 0}
+    - _WireframeColour: {r: 0.89433956, g: 0, b: 1, a: 1}
   m_BuildTextureStacks: []

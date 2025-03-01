@@ -60,8 +60,6 @@ namespace UnityEditor.GsplEdit
                     break;
             }
 
-
-
             if (GUILayout.Button("Bake Mesh"))
             {
                 gs.GenerateMesh();

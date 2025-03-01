@@ -136,7 +136,10 @@ namespace UnityEngine.GsplEdit
         }
 
         public void GenerateLinks() {
+            // Bug workaround, calling functions once sometimes results in incorrect results due to previously set links
             m_LinkGenerator.GenerateForward();
+            m_LinkGenerator.GenerateForward();
+            m_LinkGenerator.GenerateBackward();
             m_LinkGenerator.GenerateBackward();
         }
 

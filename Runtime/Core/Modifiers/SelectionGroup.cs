@@ -22,7 +22,7 @@ namespace UnityEngine.GsplEdit
 
         public void Insert()
         {
-            m_Modifiers.Add(new Modifier(ref m_Context, ref m_Selection));
+            // m_Modifiers.Add(new Modifier(ref m_Context, ref m_Selection));
         }
 
         public void Remove(uint id)
