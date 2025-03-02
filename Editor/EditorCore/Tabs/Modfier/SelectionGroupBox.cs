@@ -10,7 +10,7 @@ namespace UnityEditor.GsplEdit
         private List<ModifierBox> m_Modifiers = new List<ModifierBox>();
         private ReorderableList m_ReorderableList;
         private Vector2 m_ScrollPosition;
-        private int m_SelectedIndex = -1;
+        private int m_SelectedIndex = -1;            
 
         public void Init(SelectionGroup group) {
 
@@ -96,17 +96,22 @@ namespace UnityEditor.GsplEdit
             };
         }
 
-        public void Draw(SelectionGroup group)
+        public void Draw(DynamicSplat gs, SelectionGroup group)
         {
-            // // Add new modifier button
-            if (GUILayout.Button("Add Modifier to group"))
+            gs.GetModifierSystem().ShowModifierDropdown((modifier) =>
             {
+                // Handle the selected modifier
+                Debug.Log($"Selected Modifier: {modifier.GetType()}");
+                // Add the modifier to your list or group
+                // ModifierBox newModifier = CreateInstance<ModifierBox>();
+
                 m_Modifiers.Add(CreateInstance<ModifierBox>());
-                group.Insert();
+                group.Insert(modifier);
                 m_Modifiers[m_Modifiers.Count - 1].Init(group.m_Modifiers[m_Modifiers.Count - 1]);
                 m_SelectedIndex = m_Modifiers.Count - 1;
-            }
 
+            }, group);
+            
             // Scroll view for ReorderableList with forced scrollbar
             m_ScrollPosition = EditorGUILayout.BeginScrollView(m_ScrollPosition,
                 GUILayout.Height(120),

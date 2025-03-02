@@ -1,0 +1,12 @@
+fileFormatVersion: 2
+guid: afc4c1c188394c541bfd68a3a04d95fe
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - m_InterpolateLinkageCompute: {fileID: 7200000, guid: 50b2f585bcf5a964fb57943175163fd4, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

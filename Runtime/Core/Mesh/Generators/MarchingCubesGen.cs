@@ -19,13 +19,16 @@ namespace UnityEngine.GsplEdit
         {
             public Vector3 center;
             public fixed float vertices[12 * 3];
-            public fixed uint indices[60];
+            public fixed int indices[60];
             public float opacity;
             public Vector3 boundMin;
             public Vector3 boundMax;
+            public Quaternion rot;
+            public Vector3 scale;
 
-            public static int GetSize() {
-                return sizeof(float) * (3 + 12*3 + 1 + 3 + 3) + sizeof(uint) * 60;
+            public static int GetSize()
+            {
+                return sizeof(float) * (3 + 12 * 3 + 1 + 3 + 3 + 4 + 3) + sizeof(int) * 60;
             }
         }
 
@@ -35,7 +38,7 @@ namespace UnityEngine.GsplEdit
         public ComputeShader m_VoxelizeIcosahedron;
 
 
-        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref uint[] indexList) {
+        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref int[] indexList) {
             int splatCount = context.splatData.splatCount;
             int itemsPerDispatch = 65535;
 
@@ -137,7 +140,7 @@ namespace UnityEngine.GsplEdit
                 }
             }
 
-            List<Vector3> verts = new List<Vector3>();
+            List<Vertex> verts = new List<Vertex>();
             List<int> indices = new List<int>();
             marching.Generate(voxels.Voxels, verts, indices);
 
@@ -146,11 +149,11 @@ namespace UnityEngine.GsplEdit
             System.Array.Resize(ref indexList, indices.Count);
             for(int i = 0; i < verts.Count; i++) {
                 vertexList[i] = Vertex.Default();
-                vertexList[i].position = verts[i] * scale + context.splatData.boundsMin - new Vector3(scale, scale, scale) / 2;
+                vertexList[i].position = verts[i].position * scale + context.splatData.boundsMin - new Vector3(scale, scale, scale) / 2;
             }
 
             for(int i = 0; i < indices.Count; i++) {
-                indexList[i] = (uint)indices[i];
+                indexList[i] = indices[i];
             }
 
             // Cleanup

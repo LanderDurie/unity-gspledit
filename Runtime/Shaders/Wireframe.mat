@@ -25,9 +25,10 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _WireframeAliasing: 0.72
+    - _Enable: 1
+    - _WireframeAliasing: 0.01
     m_Colors:
     - _WireframeBackColour: {r: 1, g: 1, b: 1, a: 1}
+    - _WireframeColour: {r: 1, g: 0.63082844, b: 0, a: 0.34901962}
     - _WireframeFrontColour: {r: 1, g: 1, b: 1, a: 0}
   m_BuildTextureStacks: []
-  m_AllowLocking: 1

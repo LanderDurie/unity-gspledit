@@ -1,0 +1,117 @@
+#pragma kernel CSMain
+
+struct VertexProperties {
+    float3 pos;
+    float3 normal;
+    uint colorIds[4];
+    float3 posMod;  // This is the key field we need to modify
+    float4 rotMod;
+    float3 scaleMod;
+    uint colorModIds[4];
+};
+
+// Buffers
+RWStructuredBuffer<VertexProperties> vertexBuffer;
+RWByteAddressBuffer _VertexSelectedBits;
+
+// Twist parameters
+float twistAngle;        // In radians
+float twistHeight;       // Total height along twist axis
+float3 twistAxis;        // Normalized direction of twist
+float3 twistCenter;      // Center point of twist
+
+// Falloff parameters
+bool useFalloff;
+float falloffStart;
+float falloffEnd;
+
+// Helper functions
+float3 RotateAroundAxis(float3 position, float3 axis, float angle)
+{
+    float c = cos(angle);
+    float s = sin(angle);
+    float t = 1.0 - c;
+    
+    float3x3 rotMat;
+    rotMat[0] = float3(t * axis.x * axis.x + c, t * axis.x * axis.y - s * axis.z, t * axis.x * axis.z + s * axis.y);
+    rotMat[1] = float3(t * axis.x * axis.y + s * axis.z, t * axis.y * axis.y + c, t * axis.y * axis.z - s * axis.x);
+    rotMat[2] = float3(t * axis.x * axis.z - s * axis.y, t * axis.y * axis.z + s * axis.x, t * axis.z * axis.z + c);
+    
+    return mul(rotMat, position);
+}
+
+float CalculateFalloff(float distance)
+{
+    if (!useFalloff)
+        return 1.0;
+        
+    // Simple linear falloff for now
+    // In a production environment, you would sample from a texture generated from the falloff curve
+    if (distance <= falloffStart)
+        return 1.0;
+    if (distance >= falloffEnd)
+        return 0.0;
+        
+    return 1.0 - ((distance - falloffStart) / (falloffEnd - falloffStart));
+}
+
+// Check if vertex is selected
+bool isSelected(uint idx) {
+    uint wordIndex = idx >> 5;  // Divide by 32 to get word index
+    uint bitPosition = idx & 31; // Get position within the 32-bit word (0-31)
+    uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
+    // Extract the specific bit for this vertex
+    uint isBitSet = (selectionWord >> bitPosition) & 1;
+    return isBitSet;
+}
+
+// Thread group size
+[numthreads(256, 1, 1)]
+void CSMain(uint id : SV_DispatchThreadID)
+{
+    // Ensure we don't go out of bounds
+    if (id >= vertexBuffer.Length)
+        return;
+        
+    // Check if vertex is selected
+    if (!isSelected(id))
+        return;
+        
+    // Read the current vertex
+    VertexProperties vertex = vertexBuffer[id];
+    
+    // Reset posMod to avoid accumulation
+    vertex.posMod = float3(0, 0, 0);
+    
+    // Calculate local position relative to twist center
+    float3 localPos = vertex.pos - twistCenter;
+    
+    // Project the point onto the twist axis to find its position along the axis
+    float3 projOnAxis = twistCenter + dot(localPos, twistAxis) * twistAxis;
+    float distanceAlongAxis = dot(localPos - twistCenter, twistAxis);
+    
+    // Calculate the twist amount based on height along the axis
+    float normalizedHeight = clamp(distanceAlongAxis / twistHeight, 0.0, 1.0);
+    float rotationAngle = twistAngle * normalizedHeight;
+    
+    // Calculate falloff factor based on distance from the twist axis
+    float3 projectedPoint = localPos - distanceAlongAxis * twistAxis;
+    float distanceFromAxis = length(projectedPoint);
+    float falloffFactor = CalculateFalloff(distanceFromAxis);
+    
+    // Apply rotation with falloff
+    if (falloffFactor > 0.0)
+    {
+        // Calculate the point to rotate
+        float3 pointToRotate = localPos;
+        
+        // Rotate the point around the twist axis
+        float3 rotatedPoint = RotateAroundAxis(pointToRotate, twistAxis, rotationAngle * falloffFactor);
+        
+        // Calculate the positional modification
+        vertex.posMod = rotatedPoint - localPos;
+    }
+    
+    // Write back the modified vertex
+    vertexBuffer[id] = vertex;
+}

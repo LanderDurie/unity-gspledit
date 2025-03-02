@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine.GsplEdit;
 
@@ -14,6 +13,7 @@ namespace UnityEditor.GsplEdit
         private int m_SelectedIndex = -1;
 
         public override void Init(DynamicSplat gs) {
+
             if (gs == null) {
                 m_SelectionGroups = null;
                 m_ScrollPosition = new Vector2(0, 0);
@@ -110,14 +110,13 @@ namespace UnityEditor.GsplEdit
             if (m_ReorderableList == null || ms == null || m_SelectionGroups == null)
                 return;
 
-            if (GUILayout.Button("Run All"))
-            {
-                ms.RunAll();
-            }
-
+            // if (GUILayout.Button("Run All"))
+            // {
+            //     ms.RunAll();
+            // }
 
             // Add new modifier button
-            if (GUILayout.Button("Add Selection Group"))
+            if (GUILayout.Button("Add Group"))
             {
                 m_SelectionGroups.Add(CreateInstance<SelectionGroupBox>());
                 ms.Insert();
@@ -143,7 +142,7 @@ namespace UnityEditor.GsplEdit
             // Display selected item name
             if (m_SelectedIndex >= 0 && m_SelectedIndex < m_SelectionGroups.Count)
             {
-                m_SelectionGroups[m_SelectedIndex].Draw(ms.m_SelectionGroups[m_SelectedIndex]);
+                m_SelectionGroups[m_SelectedIndex].Draw(gs, ms.m_SelectionGroups[m_SelectedIndex]);
             }
             else
             {

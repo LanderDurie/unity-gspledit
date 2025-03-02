@@ -1,0 +1,289 @@
+#pragma kernel OpacityContributions
+#include "../../../../Gaussian/Compute/GaussianSplatting.hlsl"
+
+struct VertexProperties {
+    float3 pos;
+    float3 normal;
+    uint colorIds[4];
+    float3 posMod;
+    float4 rotMod;
+    float3 scaleMod;
+    uint colorModIds[4];
+};
+
+struct TriangleProperties {
+    int vertexId1;
+    int vertexId2;
+    int vertexId3;
+};
+
+struct SplatLinks {
+    int triangleIds[8];
+    float triangleWeights[8];
+    float triangleX[8];
+    float triangleY[8];
+};
+
+RWStructuredBuffer<VertexProperties> _VertexProps;
+RWStructuredBuffer<TriangleProperties> _TriangleProps;
+RWStructuredBuffer<SplatLinks> _SplatLinkBuffer;
+uint _SplatCount;
+uint _VertexCount;
+uint _TriangleCount;
+float _GlobalSigma;
+static const float MAX_DISTANCE = 1e30f;
+static const int MAX_LINKS = 8;
+
+// Helper function to convert a 3x3 matrix to a 4x4 matrix
+float4x4 Convert3x3To4x4(float3x3 mat3x3) {
+    return float4x4(
+        float4(mat3x3[0], 0.0f),
+        float4(mat3x3[1], 0.0f),
+        float4(mat3x3[2], 0.0f),
+        float4(0.0f, 0.0f, 0.0f, 1.0f)
+    );
+}
+
+// Function to convert a quaternion to a 4x4 rotation matrix
+float4x4 quatToMatrix(float4 quat) {
+    float3x3 rotationMat = float3x3(
+        1.0f - 2.0f * (quat.y * quat.y + quat.z * quat.z),  2.0f * (quat.x * quat.y - quat.w * quat.z),  2.0f * (quat.x * quat.z + quat.w * quat.y),
+        2.0f * (quat.x * quat.y + quat.w * quat.z),  1.0f - 2.0f * (quat.x * quat.x + quat.z * quat.z),  2.0f * (quat.y * quat.z - quat.w * quat.x),
+        2.0f * (quat.x * quat.z - quat.w * quat.y),  2.0f * (quat.y * quat.z + quat.w * quat.x),  1.0f - 2.0f * (quat.x * quat.x + quat.y * quat.y)
+    );
+    return Convert3x3To4x4(rotationMat);
+}
+
+// Compute the determinant of a 3x3 matrix
+float det3x3(float3x3 m) {
+    return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+}
+
+// Compute the inverse of a 3x3 matrix
+float3x3 inverse3x3(float3x3 m) {
+    float d = det3x3(m);
+    float invDet = 1.0f / max(d, 1e-6f);
+    
+    float3x3 inv;
+    inv[0][0] = invDet * (m[1][1] * m[2][2] - m[1][2] * m[2][1]);
+    inv[0][1] = invDet * (m[0][2] * m[2][1] - m[0][1] * m[2][2]);
+    inv[0][2] = invDet * (m[0][1] * m[1][2] - m[0][2] * m[1][1]);
+    inv[1][0] = invDet * (m[1][2] * m[2][0] - m[1][0] * m[2][2]);
+    inv[1][1] = invDet * (m[0][0] * m[2][2] - m[0][2] * m[2][0]);
+    inv[1][2] = invDet * (m[0][2] * m[1][0] - m[0][0] * m[1][2]);
+    inv[2][0] = invDet * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    inv[2][1] = invDet * (m[0][1] * m[2][0] - m[0][0] * m[2][1]);
+    inv[2][2] = invDet * (m[0][0] * m[1][1] - m[0][1] * m[1][0]);
+    
+    return inv;
+}
+
+// Compute dynamic covariance based on distance
+float3x3 dynamicCovariance(float3 splatPos, float3 splatScale, float4 splatRot, float3 p) {
+    // Extract scale from splat data
+    float3 axesLengths = splatScale;
+    
+    // Create initial covariance matrix (D_init in Python)
+    float3x3 D_init = float3x3(
+        axesLengths.x * axesLengths.x, 0.0f, 0.0f,
+        0.0f, axesLengths.y * axesLengths.y, 0.0f,
+        0.0f, 0.0f, axesLengths.z * axesLengths.z
+    );
+    
+    // Get rotation matrix from quaternion
+    float4x4 rotMat4x4 = quatToMatrix(splatRot);
+    float3x3 R = float3x3(
+        rotMat4x4[0].xyz,
+        rotMat4x4[1].xyz,
+        rotMat4x4[2].xyz
+    );
+    
+    // Compute initial covariance matrix (Cov_init in Python)
+    float3x3 Cov_init;
+    Cov_init[0] = R[0].x * D_init[0].x * R[0].x + R[0].y * D_init[1].y * R[0].y + R[0].z * D_init[2].z * R[0].z;
+    Cov_init[1] = R[1].x * D_init[0].x * R[0].x + R[1].y * D_init[1].y * R[0].y + R[1].z * D_init[2].z * R[0].z;
+    Cov_init[2] = R[2].x * D_init[0].x * R[0].x + R[2].y * D_init[1].y * R[0].y + R[2].z * D_init[2].z * R[0].z;
+    Cov_init[0].y = R[0].x * D_init[0].x * R[1].x + R[0].y * D_init[1].y * R[1].y + R[0].z * D_init[2].z * R[1].z;
+    Cov_init[0].z = R[0].x * D_init[0].x * R[2].x + R[0].y * D_init[1].y * R[2].y + R[0].z * D_init[2].z * R[2].z;
+    Cov_init[1].z = R[1].x * D_init[0].x * R[2].x + R[1].y * D_init[1].y * R[2].y + R[1].z * D_init[2].z * R[2].z;
+    Cov_init[1].x = Cov_init[0].y;
+    Cov_init[2].x = Cov_init[0].z;
+    Cov_init[2].y = Cov_init[1].z;
+    
+    // Compute distance for blend factor
+    float distance = length(p - splatPos);
+    
+    // Calculate blend factor (more circular as distance increases)
+    float meanScale = (axesLengths.x + axesLengths.y + axesLengths.z) / 3.0f;
+    float blendFactor = 1.0f - exp(-pow(distance, 2) / (4.0f * pow(2.0f * meanScale, 2)));
+    
+    // Find eigenvalues and eigenvectors - In HLSL we'll use a simplified approximation
+    // In practice, for production, you would want to implement a full eigendecomposition
+    // For this demonstration, we'll use the diagonal elements as eigenvalues approximation
+    float maxEigval = max(max(Cov_init[0][0], Cov_init[1][1]), Cov_init[2][2]);
+    
+    // Blended covariance matrix (more isotropic as distance increases)
+    float3x3 Cov_mod = Cov_init;
+    if (blendFactor > 0.01f) {
+        // Make covariance more isotropic by scaling it toward a sphere
+        float sphereFactor = 2.0f * maxEigval;
+        Cov_mod[0][0] = lerp(Cov_init[0][0], sphereFactor, blendFactor);
+        Cov_mod[1][1] = lerp(Cov_init[1][1], sphereFactor, blendFactor);
+        Cov_mod[2][2] = lerp(Cov_init[2][2], sphereFactor, blendFactor);
+        
+        // Reduce off-diagonal terms (correlation) as distance increases
+        Cov_mod[0][1] = Cov_mod[1][0] = lerp(Cov_init[0][1], 0.0f, blendFactor);
+        Cov_mod[0][2] = Cov_mod[2][0] = lerp(Cov_init[0][2], 0.0f, blendFactor);
+        Cov_mod[1][2] = Cov_mod[2][1] = lerp(Cov_init[1][2], 0.0f, blendFactor);
+    }
+    
+    return Cov_mod;
+}
+
+// Calculate Mahalanobis distance
+float mahalanobisDistance(float3 p, float3 splatPos, float3x3 invCov) {
+    float3 diff = p - splatPos;
+    
+    // Compute Mahalanobis distance: sqrt((p-c)^T * inv_cov * (p-c))
+    float3 temp;
+    temp.x = diff.x * invCov[0][0] + diff.y * invCov[1][0] + diff.z * invCov[2][0];
+    temp.y = diff.x * invCov[0][1] + diff.y * invCov[1][1] + diff.z * invCov[2][1];
+    temp.z = diff.x * invCov[0][2] + diff.y * invCov[1][2] + diff.z * invCov[2][2];
+    
+    return sqrt(dot(diff, temp));
+}
+
+float3 dist(float3 p1, float3 p2, float3 p3, float3 extPos) {
+    // Compute vectors relative to p1
+    float3 v0 = p2 - p1;
+    float3 v1 = p3 - p1;
+    float3 v2 = extPos - p1;
+
+    // Compute dot products
+    float d00 = dot(v0, v0);
+    float d01 = dot(v0, v1);
+    float d11 = dot(v1, v1);
+    float d20 = dot(v2, v0);
+    float d21 = dot(v2, v1);
+
+    // Compute the denominator of the barycentric coordinates
+    float denom = d00 * d11 - d01 * d01;
+
+    // Compute barycentric coordinates with improved stability
+    float v = (d11 * d20 - d01 * d21) / max(denom, 1e-6f);
+    float w = (d00 * d21 - d01 * d20) / max(denom, 1e-6f);
+    float u = 1.0f - v - w;
+
+    // Clamp barycentric coordinates
+    v = max(0.0f, v);
+    w = max(0.0f, w);
+    u = max(0.0f, u);
+
+    float sum = u + v + w;
+    u /= sum;
+    v /= sum;
+    w /= sum;
+
+    // Compute the closest point in the triangle
+    float3 closestPoint = u * p1 + v * p2 + w * p3;
+
+    // Compute the shortest distance
+    float distance = length(extPos - closestPoint);
+
+    return float3(distance, v, w);
+}
+
+[numthreads(128, 1, 1)]
+void OpacityContributions(uint3 id : SV_DispatchThreadID) {
+    uint splatIndex = id.x;
+    if (splatIndex >= _SplatCount) return;
+
+    SplatData splat = LoadSplatData(splatIndex);
+    
+    float minDistances[MAX_LINKS] = { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, 
+                                    MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE };
+    int minIndices[MAX_LINKS] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+    float3 closestPoints[MAX_LINKS];
+    
+    // First pass: find closest triangles
+    [loop]
+    for (uint i = 0; i < _TriangleCount; i++) {
+        // Get triangle vertices
+        float3 p1 = _VertexProps[_TriangleProps[i].vertexId1].pos;
+        float3 p2 = _VertexProps[_TriangleProps[i].vertexId2].pos;
+        float3 p3 = _VertexProps[_TriangleProps[i].vertexId3].pos;
+        
+        // Find closest point on triangle and distance
+        float3 distInfo = dist(p1, p2, p3, splat.pos);
+        float d = distInfo.x;
+        
+        // Calculate the actual closest point
+        float u = 1.0f - distInfo.y - distInfo.z;
+        float3 closestPoint = u * p1 + distInfo.y * p2 + distInfo.z * p3;
+
+        // Insert the new distance and index into the sorted list
+        for (int j = 0; j < MAX_LINKS; j++) {
+            if (d < minDistances[j]) {
+                // Shift existing values down
+                for (int k = MAX_LINKS - 1; k > j; k--) {
+                    minDistances[k] = minDistances[k - 1];
+                    minIndices[k] = minIndices[k - 1];
+                    closestPoints[k] = closestPoints[k - 1];
+                }
+
+                // Insert the new triangle
+                minDistances[j] = d;
+                minIndices[j] = i;
+                closestPoints[j] = closestPoint;
+                
+                break;
+            }
+        }
+    }
+
+    // Apply Mahalanobis distance weighting
+    float mahalanobisWeights[MAX_LINKS];
+    float totalWeight = 0.0f;
+    
+    [unroll]
+    for (int j = 0; j < MAX_LINKS; j++) {
+        if (minIndices[j] >= 0) {
+            // Compute dynamic covariance matrix for this point
+            float3x3 covMatrix = dynamicCovariance(splat.pos, splat.scale, splat.rot, closestPoints[j]);
+            float3x3 invCov = inverse3x3(covMatrix);
+            
+            // Calculate Mahalanobis distance
+            float mahaDist = mahalanobisDistance(closestPoints[j], splat.pos, invCov);
+            
+            // Convert to weight using exponential decay
+            mahalanobisWeights[j] = exp(-0.5f * mahaDist * mahaDist);
+            totalWeight += mahalanobisWeights[j];
+        } else {
+            mahalanobisWeights[j] = 0.0f;
+        }
+    }
+    
+    // Normalize weights if we have any valid weights
+    if (totalWeight > 0.0f) {
+        for (int j = 0; j < MAX_LINKS; j++) {
+            mahalanobisWeights[j] /= totalWeight;
+        }
+    }
+
+    // Store results
+    SplatLinks splatLinks;
+    float threshold = 0.00001f;
+
+    [unroll]
+    for (int j = 0; j < MAX_LINKS; j++) {
+        float weight = mahalanobisWeights[j];
+        splatLinks.triangleIds[j] = (weight > threshold) ? minIndices[j] : -1;
+        splatLinks.triangleWeights[j] = (weight > threshold) ? weight : 0;
+        splatLinks.triangleX[j] = 0;
+        splatLinks.triangleY[j] = 0;
+    }
+
+    _SplatLinkBuffer[splatIndex] = splatLinks;
+}

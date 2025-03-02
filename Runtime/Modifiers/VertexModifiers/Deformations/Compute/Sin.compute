@@ -1,0 +1,75 @@
+#pragma kernel CSMain
+
+struct VertexProperties {
+    float3 pos;
+    float3 normal;
+    uint colorIds[4];
+    float3 posMod;  // This is the key field we need to modify
+    float4 rotMod;
+    float3 scaleMod;
+    uint colorModIds[4];
+};
+
+// Buffers
+RWStructuredBuffer<VertexProperties> vertexBuffer;
+RWByteAddressBuffer _VertexSelectedBits;
+
+// Time and animation parameters
+float time;
+float amplitudeX;
+float amplitudeY;
+float amplitudeZ;
+float frequencyX;
+float frequencyY;
+float frequencyZ;
+float phaseX;
+float phaseY;
+float phaseZ;
+float3 animateFlags; // Vector3 to store which axes to animate (x,y,z)
+
+// Helper function to check if vertex is selected
+bool isSelected(uint idx) {
+    uint wordIndex = idx >> 5;  // Divide by 32 to get word index
+    uint bitPosition = idx & 31; // Get position within the 32-bit word (0-31)
+    uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
+    // Extract the specific bit for this vertex
+    uint isBitSet = (selectionWord >> bitPosition) & 1;
+    return isBitSet;
+}
+
+// Thread group size
+[numthreads(256, 1, 1)]
+void CSMain(uint id : SV_DispatchThreadID)
+{
+    // Ensure we don't go out of bounds
+    if (id >= vertexBuffer.Length)
+        return;
+       
+    // Check if vertex is selected
+    if (!isSelected(id))
+        return;
+       
+    // Read the current vertex
+    VertexProperties vertex = vertexBuffer[id];
+   
+    // IMPORTANT: Reset posMod to zero first to avoid accumulation
+    vertex.posMod = float3(0, 0, 0);
+   
+    // For X axis
+    float timeValueX = animateFlags.x > 0 ? time : 0;
+    // X axis deformation - using pos.x and pos.z for variation
+    vertex.posMod.x = sin((timeValueX + vertex.pos.x * frequencyX) + phaseX) * amplitudeX;
+    
+    // For Y axis
+    float timeValueY = animateFlags.y > 0 ? time : 0;
+    // Y axis deformation - using pos.z for variation
+    vertex.posMod.y = sin((timeValueY + vertex.pos.z * frequencyY) + phaseY) * amplitudeY;
+    
+    // For Z axis
+    float timeValueZ = animateFlags.z > 0 ? time : 0;
+    // Z axis deformation
+    vertex.posMod.z = sin((timeValueZ + vertex.pos.y * frequencyZ) + phaseZ) * amplitudeZ;
+   
+    // Write back the modified vertex
+    vertexBuffer[id] = vertex;
+}

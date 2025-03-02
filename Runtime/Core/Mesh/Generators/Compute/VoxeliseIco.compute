@@ -15,6 +15,8 @@ struct Ico
     float opacity;                 // 4 bytes
     float3 boundMin;               // 12 bytes
     float3 boundMax;               // 12 bytes
+    float4 rot;
+    float3 scale;
 };
 
 // Writable buffer for Ico structs
@@ -98,7 +100,7 @@ void VoxelizeIcosahedrons(uint3 id : SV_DispatchThreadID) {
             float3x3 invSplatRot_ScaleMat = inverse(CalcMatrixFromRotationScale(splat.rot, splat.scale));
             float3 transformedPos = mul(invSplatRot_ScaleMat, (voxelPos - splat.pos));
             float distanceSquared = dot(transformedPos, transformedPos);
-            float opacity = splat.opacity * splat.opacity * exp(-distanceSquared / 2.0f);
+            float opacity = splat.opacity * exp(-distanceSquared / 2.0f);
             accumulatedOpacity += opacity;
         }
     }

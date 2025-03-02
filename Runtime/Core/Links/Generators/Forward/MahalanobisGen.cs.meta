@@ -1,0 +1,12 @@
+fileFormatVersion: 2
+guid: 8c80bf76fb076e041bff119bc3dae68a
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - m_MahalanobisBasedLinkageCompute: {fileID: 7200000, guid: e7553cb583704764dba005cb698036af, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

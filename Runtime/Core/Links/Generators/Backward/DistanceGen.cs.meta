@@ -1,0 +1,12 @@
+fileFormatVersion: 2
+guid: 47409655313cec443b6ae11722c6bafd
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - m_DistanceBasedLinkageCompute: {fileID: 7200000, guid: 646137d6154a3cf4fb94f1230a2ada7d, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

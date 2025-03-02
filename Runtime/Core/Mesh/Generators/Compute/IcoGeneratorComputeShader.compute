@@ -12,6 +12,8 @@ struct Ico
     float opacity;                 // 4 bytes
     float3 boundMin;               // 12 bytes
     float3 boundMax;               // 12 bytes
+    float4 rot;
+    float3 scale;
 };
 
 // Writable buffer for Ico structs
@@ -76,6 +78,11 @@ void Generate(uint3 id : SV_DispatchThreadID)
     float3x3 splatRotScaleMat = CalcMatrixFromRotationScale(splat.rot, splat.scale * _GlobalScaleFactor);
 
     _IcosahedronBuffer[index].center = splat.pos;
+    _IcosahedronBuffer[index].scale = splat.scale;
+    _IcosahedronBuffer[index].rot = splat.rot;
+    _IcosahedronBuffer[index].opacity = splat.opacity;
+
+
 
     // Initialize the bounding box
     float3 minBound = float3(FLT_MAX, FLT_MAX, FLT_MAX);
