@@ -390,7 +390,7 @@ namespace UnityEngine.GsplEdit
                 return;
 
             // Apply Modifier System
-            m_ModifierSystem.RunAll(m_StaticModifierPass, m_DynamicModifierPass);
+            m_ModifierSystem.RunAll();
 
             DrawFill();
             DrawWireframe();

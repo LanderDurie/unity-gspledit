@@ -6,34 +6,22 @@ namespace UnityEditor.GsplEdit
 {
     public class ModifierBox : Editor
     {
-        public void Init(Modifier m) {
+        private Vector2 scrollPosition;
 
+        public void Init(Modifier m) 
+        {
         }
 
         public void Draw(Modifier m)
         {
-            // EditorGUILayout.BeginVertical(GUI.skin.box);
-            // GUILayout.Label("Modifier Settings", EditorStyles.boldLabel);
-            // m.m_ComputeShader = (ComputeShader)EditorGUILayout.ObjectField("Shader", m.m_ComputeShader, typeof(ComputeShader), false);
-            // m.m_IsAnimation = EditorGUILayout.Toggle("Animation", m.m_IsAnimation);
-            // if (m.m_IsAnimation) {
-            //     EditorGUI.indentLevel++;
-            //     m.m_AnimationSpeed = EditorGUILayout.FloatField("Animation Speed", Mathf.Clamp(m.m_AnimationSpeed, 0.0f, 1000.0f));           
-
-            //     m.m_Loop = EditorGUILayout.Toggle("Loop", m.m_Loop);
-            //     if (m.m_Loop) {
-            //         EditorGUI.indentLevel++;
-            //         m.m_LoopDelay = EditorGUILayout.FloatField("Restart Delay (s)", Mathf.Clamp(m.m_LoopDelay, 0.0f, 10000.0f));      
-            //         EditorGUI.indentLevel--;     
-            //     }
-            //     EditorGUI.indentLevel--;
-            // } else {
-            //     if (GUILayout.Button("Bake Modifier"))
-            //     {
-            //         m.Bake();
-            //     }
-            // }
-            // EditorGUILayout.EndVertical();
+            EditorGUILayout.BeginVertical(GUI.skin.box);
+            
+            // Start ScrollView
+            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition); // Adjust height as needed
+            m.DrawSettings();
+            EditorGUILayout.EndScrollView();
+            
+            EditorGUILayout.EndVertical();
         }
     }
 }

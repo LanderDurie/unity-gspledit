@@ -1,0 +1,83 @@
+#pragma kernel CSMain
+
+struct VertexProperties {
+    float3 pos;
+    float3 normal;
+    uint colorIds[4];
+    float3 posMod;
+    float4 rotMod;
+    float3 scaleMod;
+    uint colorModIds[4];
+};
+
+// Buffers
+RWStructuredBuffer<VertexProperties> vertexBuffer;
+RWByteAddressBuffer _VertexSelectedBits;
+StructuredBuffer<float> waveShapeCurve;
+
+// Parameters
+float time;
+float amplitude;
+float wavelength;
+float3 direction;
+float offset;
+int curveResolution;
+
+// Helper functions
+bool isSelected(uint idx) {
+    uint wordIndex = idx >> 5;
+    uint bitPosition = idx & 31;
+    uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
+    uint isBitSet = (selectionWord >> bitPosition) & 1;
+    return isBitSet;
+}
+
+float sampleCurve(float t) {
+    // Ensure t is in 0-1 range by taking fractional part
+    t = frac(t);
+    
+    // Convert to curve index
+    float indexF = t * (curveResolution - 1);
+    int index0 = (int)indexF;
+    int index1 = min(index0 + 1, curveResolution - 1);
+    float blend = indexF - index0;
+    
+    // Sample and lerp between points
+    float value0 = waveShapeCurve[index0];
+    float value1 = waveShapeCurve[index1];
+    
+    return lerp(value0, value1, blend);
+}
+
+[numthreads(256, 1, 1)]
+void CSMain(uint id : SV_DispatchThreadID)
+{
+    // Ensure we don't go out of bounds
+    if (id >= vertexBuffer.Length)
+        return;
+    
+    // Check if vertex is selected
+    if (!isSelected(id))
+        return;
+    
+    // Read the current vertex
+    VertexProperties vertex = vertexBuffer[id];
+    
+    // Reset posMod to zero
+    vertex.posMod = float3(0, 0, 0);
+    
+    // Calculate dot product between position and direction for wave progression
+    float dotPos = dot(vertex.pos, direction);
+    
+    // Calculate wave phase
+    float phase = (dotPos / wavelength) + time + offset;
+    
+    // Sample animation curve for custom wave shape
+    float waveHeight = sampleCurve(phase) * 2.0 - 1.0; // Map from 0-1 to -1 to 1
+    
+    // Apply wave deformation along the normal
+    vertex.posMod = vertex.normal * waveHeight * amplitude;
+    
+    // Write back modified vertex
+    vertexBuffer[id] = vertex;
+}

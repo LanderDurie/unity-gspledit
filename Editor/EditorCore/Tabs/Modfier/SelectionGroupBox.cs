@@ -10,17 +10,13 @@ namespace UnityEditor.GsplEdit
         private List<ModifierBox> m_Modifiers = new List<ModifierBox>();
         private ReorderableList m_ReorderableList;
         private Vector2 m_ScrollPosition;
-        private int m_SelectedIndex = -1;
-
-        private ModifierFactory m_ModifierFactory;
-            
+        private int m_SelectedIndex = -1;            
 
         public void Init(SelectionGroup group) {
 
             if (group == null) {
                 m_Modifiers = null;
                 m_ScrollPosition = new Vector2(0, 0);
-                m_ModifierFactory = new ModifierFactory();
                 m_SelectedIndex = -1;
                 return;
             }
@@ -100,21 +96,21 @@ namespace UnityEditor.GsplEdit
             };
         }
 
-        public void Draw(SelectionGroup group)
+        public void Draw(DynamicSplat gs, SelectionGroup group)
         {
-            // ModifierFactory.ShowModifierDropdown((modifier) =>
-            // {
-            //     // Handle the selected modifier
-            //     Debug.Log($"Selected Modifier: {modifier.m_Name}");
-            //     // Add the modifier to your list or group
-            //     // ModifierBox newModifier = CreateInstance<ModifierBox>();
+            gs.GetModifierSystem().ShowModifierDropdown((modifier) =>
+            {
+                // Handle the selected modifier
+                Debug.Log($"Selected Modifier: {modifier.GetType()}");
+                // Add the modifier to your list or group
+                // ModifierBox newModifier = CreateInstance<ModifierBox>();
 
-            //     m_Modifiers.Add(CreateInstance<ModifierBox>());
-            //     group.Insert();
-            //     m_Modifiers[m_Modifiers.Count - 1].Init(group.m_Modifiers[m_Modifiers.Count - 1]);
-            //     m_SelectedIndex = m_Modifiers.Count - 1;
+                m_Modifiers.Add(CreateInstance<ModifierBox>());
+                group.Insert(modifier);
+                m_Modifiers[m_Modifiers.Count - 1].Init(group.m_Modifiers[m_Modifiers.Count - 1]);
+                m_SelectedIndex = m_Modifiers.Count - 1;
 
-            // });
+            }, group);
             
             // Scroll view for ReorderableList with forced scrollbar
             m_ScrollPosition = EditorGUILayout.BeginScrollView(m_ScrollPosition,

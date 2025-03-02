@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine.GsplEdit;
 
@@ -143,7 +142,7 @@ namespace UnityEditor.GsplEdit
             // Display selected item name
             if (m_SelectedIndex >= 0 && m_SelectedIndex < m_SelectionGroups.Count)
             {
-                m_SelectionGroups[m_SelectedIndex].Draw(ms.m_SelectionGroups[m_SelectedIndex]);
+                m_SelectionGroups[m_SelectedIndex].Draw(gs, ms.m_SelectionGroups[m_SelectedIndex]);
             }
             else
             {

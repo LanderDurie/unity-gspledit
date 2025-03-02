@@ -20,9 +20,9 @@ namespace UnityEngine.GsplEdit
             m_Modifiers = new List<Modifier>();
         }
 
-        public void Insert()
+        public void Insert(Modifier m)
         {
-            // m_Modifiers.Add(new Modifier(ref m_Context, ref m_Selection));
+            m_Modifiers.Add(m);
         }
 
         public void Remove(uint id)
@@ -53,24 +53,20 @@ namespace UnityEngine.GsplEdit
             m_Modifiers.Insert((int)toId, modifier);
         }
 
-        public void RunAll(bool runStatic = true, bool runDynamic = true)
+        public void RunAll(bool runStatic = true)
         {
             for (int i = 0; i < m_Modifiers.Count; i++)
             {
-                // if (m_Modifiers[i].m_Enabled &&
-                // (m_Modifiers[i].m_IsAnimation && runDynamic || m_Modifiers[i].m_IsAnimation && runStatic))
-                // {
-                    // m_Modifiers[i].Run();
-                // }
+                if (m_Modifiers[i].m_Enabled)
+                {
+                    m_Modifiers[i].Run();
+                }
             }
         }
 
-        public void RunModifier(int modId, bool runStatic = true, bool runDynamic = true)
+        public void RunModifier(int modId)
         {
-            // if (m_Modifiers[modId].m_IsAnimation && runDynamic || m_Modifiers[modId].m_IsAnimation && runStatic)
-            // {
-                // m_Modifiers[modId].Run();
-            // }
+            m_Modifiers[modId].Run();
         }
     }
 }

@@ -1,0 +1,141 @@
+#pragma kernel CSMain
+
+struct VertexProperties {
+    float3 pos;
+    float3 normal;
+    uint colorIds[4];
+    float3 posMod;  // This is the key field we need to modify
+    float4 rotMod;
+    float3 scaleMod;
+    uint colorModIds[4];
+};
+
+// Buffers
+RWStructuredBuffer<VertexProperties> vertexBuffer;
+RWByteAddressBuffer _VertexSelectedBits;
+
+// Bend parameters
+float bendAngle;         // In radians
+float bendRadius;        // How sharp the bend is (smaller values = sharper bend)
+float3 bendAxis;         // Normalized axis around which to bend
+float3 bendDirection;    // Normalized direction to bend toward
+float3 bendCenter;       // Center point of bend
+
+// Bound parameters
+float bendStart;         // Start position along bend direction
+float bendEnd;           // End position along bend direction
+bool clampBounds;        // Whether to clamp bending to the bounds
+
+// Helper function to check if vertex is selected
+bool isSelected(uint idx) {
+    uint wordIndex = idx >> 5;  // Divide by 32 to get word index
+    uint bitPosition = idx & 31; // Get position within the 32-bit word (0-31)
+    uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
+    // Extract the specific bit for this vertex
+    uint isBitSet = (selectionWord >> bitPosition) & 1;
+    return isBitSet;
+}
+
+// Helper function to create a rotation matrix
+float3x3 AxisAngleRotationMatrix(float3 axis, float angle)
+{
+    float c = cos(angle);
+    float s = sin(angle);
+    float t = 1.0 - c;
+    
+    float x = axis.x;
+    float y = axis.y;
+    float z = axis.z;
+    
+    return float3x3(
+        t * x * x + c,      t * x * y - s * z,  t * x * z + s * y,
+        t * x * y + s * z,  t * y * y + c,      t * y * z - s * x,
+        t * x * z - s * y,  t * y * z + s * x,  t * z * z + c
+    );
+}
+
+// Thread group size
+[numthreads(256, 1, 1)]
+void CSMain(uint id : SV_DispatchThreadID)
+{
+    // Ensure we don't go out of bounds
+    if (id >= vertexBuffer.Length)
+        return;
+        
+    // Check if vertex is selected
+    if (!isSelected(id))
+        return;
+        
+    // Read the current vertex
+    VertexProperties vertex = vertexBuffer[id];
+    
+    // Reset posMod to avoid accumulation
+    vertex.posMod = float3(0, 0, 0);
+    
+    // Calculate local position relative to bend center
+    float3 localPos = vertex.pos - bendCenter;
+    
+    // Create a coordinate space for the bend
+    float3 axisNorm = normalize(bendAxis);
+    float3 dirNorm = normalize(bendDirection);
+    float3 thirdAxis = normalize(cross(axisNorm, dirNorm));
+    
+    // Ensure directions are perpendicular
+    dirNorm = normalize(cross(thirdAxis, axisNorm));
+    
+    // Distance along bend direction
+    float distAlongDir = dot(localPos, dirNorm);
+    
+    // Check if vertex is within bend bounds
+    if (clampBounds && (distAlongDir < bendStart || distAlongDir > bendEnd))
+    {
+        // Outside of bend bounds, no deformation
+        vertexBuffer[id] = vertex;
+        return;
+    }
+    
+    // Normalize the distance for bending (0 to 1 within the bounds)
+    float boundRange = bendEnd - bendStart;
+    float normalizedDist = (distAlongDir - bendStart) / boundRange;
+    
+    if (clampBounds)
+    {
+        normalizedDist = clamp(normalizedDist, 0.0, 1.0);
+    }
+    
+    // Calculate the bend angle to apply
+    float angleToBend = bendAngle * normalizedDist;
+    
+    // Project the point onto the plane perpendicular to the bend axis
+    float distAlongAxis = dot(localPos, axisNorm);
+    float3 projOnPlane = localPos - distAlongAxis * axisNorm;
+    
+    // Calculate distance from bend axis
+    float distFromAxis = length(projOnPlane);
+    
+    // Calculate bend factor based on radius
+    float bendFactor = 1.0;
+    if (bendRadius > 0.0)
+    {
+        bendFactor = min(distFromAxis / bendRadius, 1.0);
+    }
+    
+    // Apply the bend
+    if (bendFactor > 0.0 && angleToBend != 0.0)
+    {
+        // Create a rotation matrix around the bend axis
+        float3x3 rotMatrix = AxisAngleRotationMatrix(axisNorm, angleToBend * bendFactor);
+        
+        // Rotate the projected position
+        float3 rotatedPos = mul(rotMatrix, projOnPlane);
+        
+        // Add back the component along the axis
+        float3 newPos = rotatedPos + distAlongAxis * axisNorm;
+        
+        // Calculate the positional modification
+        vertex.posMod = newPos - localPos;
+    }
+    
+    // Write back the modified vertex
+    vertexBuffer[id] = vertex;
+}
