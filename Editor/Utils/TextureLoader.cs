@@ -6,12 +6,12 @@ namespace UnityEditor.GsplEdit.Utils
     {
         public static Texture2D Load(string iconName)
         {
-            const string iconFolder = "gspledit/Content/Icons/";
+            const string iconFolder = "unity-gspledit/Content/Icons/";
             string[] possiblePaths =
             {
                 $"Assets/{iconFolder}{iconName}",
                 $"Packages/{iconFolder}{iconName}",
-                $"{Application.dataPath}/../{iconFolder}{iconName}"
+                $"{Application.dataPath}/{iconFolder}{iconName}"
             };
 
             foreach (string path in possiblePaths)

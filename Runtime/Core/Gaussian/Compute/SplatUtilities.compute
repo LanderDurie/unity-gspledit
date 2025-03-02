@@ -799,7 +799,12 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
 
     uint origIdx = _SplatSortKeys[idx];
 
-    float3 pos = LoadSplatPos(origIdx);
+    SplatData splat = LoadSplatData(origIdx);
+    Tetrahedron baseTetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
+    float3 pos = translatePoint(origIdx, (baseTetra.v0 + baseTetra.v1 + baseTetra.v2 + baseTetra.v3) / 4.0);
+    // float3 pos = (baseTetra.v0 + baseTetra.v1 + baseTetra.v2 + baseTetra.v3) / 4.0;
+
+
     pos = mul(_MatrixMV, float4(pos.xyz, 1)).xyz;
 
     _SplatSortDistances[idx] = FloatToSortableUint(pos.z);
