@@ -3,7 +3,7 @@ using UnityEditor;
 
 namespace UnityEngine.GsplEdit{
     
-    public abstract class Modifier {
+    public abstract class Modifier : MonoBehaviour {
 
         public enum Type {
             Static,

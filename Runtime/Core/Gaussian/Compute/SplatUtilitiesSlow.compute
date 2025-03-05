@@ -124,35 +124,28 @@ Tetrahedron computeTetrahedronFromEllipsoid(float3 center, float3 scale, float4 
 {
     rotationQuat = normalize(rotationQuat);
 
-    float xx = rotationQuat.x * rotationQuat.x;
-    float yy = rotationQuat.y * rotationQuat.y;
-    float zz = rotationQuat.z * rotationQuat.z;
-    float xy = rotationQuat.x * rotationQuat.y;
-    float xz = rotationQuat.x * rotationQuat.z;
-    float yz = rotationQuat.y * rotationQuat.z;
-    float xw = rotationQuat.x * rotationQuat.w;
-    float yw = rotationQuat.y * rotationQuat.w;
-    float zw = rotationQuat.z * rotationQuat.w;
-
     float3x3 rotationMatrix = float3x3(
-        1 - 2 * (yy + zz), 2 * (xy - zw), 2 * (xz + yw),
-        2 * (xy + zw), 1 - 2 * (xx + zz), 2 * (yz - xw),
-        2 * (xz - yw), 2 * (yz + xw), 1 - 2 * (xx + yy)
+        1 - 2 * (rotationQuat.y * rotationQuat.y + rotationQuat.z * rotationQuat.z), 
+        2 * (rotationQuat.x * rotationQuat.y - rotationQuat.z * rotationQuat.w), 
+        2 * (rotationQuat.x * rotationQuat.z + rotationQuat.y * rotationQuat.w),
+
+        2 * (rotationQuat.x * rotationQuat.y + rotationQuat.z * rotationQuat.w), 
+        1 - 2 * (rotationQuat.x * rotationQuat.x + rotationQuat.z * rotationQuat.z), 
+        2 * (rotationQuat.y * rotationQuat.z - rotationQuat.x * rotationQuat.w),
+
+        2 * (rotationQuat.x * rotationQuat.z - rotationQuat.y * rotationQuat.w), 
+        2 * (rotationQuat.y * rotationQuat.z + rotationQuat.x * rotationQuat.w), 
+        1 - 2 * (rotationQuat.x * rotationQuat.x + rotationQuat.y * rotationQuat.y)
     );
 
-    float3 dir0 = normalize(float3(1, 1, 1)) * scale   / 2;
-    float3 dir1 = normalize(float3(-1, -1, 1)) * scale / 2;
-    float3 dir2 = normalize(float3(-1, 1, -1)) * scale / 2;
-    float3 dir3 = normalize(float3(1, -1, -1)) * scale / 2;
-
     Tetrahedron t;
-    t.v0 = mul(rotationMatrix, dir0) + center;
-    t.v1 = mul(rotationMatrix, dir1) + center;
-    t.v2 = mul(rotationMatrix, dir2) + center;
-    t.v3 = mul(rotationMatrix, dir3) + center;
-
+    t.v0 = mul(rotationMatrix, normalize(float3(1, 1, 1)) * scale   * 4) + center;
+    t.v1 = mul(rotationMatrix, normalize(float3(-1, -1, 1)) * scale * 4) + center;
+    t.v2 = mul(rotationMatrix, normalize(float3(-1, 1, -1)) * scale * 4) + center;
+    t.v3 = mul(rotationMatrix, normalize(float3(1, -1, -1)) * scale * 4) + center;
     return t;
 }
+
 
 float det3x3(
     float m11, float m12, float m13,
@@ -261,6 +254,60 @@ float4 quaternionFromMatrix(float3x3 V)
     return q / len;
 }
 
+float3x3 outerProduct(float3 a, float3 b)
+{
+    return float3x3(
+        a.x * b.x, a.x * b.y, a.x * b.z,
+        a.y * b.x, a.y * b.y, a.y * b.z,
+        a.z * b.x, a.z * b.y, a.z * b.z
+    );
+}
+
+float3 powerIteration(float3x3 A, float3 b, int maxIterations)
+{
+    float3 v = b;
+    float prevNorm = 0.0f;
+    float convergenceThreshold = 1e-6f;
+    
+    for (int i = 0; i < maxIterations; i++)
+    {
+        float3 Av = mul(A, v);
+        float norm = length(Av);
+        
+        if (norm < EPSILON) break;
+        float3 newV = Av / norm;
+        
+        // Check for convergence
+        float change = length(newV - v);
+        if (change < convergenceThreshold) break;
+        
+        v = newV;
+    }
+    
+    return v;
+}
+
+void computeEigenvectors(float3x3 A, out float3x3 V)
+{
+    // Initialize eigenvectors
+    V = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+
+    // Compute eigenvectors using power iteration
+    for (int i = 0; i < 3; i++)
+    {
+        float3 b = float3(1, 1, 1); // Initial guess
+        float3 eigenvector = powerIteration(A, b, MAX_ITERATIONS);
+
+        // Store eigenvector
+        V[0][i] = eigenvector.x;
+        V[1][i] = eigenvector.y;
+        V[2][i] = eigenvector.z;
+
+        // Deflate the matrix
+        A -= outerProduct(eigenvector, mul(A, eigenvector));
+    }
+}
+
 void JacobiEigenvalueDecomposition(float3x3 A, out float3 eigenvalues, out float3x3 eigenvectors)
 {
     // Initialize eigenvectors to identity matrix
@@ -270,7 +317,7 @@ void JacobiEigenvalueDecomposition(float3x3 A, out float3 eigenvalues, out float
     float3x3 D = A;
     
     const int MAX_ITERATIONS = 50;
-    const float EPSILON = 1e-16;
+    const float EPSILON = 1e-10;
     
     for (int iter = 0; iter < MAX_ITERATIONS; iter++)
     {
@@ -321,7 +368,7 @@ void JacobiEigenvalueDecomposition(float3x3 A, out float3 eigenvalues, out float
     eigenvalues.z = D[2][2];
 }
 
-bool fitSteinerCircumellipsoid(Tetrahedron t, inout ModSplat result)
+bool fitSteinerCircumellipsoid(Tetrahedron t, inout ModSplat result, SplatData original)
 {
     // Compute centroid
     float3 center = (t.v0 + t.v1 + t.v2 + t.v3) / 4;
@@ -349,18 +396,24 @@ bool fitSteinerCircumellipsoid(Tetrahedron t, inout ModSplat result)
     float3x3 V;
     float3 scale;
 
-    JacobiEigenvalueDecomposition(covMatrix, scale, V);
-
     // Compute eigenvalues
+    JacobiEigenvalueDecomposition(covMatrix, scale, V);
     // computeEigenvectors(covMatrix, V);
     // scale = float3(
-        // dot(mul(covMatrix, float3(V[0][0], V[1][0], V[2][0])), float3(V[0][0], V[1][0], V[2][0])),
-        // dot(mul(covMatrix, float3(V[0][1], V[1][1], V[2][1])), float3(V[0][1], V[1][1], V[2][1])),
-        // dot(mul(covMatrix, float3(V[0][2], V[1][2], V[2][2])), float3(V[0][2], V[1][2], V[2][2]))
+    //     dot(mul(covMatrix, float3(V[0][0], V[1][0], V[2][0])), float3(V[0][0], V[1][0], V[2][0])),
+    //     dot(mul(covMatrix, float3(V[0][1], V[1][1], V[2][1])), float3(V[0][1], V[1][1], V[2][1])),
+    //     dot(mul(covMatrix, float3(V[0][2], V[1][2], V[2][2])), float3(V[0][2], V[1][2], V[2][2]))
     // );
 
     // Scale factor for Steiner circumellipsoid
-    scale = 2 * sqrt(3 * scale);
+    scale = 0.25 * sqrt(3 * scale);
+
+    // if (length(scale - original.scale) >= 0.01) {
+    //     result.pos = original.pos;
+    //     result.rot = original.rot;
+    //     result.scale = original.scale;
+    //     return true;
+    // }
 
     // Convert eigenvectors to quaternion
     float4 rotation = quaternionFromMatrix(V);
@@ -368,6 +421,9 @@ bool fitSteinerCircumellipsoid(Tetrahedron t, inout ModSplat result)
     result.pos = center;
     result.scale = scale;
     result.rot = rotation;
+    //     result.pos = center;
+    // result.scale = float3(0.01,0.01,0.01);
+    // result.rot = rotation;
     return true;
 }
 
@@ -561,88 +617,26 @@ float3 TANCToWorld(TANCCoords tanc, float3 v1, float3 v2, float3 v3) {
     }
 }
 
-
-
-// Calculate the distance from a point to a line segment
-float DistanceToEdge(float3 p, float3 edgeStart, float3 edgeEnd) {
-    float3 edge = edgeEnd - edgeStart;
-    float3 pointToStart = p - edgeStart;
-
-    // Project the point onto the edge
-    float t = dot(pointToStart, edge) / dot(edge, edge);
-
-    // Clamp the projection to the segment
-    t = clamp(t, 0.0, 1.0);
-
-    // Find the closest point on the edge
-    float3 closestPoint = edgeStart + t * edge;
-
-    // Return the distance from the point to the closest point on the edge
-    return length(p - closestPoint);
+float modTriangleArea(Triangle t) {
+    float3 e1 = (t.p1.pos + t.p1.posMod) - (t.p0.pos + t.p0.posMod);
+    float3 e2 = (t.p2.pos + t.p2.posMod) - (t.p0.pos + t.p0.posMod);
+    return 0.5f * length(cross(e1, e2));
 }
 
-// Calculate the barycentric coordinates of a point relative to a triangle
-float3 BarycentricCoordinates(float3 p, float3 a, float3 b, float3 c) {
-    float3 v0 = b - a;
-    float3 v1 = c - a;
-    float3 v2 = p - a;
-
-    float d00 = dot(v0, v0);
-    float d01 = dot(v0, v1);
-    float d11 = dot(v1, v1);
-    float d20 = dot(v2, v0);
-    float d21 = dot(v2, v1);
-
-    float denom = d00 * d11 - d01 * d01;
-    float v = (d11 * d20 - d01 * d21) / denom;
-    float w = (d00 * d21 - d01 * d20) / denom;
-    float u = 1.0 - v - w;
-
-    return float3(u, v, w);
-}
-
-// Calculate the minimum distance from a point to the surface, edges, or vertices of a triangle
-float DistanceToTriangle(Triangle t, float3 p) {
-    // Calculate the triangle's normal
-    float3 edge1 = t.p1.pos - t.p0.pos;
-    float3 edge2 = t.p2.pos - t.p0.pos;
-    float3 normal = normalize(cross(edge1, edge2));
-
-    // Calculate the signed distance from the point to the triangle's plane
-    float planeDistance = dot(p - t.p0.pos, normal);
-
-    // Project the point onto the triangle's plane
-    float3 projectedPoint = p - planeDistance * normal;
-
-    // Calculate barycentric coordinates of the projected point
-    float3 barycentric = BarycentricCoordinates(projectedPoint, t.p0.pos, t.p1.pos, t.p2.pos);
-
-    // Check if the projected point is inside the triangle
-    bool isInside = (barycentric.x >= 0.0) && (barycentric.y >= 0.0) && (barycentric.z >= 0.0);
-
-    if (isInside) {
-        // The closest point is on the surface of the triangle
-        return abs(planeDistance); // Perpendicular distance to the plane
-    } else {
-        // The closest point is on one of the edges or vertices
-        float distAB = DistanceToEdge(p, t.p0.pos, t.p1.pos);
-        float distBC = DistanceToEdge(p, t.p1.pos, t.p2.pos);
-        float distCA = DistanceToEdge(p, t.p2.pos, t.p0.pos);
-
-        float distA = length(p - t.p0.pos);
-        float distB = length(p - t.p1.pos);
-        float distC = length(p - t.p2.pos);
-
-        return min(min(min(distAB, distBC), distCA), min(min(distA, distB), distC));
-    }
-}
 
 float3 translatePoint(int splatIndex, float3 p) {
     // Cache splat links data once
     SplatLink currentSplat = _SplatLinks[splatIndex];
     
     // First pass: gather valid triangles and calculate initial values
+    int validTriangles[8];
+    Triangle triangles[8];
+    float3 triangleCenters[8];
+    float3 triangleNormals[8];
+    float triangleAreas[8];
+    bool isInside[8];
     float weights[8];
+    
     int validCount = 0;
     float totalWeight = 0.0;
     int closestId = -1;
@@ -651,8 +645,6 @@ float3 translatePoint(int splatIndex, float3 p) {
     // First pass to gather triangle data and determine weights
     [unroll]
     for (int i = 0; i < 8; i++) {
-        weights[i] = 0;
-
         int triangleId = currentSplat.triangleIds[i];
         float triangleWeight = currentSplat.triangleWeights[i];
         
@@ -660,21 +652,28 @@ float3 translatePoint(int splatIndex, float3 p) {
         if (triangleId == -1 || triangleWeight <= 0) continue;
         
         // Fetch triangle data once
+        TriangleProperties tp = _TriangleProps[triangleId];
         Triangle t;
-        t.p0 = _VertexProps[_TriangleProps[triangleId].vertexId1];
-        t.p1 = _VertexProps[_TriangleProps[triangleId].vertexId2];
-        t.p2 = _VertexProps[_TriangleProps[triangleId].vertexId3];
+        t.p0 = _VertexProps[tp.vertexId1];
+        t.p1 = _VertexProps[tp.vertexId2];
+        t.p2 = _VertexProps[tp.vertexId3];
         
         // Calculate triangle properties once
         float3 edge1 = t.p1.pos - t.p0.pos;
         float3 edge2 = t.p2.pos - t.p0.pos;
         float3 crossProduct = cross(edge1, edge2);
-        float surfaceArea = 0.5 * length(cross(edge1, edge2));
+        float surfaceArea = 0.5 * length(crossProduct);
+        
         if (surfaceArea <= 0.0) continue;
         
         // Cache triangle data for reuse in second pass
+        triangles[validCount] = t;
         float3 normal = normalize(crossProduct);
+        triangleNormals[validCount] = normal;
         float3 center = (t.p0.pos + t.p1.pos + t.p2.pos) / 3.0;
+        triangleCenters[validCount] = center;
+        triangleAreas[validCount] = surfaceArea;
+        validTriangles[validCount] = triangleId;
         
         // Compute perpendicular distance once
         float3 toPoint = p - t.p0.pos;
@@ -684,66 +683,58 @@ float3 translatePoint(int splatIndex, float3 p) {
         float3 projPoint = p - perpDistance * normal;
         
         // Check if point is inside triangle and cache result
+        isInside[validCount] = isPointInsideTriangle(p, t.p0.pos, t.p1.pos, t.p2.pos);
         
         // Compute weight based on distance and perpendicular distance
         float distanceToCentroid = length(projPoint - center);
-        // float weight = 1 / (exp(DistanceToTriangle(t, p)) + 1e-5);
-        float weight = surfaceArea / (exp(distanceToCentroid) * sqrt(abs(perpDistance) + 1e-5));
-
+        float weight = triangleWeight * surfaceArea / ((exp(distanceToCentroid) * sqrt(abs(perpDistance) + 1e-5)));
+        
         if (weight > 0) {
             totalWeight += weight;
-            weights[i] = weight;
-            validCount++;
+            weights[validCount] = weight;
         } else {
-            weights[i] = 0;
+            weights[validCount] = 0;
             // Find closest triangle for fallback
             float dist = length(p - center);
             if (dist < closestDist) {
                 closestDist = dist;
-                closestId = i;
+                closestId = validCount;
             }
-        }        
+        }
+        
+        validCount++;
     }
-
+    
     // Handle case where no valid weights were found
-    if (validCount == 0) {
-        if (closestId == -1) {
+    if (totalWeight <= 0 && validCount > 0) {
+        if (closestId >= 0) {
+            weights[closestId] = 1.0;
+            totalWeight = 1.0;
+        } else {
             return float3(0,0,0);
         }
-        weights[closestId] = 1.0;
-        totalWeight = 1.0;
-    } 
-    
-    if (totalWeight == 0) {
-        return p;
+    } else if (validCount == 0) {
+        return float3(0,0,0);
     }
-
     
     // Second pass: transform point using cached data
     float3 finalPoint = float3(0,0,0);
+    
     [unroll]
-    for (int j = 0; j < 8; j++) {
+    for (int j = 0; j < validCount; j++) {
+        if (weights[j] <= 0) continue;
+        
         float normalizedWeight = weights[j] / totalWeight;
-
-        if (normalizedWeight <= 0) continue;
+        Triangle t = triangles[j];
         
-        int triangleId = currentSplat.triangleIds[j];
-        Triangle t;
-        t.p0 = _VertexProps[_TriangleProps[triangleId].vertexId1];
-        t.p1 = _VertexProps[_TriangleProps[triangleId].vertexId2];
-        t.p2 = _VertexProps[_TriangleProps[triangleId].vertexId3];
-        
-        bool isInside = isPointInsideTriangle(p, t.p0.pos, t.p1.pos, t.p2.pos);
-        if (isInside) {
+        if (isInside[j]) {
             // Pre-calculated triangle data
-            float3 center = (t.p0.pos + t.p1.pos + t.p2.pos) / 3.0;
-            float3 edge1 = t.p1.pos - t.p0.pos;
-            float3 edge2 = t.p2.pos - t.p0.pos;
-            float3 normal = normalize(cross(edge1, edge2));
+            float3 center = triangleCenters[j];
+            float3 normal = triangleNormals[j];
             float3 autoVert = center + normal;
             
             // Modified triangle data
-            float3 modCenter = (t.p0.pos + t.p1.pos + t.p2.pos + t.p0.posMod + t.p1.posMod + t.p2.posMod) / 3.0;
+            float3 modCenter = (t.p0.pos + t.p1.pos + t.p2.pos + t.p0.posMod + t.p1.posMod + t.p2.posMod) / 6.0;
             
             // Avoid recalculating cross product
             float3 modEdge1 = (t.p1.pos + t.p1.posMod) - (t.p0.pos + t.p0.posMod);
@@ -770,15 +761,9 @@ float3 translatePoint(int splatIndex, float3 p) {
             finalPoint += tancTransformed * normalizedWeight;
         }
     }
-
-    if (abs(totalWeight - 1) < 0.00001) {
-        return p;
-    }
     
     return finalPoint;
 }
-
-
 
 ModSplat calcModSplat(int splatIndex, SplatData splat) {
     
@@ -807,7 +792,7 @@ ModSplat calcModSplat(int splatIndex, SplatData splat) {
 
     // Ensure numerical stability
     float maxScale = max(splat.scale.x, max(splat.scale.y, splat.scale.z));
-    splat.scale = max(splat.scale, maxScale / 1000.0);
+    splat.scale = max(splat.scale, maxScale / 10.0);
 
     Tetrahedron baseTetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
     Tetrahedron transformTetra;
@@ -817,7 +802,7 @@ ModSplat calcModSplat(int splatIndex, SplatData splat) {
     transformTetra.v3 = translatePoint(splatIndex, baseTetra.v3);
 
     ModSplat mod;
-    fitSteinerCircumellipsoid(transformTetra, mod);
+    fitSteinerCircumellipsoid(transformTetra, mod, splat);
 
     return mod;
 }

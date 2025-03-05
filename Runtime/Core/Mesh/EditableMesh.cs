@@ -6,7 +6,6 @@ namespace UnityEngine.GsplEdit
 {
     public class EditableMesh : ScriptableObject
     {
-
         private Vertex[] m_Vertices;
         private int[] m_Indices;
         private Edge[] m_Edges;
@@ -64,7 +63,6 @@ namespace UnityEngine.GsplEdit
             m_ModifierSystem = modSystem;
 
             m_Context.vertexCount = m_Vertices.Length;
-            m_Context.edgeCount = m_Edges.Length;
             m_Context.triangleCount = m_Triangles.Length;
 
             m_LocalPos = new Vector3();
@@ -128,9 +126,7 @@ namespace UnityEngine.GsplEdit
                     m_IndexBuffer = new ComputeBuffer(m_Indices.Length, sizeof(int));
                     m_IndexBuffer.SetData(m_Indices);
                 }
-
-                m_Context.gpuMeshEdges = new ComputeBuffer(m_Context.edgeCount, sizeof(Edge));
-                m_Context.gpuMeshEdges.SetData(m_Edges);
+                
                 m_Context.gpuMeshTriangles = new ComputeBuffer(m_Context.triangleCount, sizeof(Triangle));
                 m_Context.gpuMeshTriangles.SetData(m_Triangles);
 

@@ -31,7 +31,7 @@ namespace UnityEngine.GsplEdit
         private float m_FalloffExponent = 2.0f;
         
         // Compute resources
-        private ComputeShader m_ComputeShader;
+        public ComputeShader m_ComputeShader;
         private GraphicsBuffer m_RigWeightsBuffer;
         private BoneWeight[] m_VertexBoneWeights;
         private bool m_WeightsCalculated = false;
@@ -44,13 +44,6 @@ namespace UnityEngine.GsplEdit
         {
             m_Context = context;
             m_SelectionGroup = selectionGroup;
-            
-            // Load compute shader
-            m_ComputeShader = Resources.Load<ComputeShader>("RiggingCompute");
-            if (m_ComputeShader == null)
-            {
-                Debug.LogError("Failed to load RiggingCompute shader. Please ensure it exists in Resources folder.");
-            }
         }
         
         ~RiggingModifier()
@@ -78,6 +71,8 @@ namespace UnityEngine.GsplEdit
             if (m_Context.gpuMeshVerts == null)
                 throw new InvalidOperationException("GraphicsBuffer is not initialized.");
            
+            Debug.Log(m_ComputeShader);
+
             if (m_ComputeShader == null)
                 throw new InvalidOperationException("Compute Shader is not assigned.");
            

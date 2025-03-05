@@ -1,8 +1,5 @@
-using System.Linq;
-
 namespace UnityEngine.GsplEdit
 {
-
     public class SharedComputeContext
     {
         public SplatData splatData;
@@ -12,14 +9,13 @@ namespace UnityEngine.GsplEdit
         public GraphicsBuffer gpuGSChunks;
         public Texture gpuGSColorData;
 
-        public GraphicsBuffer gpuMeshVerts; // Store vertices after applying the modifier system
-        public ComputeBuffer gpuMeshEdges;
+        public GraphicsBuffer gpuMeshVerts;
         public ComputeBuffer gpuMeshTriangles;
         public ComputeBuffer gpuForwardLinks; // Links from splats to vertices
         public ComputeBuffer gpuBackwardLinks; // Links from vertices to splats
+        public Texture meshTexture;
 
         public int vertexCount;
-        public int edgeCount;
         public int triangleCount;
         public int splatCount;
 

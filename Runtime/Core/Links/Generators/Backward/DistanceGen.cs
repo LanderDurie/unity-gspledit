@@ -29,11 +29,9 @@ namespace UnityEngine.GsplEdit
 
             m_DistanceBasedLinkageCompute.SetBuffer(0, "_VertexProps", context.gpuMeshVerts);
             m_DistanceBasedLinkageCompute.SetBuffer(0, "_SplatLinkBuffer", context.gpuForwardLinks);
-            m_DistanceBasedLinkageCompute.SetBuffer(0, "_EdgeProps", context.gpuMeshEdges);
 
             m_DistanceBasedLinkageCompute.SetInt("_SplatCount", context.splatData.splatCount);
             m_DistanceBasedLinkageCompute.SetInt("_VertexCount", context.vertexCount);
-            m_DistanceBasedLinkageCompute.SetInt("_EdgeCount", context.edgeCount);
 
             // Calculate number of thread groups needed
             int numThreadGroups = Mathf.CeilToInt((float)context.splatData.splatCount / m_Settings.threadsPerGroup);
