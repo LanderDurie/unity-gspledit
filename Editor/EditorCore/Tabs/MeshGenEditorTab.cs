@@ -146,22 +146,28 @@ namespace UnityEditor.GsplEdit
 
         private void DrawInterpolateSettings(InterpolateGen linkGen)
         {
-            // linkGen.m_Settings.sigma = EditorGUILayout.Slider(
-            //     new GUIContent("Distribution Size", ""), 
-            //     linkGen.m_Settings.sigma, 
-            //     0.01f, 
-            //     5.0f
-            // );
+            linkGen.m_Settings.blendFactor = EditorGUILayout.Slider(
+                new GUIContent("Blend Factor", ""), 
+                linkGen.m_Settings.blendFactor, 
+                0.0f, 
+                100.0f
+            );
         }
 
         private void DrawPCASmoothSettings(PCASmoothGen linkGen)
         {
-            // linkGen.m_Settings.sigma = EditorGUILayout.Slider(
-            //     new GUIContent("Distribution Size", ""), 
-            //     linkGen.m_Settings.sigma, 
-            //     0.01f, 
-            //     5.0f
-            // );
+            linkGen.m_Settings.startBlend = EditorGUILayout.Slider(
+                new GUIContent("Start Blend Distance", ""), 
+                linkGen.m_Settings.startBlend, 
+                0.0f, 
+                50.0f
+            );
+            linkGen.m_Settings.stopBlend = EditorGUILayout.Slider(
+                new GUIContent("Stop Blend Distance", ""), 
+                linkGen.m_Settings.stopBlend, 
+                0.0f, 
+                100.0f
+            );
         }
     }
 }

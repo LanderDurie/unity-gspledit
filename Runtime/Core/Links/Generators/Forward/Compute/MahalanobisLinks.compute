@@ -1,38 +1,12 @@
 #pragma kernel OpacityContributions
 #include "../../../../Gaussian/Compute/GaussianSplatting.hlsl"
+#include "../../../Compute/LinkUtilities.hlsl"
+#include "../../../../Mesh/Compute/MeshUtilities.hlsl"
 
-struct VertexProperties {
-    float3 pos;
-    float3 normal;
-    uint colorIds[4];
-    float3 posMod;
-    float4 rotMod;
-    float3 scaleMod;
-    uint colorModIds[4];
-};
 
-struct TriangleProperties {
-    int vertexId1;
-    int vertexId2;
-    int vertexId3;
-};
-
-struct SplatLinks {
-    int triangleIds[8];
-    float triangleWeights[8];
-    float triangleX[8];
-    float triangleY[8];
-};
-
-RWStructuredBuffer<VertexProperties> _VertexProps;
-RWStructuredBuffer<TriangleProperties> _TriangleProps;
-RWStructuredBuffer<SplatLinks> _SplatLinkBuffer;
 uint _SplatCount;
-uint _VertexCount;
-uint _TriangleCount;
 float _GlobalSigma;
 static const float MAX_DISTANCE = 1e30f;
-static const int MAX_LINKS = 8;
 
 // Helper function to convert a 3x3 matrix to a 4x4 matrix
 float4x4 Convert3x3To4x4(float3x3 mat3x3) {
@@ -111,33 +85,34 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
 
     SplatData splat = LoadSplatData(splatIndex);
 
-    float minDistances[MAX_LINKS] = { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, 
+    float minDistances[LINK_COUNT] = { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, 
                                       MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE };
-    float minX[MAX_LINKS] = { 0, 0, 0, 0, 0, 0, 0, 0 };
-    float minY[MAX_LINKS] = { 0, 0, 0, 0, 0, 0, 0, 0 };
-    int minIndices[MAX_LINKS] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+    float minX[LINK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    float minY[LINK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    int minIndices[LINK_COUNT] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 
     // First pass: find closest triangles
     [loop]
-    for (uint i = 0; i < _TriangleCount; i++) {
-        float3 worldDistance = dist(
-            _VertexProps[_TriangleProps[i].vertexId1].pos, 
-            _VertexProps[_TriangleProps[i].vertexId2].pos, 
-            _VertexProps[_TriangleProps[i].vertexId3].pos, 
-            splat.pos);
+    for (uint i = 0; i < _IndexCount; i++) {
 
         // Transform vertices to splat's local space
-        float3 pos1 = (_VertexProps[_TriangleProps[i].vertexId1].pos);
-        float3 pos2 = (_VertexProps[_TriangleProps[i].vertexId2].pos);
-        float3 pos3 = (_VertexProps[_TriangleProps[i].vertexId3].pos);
+        float3 pos1 = LoadVertexPos1(i).pos;
+        float3 pos2 = LoadVertexPos2(i).pos;
+        float3 pos3 = LoadVertexPos3(i).pos;
+
+        float3 worldDistance = dist(
+            pos1, 
+            pos2, 
+            pos3, 
+            splat.pos);
 
         float3 localDistance = dist(pos1, pos2, pos3, splat.pos);
 
         // Insert the new distance and index into the sorted list
-        for (int j = 0; j < MAX_LINKS; j++) {
+        for (uint j = 0; j < LINK_COUNT; j++) {
             if (localDistance.x < minDistances[j]) {
                 // Shift existing values down
-                for (int k = MAX_LINKS - 1; k > j; k--) {
+                for (uint k = LINK_COUNT - 1; k > j; k--) {
                     minDistances[k] = minDistances[k - 1];
                     minIndices[k] = minIndices[k - 1];
                     minX[k] = minX[k - 1];
@@ -156,13 +131,13 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
     }
 
     // Calculate weights and store results
-    SplatLinks splatLinks;
+    SplatLink splatLinks;
     float totalWeight = 0.0f;
     float sigmaSquared = _GlobalSigma * _GlobalSigma;
     float threshold = 0;
 
     [unroll]
-    for (int j = 0; j < MAX_LINKS; j++) {
+    for (uint j = 0; j < LINK_COUNT; j++) {
         float weight = exp(-0.5 * (minDistances[j] * minDistances[j]) / sigmaSquared);
         if (j == 0) {
         splatLinks.triangleIds[j] = (weight > threshold) ? minIndices[j] : -1;
@@ -183,10 +158,10 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
     // Normalize weights if total weight is non-zero
     if (totalWeight > 0) {
         [unroll]
-        for (int k = 0; k < MAX_LINKS; k++) {
+        for (uint k = 0; k < LINK_COUNT; k++) {
             splatLinks.triangleWeights[k] /= totalWeight;
         }
     }
 
-    _SplatLinkBuffer[splatIndex] = splatLinks;
+    SetSplatLink(splatIndex, splatLinks);
 }

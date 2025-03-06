@@ -107,7 +107,7 @@ namespace UnityEngine.GsplEdit
         }
 
         private void ResetBuffer() {
-            Graphics.CopyBuffer(m_Mesh.m_VertexBuffer, m_Context.gpuMeshVerts);
+            Graphics.CopyBuffer(m_Mesh.m_VertexBuffer, m_Context.gpuMeshPosData);
         }
 
         public void ShowModifierDropdown(Action<Modifier> onModifierSelected, SelectionGroup selectionGroup)

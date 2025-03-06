@@ -5,13 +5,13 @@ namespace UnityEngine.GsplEdit
 {
     public class VertexSelectionGroup
     {
-        private Vertex[] m_SplatVertices;
+        private VertexPos[] m_SplatVertices;
         public uint[] m_SelectedBits;
         public uint m_SelectedCount = 0;
         public Vector3 m_CenterPos;
         public ComputeBuffer m_SelectedVerticesBuffer;
 
-        public VertexSelectionGroup(ref Vertex[] vertices)
+        public VertexSelectionGroup(ref VertexPos[] vertices)
         {
             m_SplatVertices = vertices;
             int selectionBufferSize = (vertices.Length + 31) / 32;
@@ -25,7 +25,7 @@ namespace UnityEngine.GsplEdit
 
         }
 
-        public VertexSelectionGroup(ref Vertex[] vertices, uint[] selectedBits, uint count, Vector3 centerPos, ComputeBuffer selectedBuffer)
+        public VertexSelectionGroup(ref VertexPos[] vertices, uint[] selectedBits, uint count, Vector3 centerPos, ComputeBuffer selectedBuffer)
         {
             m_SplatVertices = vertices;
             m_SelectedBits = selectedBits;

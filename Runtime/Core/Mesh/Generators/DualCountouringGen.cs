@@ -349,7 +349,7 @@ namespace UnityEngine.GsplEdit
             }
         }
 
-        private void GenerateMesh(Settings settings, List<SplatData> splats, OctreeNode node, List<Vertex> vertices, List<int> indices)
+        private void GenerateMesh(Settings settings, List<SplatData> splats, OctreeNode node, List<VertexPos> vertices, List<int> indices)
         {
             if (node == null) return;
 
@@ -381,7 +381,7 @@ namespace UnityEngine.GsplEdit
             // }
         }
 
-        private void GenerateCube(Settings settings, OctreeNode node, List<Vertex> vertices, List<int> indices, List<SplatData> splats) {
+        private void GenerateCube(Settings settings, OctreeNode node, List<VertexPos> vertices, List<int> indices, List<SplatData> splats) {
 
             int x = settings.lod;
             int y = settings.lod;
@@ -459,7 +459,7 @@ namespace UnityEngine.GsplEdit
             }
         }
 
-        private void GeneratePoint(Vector3 center, List<Vertex> vertices, List<int> indices) {
+        private void GeneratePoint(Vector3 center, List<VertexPos> vertices, List<int> indices) {
 
             // Define the 8 cube vertices
             Vector3[] verts = new Vector3[]
@@ -473,7 +473,7 @@ namespace UnityEngine.GsplEdit
             int baseIndex = vertices.Count;
             for (int i = 0; i < verts.Length; i++)
             {
-                vertices.Add(new Vertex { position = verts[i] });
+                vertices.Add(new VertexPos { position = verts[i] });
             }
 
             int[] cubeIndices = new int[]
@@ -569,7 +569,7 @@ namespace UnityEngine.GsplEdit
         }
 
 
-        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref int[] indexList)
+        public unsafe override void Generate(SharedComputeContext context, ref VertexPos[] vertexList, ref int[] indexList)
         {
             Vector3 size = context.splatData.boundsMax - context.splatData.boundsMin;
             Vector3 center = (context.splatData.boundsMax + context.splatData.boundsMin) * 0.5f;
@@ -608,7 +608,7 @@ namespace UnityEngine.GsplEdit
             ProcessLeafNodes(m_Root, m_Settings, splatList);
 
             // Generate the final mesh
-            List<Vertex> vertices = new List<Vertex>();
+            List<VertexPos> vertices = new List<VertexPos>();
             List<int> indices = new List<int>();
             
             GenerateMesh(m_Settings, splatList, m_Root, vertices, indices);

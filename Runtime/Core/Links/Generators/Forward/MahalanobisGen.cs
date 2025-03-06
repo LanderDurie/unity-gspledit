@@ -28,13 +28,13 @@ namespace UnityEngine.GsplEdit
             m_MahalanobisBasedLinkageCompute.SetInt("_SplatFormat", (int)format);
             m_MahalanobisBasedLinkageCompute.SetTexture(0, "_SplatColor", context.gpuGSColorData);
 
-            m_MahalanobisBasedLinkageCompute.SetBuffer(0, "_VertexProps", context.gpuMeshVerts);
-            m_MahalanobisBasedLinkageCompute.SetBuffer(0, "_SplatLinkBuffer", context.gpuForwardLinks);
-            m_MahalanobisBasedLinkageCompute.SetBuffer(0, "_TriangleProps", context.gpuMeshTriangles);
+            m_MahalanobisBasedLinkageCompute.SetBuffer(0, "_MeshVertexPos", context.gpuMeshPosData);
+            m_MahalanobisBasedLinkageCompute.SetBuffer(0, "_SplatLinks", context.gpuForwardLinks);
+            m_MahalanobisBasedLinkageCompute.SetBuffer(0, "_MeshIndices", context.gpuMeshIndexData);
 
             m_MahalanobisBasedLinkageCompute.SetInt("_SplatCount", context.splatData.splatCount);
             m_MahalanobisBasedLinkageCompute.SetInt("_VertexCount", context.vertexCount);
-            m_MahalanobisBasedLinkageCompute.SetInt("_TriangleCount", context.triangleCount);
+            m_MahalanobisBasedLinkageCompute.SetInt("_IndexCount", context.triangleCount);
             m_MahalanobisBasedLinkageCompute.SetFloat("_GlobalSigma", m_Settings.sigma);
 
             // Calculate number of thread groups needed

@@ -6,7 +6,7 @@ namespace UnityEngine.GsplEdit
         public class Settings
         {
             public uint threadsPerGroup = 64;
-            public float sigma = 1.0f;
+            public float blendFactor = 1.0f;
         }
 
         public Settings m_Settings = new();
@@ -25,14 +25,14 @@ namespace UnityEngine.GsplEdit
             m_InterpolateLinkageCompute.SetInt("_SplatFormat", (int)format);
             m_InterpolateLinkageCompute.SetTexture(0, "_SplatColor", context.gpuGSColorData);
 
-            m_InterpolateLinkageCompute.SetBuffer(0, "_VertexProps", context.gpuMeshVerts);
-            m_InterpolateLinkageCompute.SetBuffer(0, "_SplatLinkBuffer", context.gpuForwardLinks);
-            m_InterpolateLinkageCompute.SetBuffer(0, "_TriangleProps", context.gpuMeshTriangles);
+            m_InterpolateLinkageCompute.SetBuffer(0, "_MeshVertexPos", context.gpuMeshPosData);
+            m_InterpolateLinkageCompute.SetBuffer(0, "_SplatLinks", context.gpuForwardLinks);
+            m_InterpolateLinkageCompute.SetBuffer(0, "_MeshIndices", context.gpuMeshIndexData);
 
             m_InterpolateLinkageCompute.SetInt("_SplatCount", context.splatData.splatCount);
             m_InterpolateLinkageCompute.SetInt("_VertexCount", context.vertexCount);
-            m_InterpolateLinkageCompute.SetInt("_TriangleCount", context.triangleCount);
-            m_InterpolateLinkageCompute.SetFloat("_GlobalSigma", m_Settings.sigma);
+            m_InterpolateLinkageCompute.SetInt("_IndexCount", context.triangleCount);
+            m_InterpolateLinkageCompute.SetFloat("_BlendFactor", m_Settings.blendFactor);
 
             // Calculate number of thread groups needed
             int numThreadGroups = Mathf.CeilToInt((float)context.splatData.splatCount / m_Settings.threadsPerGroup);

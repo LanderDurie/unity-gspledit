@@ -43,10 +43,10 @@ namespace UnityEngine.GsplEdit
                 // Create mesh buffers
                 m_Context.vertexCount = 1;
                 m_Context.triangleCount = 1;
-                m_Context.gpuMeshVerts = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.vertexCount, sizeof(Vertex)) { name = "MeshVertices" };
-                m_Context.gpuMeshVerts.SetData(Enumerable.Repeat(Vertex.Default(), m_Context.vertexCount).ToArray());
-                m_Context.gpuMeshTriangles = new ComputeBuffer(m_Context.triangleCount, sizeof(Triangle));
-                m_Context.gpuMeshTriangles.SetData(Enumerable.Repeat(new Triangle(0, 0, 0), m_Context.triangleCount).ToArray());
+                m_Context.gpuMeshPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.vertexCount, sizeof(VertexPos)) { name = "MeshVertices" };
+                m_Context.gpuMeshPosData.SetData(Enumerable.Repeat(VertexPos.Default(), m_Context.vertexCount).ToArray());
+                m_Context.gpuMeshIndexData = new ComputeBuffer(m_Context.triangleCount, sizeof(Triangle));
+                m_Context.gpuMeshIndexData.SetData(Enumerable.Repeat(new Triangle(0, 0, 0), m_Context.triangleCount).ToArray());
 
                 // Create link buffers
                 m_Context.gpuForwardLinks = new ComputeBuffer(m_Context.splatData.splatCount, sizeof(ForwardLink));
@@ -72,10 +72,10 @@ namespace UnityEngine.GsplEdit
             m_Context.gpuGSOtherData = null;
             m_Context.gpuGSSHData?.Dispose();
             m_Context.gpuGSSHData = null;
-            m_Context.gpuMeshVerts?.Dispose();
-            m_Context.gpuMeshVerts = null;
-            m_Context.gpuMeshTriangles?.Dispose();
-            m_Context.gpuMeshTriangles = null;
+            m_Context.gpuMeshPosData?.Dispose();
+            m_Context.gpuMeshPosData = null;
+            m_Context.gpuMeshIndexData?.Dispose();
+            m_Context.gpuMeshIndexData = null;
             m_Context.gpuForwardLinks?.Dispose();
             m_Context.gpuForwardLinks = null;
             m_Context.gpuBackwardLinks?.Dispose();

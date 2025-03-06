@@ -6,7 +6,7 @@ namespace UnityEngine.GsplEdit
 {
     public class EditableMesh : ScriptableObject
     {
-        private Vertex[] m_Vertices;
+        private VertexPos[] m_Vertices;
         private int[] m_Indices;
         private Edge[] m_Edges;
         private Triangle[] m_Triangles;
@@ -53,7 +53,7 @@ namespace UnityEngine.GsplEdit
             VertexTransform
         }
 
-        public void Initialize(ref SharedComputeContext context, ref ModifierSystem modSystem, Vertex[] vertices, int[] indices, Edge[] edges, Triangle[] triangles)
+        public void Initialize(ref SharedComputeContext context, ref ModifierSystem modSystem, VertexPos[] vertices, int[] indices, Edge[] edges, Triangle[] triangles)
         {
             m_Indices = indices;
             m_Vertices = vertices;
@@ -102,7 +102,7 @@ namespace UnityEngine.GsplEdit
 
         private bool AreBuffersValid()
         {
-            if (m_Context != null && m_VertexBuffer == null || m_Context == null || m_Context.gpuMeshVerts == null || m_IndexBuffer == null || m_SelectionGroup.m_SelectedVerticesBuffer == null)
+            if (m_Context != null && m_VertexBuffer == null || m_Context == null || m_Context.gpuMeshPosData == null || m_IndexBuffer == null || m_SelectionGroup.m_SelectedVerticesBuffer == null)
                 return false;
 
             return true;
@@ -115,9 +115,9 @@ namespace UnityEngine.GsplEdit
                 // Create vertex buffer
                 if (m_Context.vertexCount > 0)
                 {
-                    m_VertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.vertexCount, sizeof(Vertex)) { name = "vertices" };
+                    m_VertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.vertexCount, sizeof(VertexPos)) { name = "vertices" };
                     m_VertexBuffer.SetData(m_Vertices);
-                    m_Context.gpuMeshVerts = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopyDestination, m_Context.vertexCount, sizeof(Vertex)) { name = "modifiedVertices" };
+                    m_Context.gpuMeshPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopyDestination, m_Context.vertexCount, sizeof(VertexPos)) { name = "modifiedVertices" };
                 }
 
                 // Create triangle buffer
@@ -127,8 +127,8 @@ namespace UnityEngine.GsplEdit
                     m_IndexBuffer.SetData(m_Indices);
                 }
                 
-                m_Context.gpuMeshTriangles = new ComputeBuffer(m_Context.triangleCount, sizeof(Triangle));
-                m_Context.gpuMeshTriangles.SetData(m_Triangles);
+                m_Context.gpuMeshIndexData = new ComputeBuffer(m_Context.triangleCount, sizeof(Triangle));
+                m_Context.gpuMeshIndexData.SetData(m_Triangles);
 
 
                 // Create arguments buffer
@@ -164,8 +164,8 @@ namespace UnityEngine.GsplEdit
             {
                 m_VertexBuffer.Release();
                 m_VertexBuffer = null;
-                m_Context.gpuMeshVerts.Release();
-                m_Context.gpuMeshVerts = null;
+                m_Context.gpuMeshPosData.Release();
+                m_Context.gpuMeshPosData = null;
             }
 
             if (m_IndexBuffer != null)
@@ -316,11 +316,11 @@ namespace UnityEngine.GsplEdit
 
         public void DrawFill()
         {
-            if (!AreBuffersValid() || m_Context.gpuMeshVerts == null || !m_FillMaterial)
+            if (!AreBuffersValid() || m_Context.gpuMeshPosData == null || !m_FillMaterial)
                 return;
 
             // Set up material properties
-            m_FillMaterial.SetBuffer("_VertexProps", m_Context.gpuMeshVerts);
+            m_FillMaterial.SetBuffer("_MeshVertexPos", m_Context.gpuMeshPosData);
             m_FillMaterial.SetBuffer("_IndexBuffer", m_IndexBuffer);
             m_FillMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
 
@@ -344,11 +344,11 @@ namespace UnityEngine.GsplEdit
 
         public void DrawSelectedVertices()
         {
-            if (m_Context == null || m_Context.gpuMeshVerts == null || m_SelectionGroup.m_SelectedVerticesBuffer == null || !m_SelectedVertexMaterial)
+            if (m_Context == null || m_Context.gpuMeshPosData == null || m_SelectionGroup.m_SelectedVerticesBuffer == null || !m_SelectedVertexMaterial)
                 return;
 
             // Set up material properties
-            m_SelectedVertexMaterial.SetBuffer("_VertexProps", m_Context.gpuMeshVerts);
+            m_SelectedVertexMaterial.SetBuffer("_MeshVertexPos", m_Context.gpuMeshPosData);
             m_SelectedVertexMaterial.SetBuffer("_VertexSelectedBits", m_SelectionGroup.m_SelectedVerticesBuffer);
             m_SelectedVertexMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
 
@@ -359,11 +359,11 @@ namespace UnityEngine.GsplEdit
 
         public void DrawWireframe()
         {
-            if (!AreBuffersValid() || m_Context.gpuMeshVerts == null || !m_WireframeMaterial)
-                return;
+            // if (!AreBuffersValid() || m_Context.gpuMeshPosData == null || !m_WireframeMaterial)
+            //     return;
 
             // Set up material properties
-            m_WireframeMaterial.SetBuffer("_VertexProps", m_Context.gpuMeshVerts);
+            m_WireframeMaterial.SetBuffer("_MeshVertexPos", m_Context.gpuMeshPosData);
             m_WireframeMaterial.SetBuffer("_IndexBuffer", m_IndexBuffer);
             m_WireframeMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
 

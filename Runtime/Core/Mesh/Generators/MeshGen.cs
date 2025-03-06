@@ -40,7 +40,7 @@ namespace UnityEngine.GsplEdit
         public EditableMesh Generate(ref ModifierSystem modSystem)
         {
 
-            Vertex[] vertexList = new Vertex[0];
+            VertexPos[] vertexList = new VertexPos[0];
             int[] indexList = new int[0];
             Edge[] edgeList = new Edge[0];
             Triangle[] triangleList = new Triangle[0];

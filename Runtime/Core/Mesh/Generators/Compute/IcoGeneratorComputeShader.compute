@@ -1,5 +1,6 @@
 #pragma kernel Generate
 #include "../../../Gaussian/Compute/GaussianSplatting.hlsl"
+#include "../../Compute/MeshUtilities.hlsl"
 
 #define FLT_MAX 3.402823466e+38
 #define FLT_MIN -3.402823466e+38

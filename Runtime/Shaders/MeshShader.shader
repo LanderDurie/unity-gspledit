@@ -28,12 +28,7 @@ Shader "Custom/ProceduralMeshShader"
 
             struct VertexProperties {
                 float3 pos;
-                float3 normal;
-                uint colorIds[4];
                 float3 posMod;
-                float4 rotMod;
-                float3 scaleMod;
-                uint colorModIds[4];
             };
 
             StructuredBuffer<VertexProperties> _VertexProps;
@@ -56,7 +51,7 @@ Shader "Custom/ProceduralMeshShader"
 
                 float3 worldPos = mul(_ObjectToWorld, float4(_VertexProps[index].pos + _VertexProps[index].posMod, 1.0)).xyz;
                 o.pos = UnityWorldToClipPos(worldPos);
-                o.normal = UnityObjectToWorldNormal(_VertexProps[index].normal);
+                // o.normal = UnityObjectToWorldNormal(_VertexProps[index].normal);
                 return o;
             }
 
@@ -87,12 +82,7 @@ Shader "Custom/ProceduralMeshShader"
 
             struct VertexProperties {
                 float3 pos;
-                float3 normal;
-                uint colorIds[4];
                 float3 posMod;
-                float4 rotMod;
-                float3 scaleMod;
-                uint colorModIds[4];
             };
 
             StructuredBuffer<VertexProperties> _VertexProps;

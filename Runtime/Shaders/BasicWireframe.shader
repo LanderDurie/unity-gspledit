@@ -39,14 +39,8 @@ Shader "Custom/ProceduralWireframeCubes"
             };
 
             struct VertexProperties {
-                float3 pos;          // 12 bytes (3 * 4)
-                float3 normal;       // 12 bytes (3 * 4)
-                uint colorIds[4];    // 16 bytes (4 * 4)
-                float3 posMod;       // 12 bytes (3 * 4)
-                float4 rotMod;       // 16 bytes (4 * 4)
-                float3 scaleMod;     // 12 bytes (3 * 4)
-                uint colorModIds[4]; // 48 bytes (4 * 12)
-                // Total size: 128 bytes
+                float3 pos;
+                float3 posMod;
             };
 
             StructuredBuffer<VertexProperties> _VertexProps;

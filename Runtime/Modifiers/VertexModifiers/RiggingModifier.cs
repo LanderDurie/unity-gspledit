@@ -68,7 +68,7 @@ namespace UnityEngine.GsplEdit
                 return;
             }
             
-            if (m_Context.gpuMeshVerts == null)
+            if (m_Context.gpuMeshPosData == null)
                 throw new InvalidOperationException("GraphicsBuffer is not initialized.");
            
             Debug.Log(m_ComputeShader);
@@ -79,7 +79,7 @@ namespace UnityEngine.GsplEdit
             int kernel = m_ComputeShader.FindKernel("ApplyRigWeights");
            
             // Set buffers
-            m_ComputeShader.SetBuffer(kernel, "vertexBuffer", m_Context.gpuMeshVerts);
+            m_ComputeShader.SetBuffer(kernel, "vertexBuffer", m_Context.gpuMeshPosData);
             m_ComputeShader.SetBuffer(kernel, "_VertexSelectedBits", m_SelectionGroup.m_SelectedVerticesBuffer);
             m_ComputeShader.SetBuffer(kernel, "_RigWeights", m_RigWeightsBuffer);
             
@@ -186,8 +186,8 @@ namespace UnityEngine.GsplEdit
             }
             
             // Get mesh data from compute context
-            Vertex[] vertices = new Vertex[m_Context.vertexCount];
-            m_Context.gpuMeshVerts.GetData(vertices);
+            VertexPos[] vertices = new VertexPos[m_Context.vertexCount];
+            m_Context.gpuMeshPosData.GetData(vertices);
             
             // Initialize the weight storage array
             m_VertexBoneWeights = new BoneWeight[vertices.Length];

@@ -27,7 +27,7 @@ namespace UnityEngine.GsplEdit
             m_DistanceBasedLinkageCompute.SetInt("_SplatFormat", (int)format);
             m_DistanceBasedLinkageCompute.SetTexture(0, "_SplatColor", context.gpuGSColorData);
 
-            m_DistanceBasedLinkageCompute.SetBuffer(0, "_VertexProps", context.gpuMeshVerts);
+            m_DistanceBasedLinkageCompute.SetBuffer(0, "_MeshVertexPos", context.gpuMeshPosData);
             m_DistanceBasedLinkageCompute.SetBuffer(0, "_SplatLinkBuffer", context.gpuForwardLinks);
 
             m_DistanceBasedLinkageCompute.SetInt("_SplatCount", context.splatData.splatCount);

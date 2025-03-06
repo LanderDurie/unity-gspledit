@@ -37,7 +37,7 @@ namespace UnityEngine.GsplEdit
         public ComputeShader m_IcosahedronComputeShader;
 
 
-        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref int[] indexList)
+        public unsafe override void Generate(SharedComputeContext context, ref VertexPos[] vertexList, ref int[] indexList)
         {
             int splatCount = context.splatData.splatCount;
 
@@ -126,7 +126,7 @@ namespace UnityEngine.GsplEdit
 
             for (int i = 0; i < vertices.Count; i++)
             {
-                vertexList[i] = Vertex.Default();
+                vertexList[i] = VertexPos.Default();
                 vertexList[i].position = vertices[i];
             }
 

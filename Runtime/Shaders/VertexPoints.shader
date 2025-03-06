@@ -36,21 +36,16 @@ Shader "Custom/ProceduralPointAroundVertices"
                 float4 color : COLOR;
             };
 
-            struct VertexProperties {
-                float3 pos;          // 12 bytes (3 * 4)
-                float3 normal;       // 12 bytes (3 * 4)
-                uint colorIds[4];         // 16 bytes (4 * 4)
-                float3 posMod;       // 12 bytes (3 * 4)
-                float4 rotMod;       // 16 bytes (4 * 4)
-                float3 scaleMod;     // 12 bytes (3 * 4)
-                uint colorModIds[4]; // 48 bytes (4 * 12)
-                // Total size: 128 bytes
+            struct VertexPos {
+                float3 pos;
+                float3 posMod; 
             };
+
+            StructuredBuffer<VertexPos> _MeshVertexPos;
 
             float _PointSize;
             float4 _DefaultColor;
             float4 _SelectedColor;
-            StructuredBuffer<VertexProperties> _VertexProps;
 
             ByteAddressBuffer _VertexSelectedBits;
             float4x4 _ObjectToWorld;
@@ -61,7 +56,7 @@ Shader "Custom/ProceduralPointAroundVertices"
                 v2g o;
 
                 // Read position from buffer and transform to world space
-                float3 vertex = _VertexProps[vid].pos + _VertexProps[vid].posMod;
+                float3 vertex = _MeshVertexPos[vid].pos + _MeshVertexPos[vid].posMod;
                 float3 worldPos = mul(_ObjectToWorld, float4(vertex, 1.0)).xyz;
                 o.pos = UnityWorldToClipPos(worldPos);
 

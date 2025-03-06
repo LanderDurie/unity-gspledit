@@ -9,11 +9,12 @@ namespace UnityEngine.GsplEdit
         public GraphicsBuffer gpuGSChunks;
         public Texture gpuGSColorData;
 
-        public GraphicsBuffer gpuMeshVerts;
-        public ComputeBuffer gpuMeshTriangles;
+        public GraphicsBuffer gpuMeshPosData;
+        public ComputeBuffer gpuMeshIndexData;
+        
         public ComputeBuffer gpuForwardLinks; // Links from splats to vertices
         public ComputeBuffer gpuBackwardLinks; // Links from vertices to splats
-        public Texture meshTexture;
+        public RenderTexture offscreenMeshTarget;
 
         public int vertexCount;
         public int triangleCount;

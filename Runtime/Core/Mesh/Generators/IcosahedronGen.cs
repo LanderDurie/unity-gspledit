@@ -35,7 +35,7 @@ namespace UnityEngine.GsplEdit
         public Settings m_Settings = new();
         public ComputeShader m_IcosahedronComputeShader;
 
-        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref int[] indexList) {
+        public unsafe override void Generate(SharedComputeContext context, ref VertexPos[] vertexList, ref int[] indexList) {
 
             int splatCount = context.splatData.splatCount;
             int itemsPerDispatch = 65535;
@@ -69,7 +69,7 @@ namespace UnityEngine.GsplEdit
             int totalVertices = splatCount * 12;
             int totalIndices = splatCount * 60;
 
-            List<Vertex> verts = new List<Vertex>();
+            List<VertexPos> verts = new List<VertexPos>();
             List<int> indices = new List<int>();
 
             foreach (var icosahedron in icosahedrons)
@@ -83,7 +83,7 @@ namespace UnityEngine.GsplEdit
                 for (int i = 0; i < 12; i++)
                 {
                     Vector3 vertexPosition = new Vector3(icosahedron.vertices[i * 3], icosahedron.vertices[i * 3 + 1], icosahedron.vertices[i * 3 + 2]);
-                    Vertex v = Vertex.Default();
+                    VertexPos v = VertexPos.Default();
                     v.position = vertexPosition;
                     verts.Add(v);
                 }

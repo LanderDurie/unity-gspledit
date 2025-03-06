@@ -30,6 +30,9 @@
 
 #include "DeviceRadixSort.hlsl"
 #include "GaussianSplatting.hlsl"
+#include "../../Mesh/Compute/MeshUtilities.hlsl"
+#include "../../Links/Compute/LinkUtilities.hlsl"
+
 
 #define QUATERNION_IDENTITY float4(0, 0, 0, 1)
 
@@ -40,29 +43,6 @@
 static const float EPSILON = 1e-10;
 static const int MAX_ITERATIONS = 10;
 
-struct SplatLink {
-    int triangleIds[8];
-    float triangleWeights[8];
-    float triangleX[8];
-    float triangleY[8];
-};
-
-struct TriangleProperties {
-    uint vertexId1;
-    uint vertexId2;
-    uint vertexId3;
-};
-
-struct VertexProperties {
-    float3 pos;        
-    float3 normal;     
-    uint colorIds[4];  
-    float3 posMod;     
-    float4 rotMod;     
-    float3 scaleMod;   
-    uint colorModIds[4];
-};
-
 
 
 struct Tetrahedron {
@@ -72,11 +52,6 @@ struct Tetrahedron {
     float3 v3;
 };
 
-struct Triangle {
-    VertexProperties p0;
-    VertexProperties p1;
-    VertexProperties p2;
-};
 
 struct ModSplat {
     float3 pos;
@@ -96,9 +71,6 @@ uint _ColorClustersPerChannel;
 
 RWStructuredBuffer<uint> _SplatSortDistances;
 RWStructuredBuffer<uint> _SplatSortKeys;
-RWStructuredBuffer<SplatLink> _SplatLinks;
-RWStructuredBuffer<VertexProperties> _VertexProps;
-RWStructuredBuffer<TriangleProperties> _TriangleProps;
 
 uint _SplatCount;
 
@@ -604,18 +576,18 @@ float3 BarycentricCoordinates(float3 p, float3 a, float3 b, float3 c) {
 // Calculate the minimum distance from a point to the surface, edges, or vertices of a triangle
 float DistanceToTriangle(Triangle t, float3 p) {
     // Calculate the triangle's normal
-    float3 edge1 = t.p1.pos - t.p0.pos;
-    float3 edge2 = t.p2.pos - t.p0.pos;
+    float3 edge1 = t.v1.pos - t.v0.pos;
+    float3 edge2 = t.v2.pos - t.v0.pos;
     float3 normal = normalize(cross(edge1, edge2));
 
     // Calculate the signed distance from the point to the triangle's plane
-    float planeDistance = dot(p - t.p0.pos, normal);
+    float planeDistance = dot(p - t.v0.pos, normal);
 
     // Project the point onto the triangle's plane
     float3 projectedPoint = p - planeDistance * normal;
 
     // Calculate barycentric coordinates of the projected point
-    float3 barycentric = BarycentricCoordinates(projectedPoint, t.p0.pos, t.p1.pos, t.p2.pos);
+    float3 barycentric = BarycentricCoordinates(projectedPoint, t.v0.pos, t.v1.pos, t.v2.pos);
 
     // Check if the projected point is inside the triangle
     bool isInside = (barycentric.x >= 0.0) && (barycentric.y >= 0.0) && (barycentric.z >= 0.0);
@@ -625,13 +597,13 @@ float DistanceToTriangle(Triangle t, float3 p) {
         return abs(planeDistance); // Perpendicular distance to the plane
     } else {
         // The closest point is on one of the edges or vertices
-        float distAB = DistanceToEdge(p, t.p0.pos, t.p1.pos);
-        float distBC = DistanceToEdge(p, t.p1.pos, t.p2.pos);
-        float distCA = DistanceToEdge(p, t.p2.pos, t.p0.pos);
+        float distAB = DistanceToEdge(p, t.v0.pos, t.v1.pos);
+        float distBC = DistanceToEdge(p, t.v1.pos, t.v2.pos);
+        float distCA = DistanceToEdge(p, t.v2.pos, t.v0.pos);
 
-        float distA = length(p - t.p0.pos);
-        float distB = length(p - t.p1.pos);
-        float distC = length(p - t.p2.pos);
+        float distA = length(p - t.v0.pos);
+        float distB = length(p - t.v1.pos);
+        float distC = length(p - t.v2.pos);
 
         return min(min(min(distAB, distBC), distCA), min(min(distA, distB), distC));
     }
@@ -639,7 +611,7 @@ float DistanceToTriangle(Triangle t, float3 p) {
 
 float3 translatePoint(int splatIndex, float3 p) {
     // Cache splat links data once
-    SplatLink currentSplat = _SplatLinks[splatIndex];
+    SplatLink currentSplat = LoadSplatLink(splatIndex);
     
     // First pass: gather valid triangles and calculate initial values
     float weights[8];
@@ -660,24 +632,21 @@ float3 translatePoint(int splatIndex, float3 p) {
         if (triangleId == -1 || triangleWeight <= 0) continue;
         
         // Fetch triangle data once
-        Triangle t;
-        t.p0 = _VertexProps[_TriangleProps[triangleId].vertexId1];
-        t.p1 = _VertexProps[_TriangleProps[triangleId].vertexId2];
-        t.p2 = _VertexProps[_TriangleProps[triangleId].vertexId3];
-        
+        Triangle t = GetTriangle(triangleId);
+
         // Calculate triangle properties once
-        float3 edge1 = t.p1.pos - t.p0.pos;
-        float3 edge2 = t.p2.pos - t.p0.pos;
+        float3 edge1 = t.v1.pos - t.v0.pos;
+        float3 edge2 = t.v2.pos - t.v0.pos;
         float3 crossProduct = cross(edge1, edge2);
         float surfaceArea = 0.5 * length(cross(edge1, edge2));
         if (surfaceArea <= 0.0) continue;
         
         // Cache triangle data for reuse in second pass
         float3 normal = normalize(crossProduct);
-        float3 center = (t.p0.pos + t.p1.pos + t.p2.pos) / 3.0;
+        float3 center = (t.v0.pos + t.v1.pos + t.v2.pos) / 3.0;
         
         // Compute perpendicular distance once
-        float3 toPoint = p - t.p0.pos;
+        float3 toPoint = p - t.v0.pos;
         float perpDistance = dot(toPoint, normal);
         
         // Project point onto triangle plane once
@@ -728,44 +697,41 @@ float3 translatePoint(int splatIndex, float3 p) {
         if (normalizedWeight <= 0) continue;
         
         int triangleId = currentSplat.triangleIds[j];
-        Triangle t;
-        t.p0 = _VertexProps[_TriangleProps[triangleId].vertexId1];
-        t.p1 = _VertexProps[_TriangleProps[triangleId].vertexId2];
-        t.p2 = _VertexProps[_TriangleProps[triangleId].vertexId3];
+        Triangle t = GetTriangle(triangleId);
         
-        bool isInside = isPointInsideTriangle(p, t.p0.pos, t.p1.pos, t.p2.pos);
+        bool isInside = isPointInsideTriangle(p, t.v0.pos, t.v1.pos, t.v2.pos);
         if (isInside) {
             // Pre-calculated triangle data
-            float3 center = (t.p0.pos + t.p1.pos + t.p2.pos) / 3.0;
-            float3 edge1 = t.p1.pos - t.p0.pos;
-            float3 edge2 = t.p2.pos - t.p0.pos;
+            float3 center = (t.v0.pos + t.v1.pos + t.v2.pos) / 3.0;
+            float3 edge1 = t.v1.pos - t.v0.pos;
+            float3 edge2 = t.v2.pos - t.v0.pos;
             float3 normal = normalize(cross(edge1, edge2));
             float3 autoVert = center + normal;
             
             // Modified triangle data
-            float3 modCenter = (t.p0.pos + t.p1.pos + t.p2.pos + t.p0.posMod + t.p1.posMod + t.p2.posMod) / 3.0;
+            float3 modCenter = (t.v0.pos + t.v1.pos + t.v2.pos + t.v0.posMod + t.v1.posMod + t.v2.posMod) / 3.0;
             
             // Avoid recalculating cross product
-            float3 modEdge1 = (t.p1.pos + t.p1.posMod) - (t.p0.pos + t.p0.posMod);
-            float3 modEdge2 = (t.p2.pos + t.p2.posMod) - (t.p0.pos + t.p0.posMod);
+            float3 modEdge1 = (t.v1.pos + t.v1.posMod) - (t.v0.pos + t.v0.posMod);
+            float3 modEdge2 = (t.v2.pos + t.v2.posMod) - (t.v0.pos + t.v0.posMod);
             float3 modNormal = normalize(cross(modEdge1, modEdge2));
             float3 modAutoVert = modCenter + modNormal;
             
-            float4 barycentricCoords = calculateTetraBarycentricCoordinates(p, t.p0.pos, t.p1.pos, t.p2.pos, autoVert);
+            float4 barycentricCoords = calculateTetraBarycentricCoordinates(p, t.v0.pos, t.v1.pos, t.v2.pos, autoVert);
             
-            float3 baryTransformed = barycentricCoords.x * (t.p0.pos + t.p0.posMod) + 
-                                     barycentricCoords.y * (t.p1.pos + t.p1.posMod) + 
-                                     barycentricCoords.z * (t.p2.pos + t.p2.posMod) + 
+            float3 baryTransformed = barycentricCoords.x * (t.v0.pos + t.v0.posMod) + 
+                                     barycentricCoords.y * (t.v1.pos + t.v1.posMod) + 
+                                     barycentricCoords.z * (t.v2.pos + t.v2.posMod) + 
                                      barycentricCoords.w * modAutoVert;
             
             finalPoint += baryTransformed * normalizedWeight;
         } else {
             // Use pre-computed TANC coordinates
-            TANCCoords tancCoords = triangleAlignedNormalizedCoordinates(p, t.p0.pos, t.p1.pos, t.p2.pos);
+            TANCCoords tancCoords = triangleAlignedNormalizedCoordinates(p, t.v0.pos, t.v1.pos, t.v2.pos);
             float3 tancTransformed = TANCToWorld(tancCoords, 
-                                               t.p0.pos + t.p0.posMod, 
-                                               t.p1.pos + t.p1.posMod, 
-                                               t.p2.pos + t.p2.posMod);
+                                               t.v0.pos + t.v0.posMod, 
+                                               t.v1.pos + t.v1.posMod, 
+                                               t.v2.pos + t.v2.posMod);
             
             finalPoint += tancTransformed * normalizedWeight;
         }
@@ -786,13 +752,13 @@ ModSplat calcModSplat(int splatIndex, SplatData splat) {
     [unroll]
     for (int i = 0; i < 8; i++) {
         // Check if valid triangle
-        int triangleId = _SplatLinks[splatIndex].triangleIds[i];
-        float triangleWeight = _SplatLinks[splatIndex].triangleWeights[i];
+        int triangleId = LoadSplatLink(splatIndex).triangleIds[i];
+        float triangleWeight = LoadSplatLink(splatIndex).triangleWeights[i];
         if (triangleId == -1 || triangleWeight <= 0) continue;
 
-        if (any(_VertexProps[_TriangleProps[triangleId].vertexId1].posMod) ||
-            any(_VertexProps[_TriangleProps[triangleId].vertexId2].posMod) ||
-            any(_VertexProps[_TriangleProps[triangleId].vertexId3].posMod)) {
+        if (any(LoadVertexPos1(triangleId).posMod) ||
+            any(LoadVertexPos2(triangleId).posMod) ||
+            any(LoadVertexPos3(triangleId).posMod)) {
             ignore = false;
         }
     }
@@ -836,13 +802,13 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
     [unroll]
     for (int i = 0; i < 8; i++) {
         // Check if valid triangle
-        int triangleId = _SplatLinks[origIdx].triangleIds[i];
-        float triangleWeight = _SplatLinks[origIdx].triangleWeights[i];
+        int triangleId = LoadSplatLink(origIdx).triangleIds[i];
+        float triangleWeight = LoadSplatLink(origIdx).triangleWeights[i];
         if (triangleId == -1 || triangleWeight <= 0) continue;
 
-        if (any(_VertexProps[_TriangleProps[triangleId].vertexId1].posMod) ||
-            any(_VertexProps[_TriangleProps[triangleId].vertexId2].posMod) ||
-            any(_VertexProps[_TriangleProps[triangleId].vertexId3].posMod)) {
+        if (any(LoadVertexPos1(triangleId).posMod) ||
+            any(LoadVertexPos2(triangleId).posMod) ||
+            any(LoadVertexPos3(triangleId).posMod)) {
             ignore = false;
         }
     }

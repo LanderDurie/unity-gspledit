@@ -2,12 +2,7 @@
 
 struct VertexProperties {
     float3 pos;
-    float3 normal;
-    uint colorIds[4];
-    float3 posMod;  // This is the key field we need to modify
-    float4 rotMod;
-    float3 scaleMod;
-    uint colorModIds[4];
+    float3 posMod;
 };
 
 // Buffers

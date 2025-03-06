@@ -38,7 +38,7 @@ namespace UnityEngine.GsplEdit
         public ComputeShader m_VoxelizeIcosahedron;
 
 
-        public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref int[] indexList) {
+        public unsafe override void Generate(SharedComputeContext context, ref VertexPos[] vertexList, ref int[] indexList) {
             int splatCount = context.splatData.splatCount;
             int itemsPerDispatch = 65535;
 
@@ -140,7 +140,7 @@ namespace UnityEngine.GsplEdit
                 }
             }
 
-            List<Vertex> verts = new List<Vertex>();
+            List<VertexPos> verts = new List<VertexPos>();
             List<int> indices = new List<int>();
             marching.Generate(voxels.Voxels, verts, indices);
 
@@ -148,7 +148,7 @@ namespace UnityEngine.GsplEdit
             System.Array.Resize(ref vertexList, verts.Count);
             System.Array.Resize(ref indexList, indices.Count);
             for(int i = 0; i < verts.Count; i++) {
-                vertexList[i] = Vertex.Default();
+                vertexList[i] = VertexPos.Default();
                 vertexList[i].position = verts[i].position * scale + context.splatData.boundsMin - new Vector3(scale, scale, scale) / 2;
             }
 

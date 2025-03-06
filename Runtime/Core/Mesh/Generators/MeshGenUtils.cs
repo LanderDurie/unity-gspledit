@@ -5,7 +5,7 @@ namespace UnityEngine.GsplEdit
 {
     public class MeshGenUtils
     {
-        public static void OptimizeMesh(ref Vertex[] vertices, ref int[] indices)
+        public static void OptimizeMesh(ref VertexPos[] vertices, ref int[] indices)
         {
             if (vertices == null || vertices.Length == 0 || indices == null || indices.Length == 0)
             {
@@ -17,12 +17,12 @@ namespace UnityEngine.GsplEdit
             float inverseTolerance = 1.0f / tolerance; // Precompute for performance
 
             Dictionary<Vector3Int, List<int>> spatialHash = new Dictionary<Vector3Int, List<int>>();
-            List<Vertex> uniqueVertices = new List<Vertex>();
+            List<VertexPos> uniqueVertices = new List<VertexPos>();
             List<int> optimizedIndices = new List<int>();
 
             for (int i = 0; i < indices.Length; i++)
             {
-                Vertex vertex = vertices[indices[i]];
+                VertexPos vertex = vertices[indices[i]];
 
                 Vector3Int hashKey = new Vector3Int(
                     Mathf.FloorToInt(vertex.position.x * inverseTolerance),
@@ -97,7 +97,7 @@ namespace UnityEngine.GsplEdit
             triangleList = triangleSet.ToArray();
         }
 
-        private static bool AreVerticesClose(Vertex v1, Vertex v2, float tolerance)
+        private static bool AreVerticesClose(VertexPos v1, VertexPos v2, float tolerance)
         {
             return Vector3.Distance(v1.position, v2.position) < tolerance;
         }

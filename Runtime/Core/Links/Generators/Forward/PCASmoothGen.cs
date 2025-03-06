@@ -6,7 +6,8 @@ namespace UnityEngine.GsplEdit
         public class Settings
         {
             public uint threadsPerGroup = 64;
-            public float sigma = 1.0f;
+            public float startBlend = 3.0f;
+            public float stopBlend = 5.0f;
         }
 
         public Settings m_Settings = new();
@@ -25,14 +26,15 @@ namespace UnityEngine.GsplEdit
             m_PCASmoothLinkageCompute.SetInt("_SplatFormat", (int)format);
             m_PCASmoothLinkageCompute.SetTexture(0, "_SplatColor", context.gpuGSColorData);
 
-            m_PCASmoothLinkageCompute.SetBuffer(0, "_VertexProps", context.gpuMeshVerts);
-            m_PCASmoothLinkageCompute.SetBuffer(0, "_SplatLinkBuffer", context.gpuForwardLinks);
-            m_PCASmoothLinkageCompute.SetBuffer(0, "_TriangleProps", context.gpuMeshTriangles);
+            m_PCASmoothLinkageCompute.SetBuffer(0, "_MeshVertexPos", context.gpuMeshPosData);
+            m_PCASmoothLinkageCompute.SetBuffer(0, "_SplatLinks", context.gpuForwardLinks);
+            m_PCASmoothLinkageCompute.SetBuffer(0, "_MeshIndices", context.gpuMeshIndexData);
 
             m_PCASmoothLinkageCompute.SetInt("_SplatCount", context.splatData.splatCount);
             m_PCASmoothLinkageCompute.SetInt("_VertexCount", context.vertexCount);
-            m_PCASmoothLinkageCompute.SetInt("_TriangleCount", context.triangleCount);
-            m_PCASmoothLinkageCompute.SetFloat("_GlobalSigma", m_Settings.sigma);
+            m_PCASmoothLinkageCompute.SetInt("_IndexCount", context.triangleCount);
+            m_PCASmoothLinkageCompute.SetFloat("_StartBlend", m_Settings.startBlend);
+            m_PCASmoothLinkageCompute.SetFloat("_StopBlend", m_Settings.stopBlend);
 
             // Calculate number of thread groups needed
             int numThreadGroups = Mathf.CeilToInt((float)context.splatData.splatCount / m_Settings.threadsPerGroup);

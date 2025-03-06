@@ -4,31 +4,17 @@
 
 #pragma kernel CSSelectionUpdate
 #pragma kernel CSVertexTransform
-#pragma kernel CSColorExtract
 
-struct VertexProperties {
+struct VertexPos {
     float3 pos;
-    float3 normal;
-    uint colorIds[4];
     float3 posMod;
-    float4 rotMod;
-    float3 scaleMod;
-    uint colorModIds[4];
 };
 
-struct SplatLinks {
-    int linkIds[10];
-    float linkWeights[10];
-};
-
-RWStructuredBuffer<SplatLinks> _SplatLinkBuffer;
-RWStructuredBuffer<VertexProperties> _VertexProps;
+RWStructuredBuffer<VertexPos> _VertexProps;
 RWByteAddressBuffer _VertexSelectedBits;
-RWStructuredBuffer<float> _ColorClusterSelected;
 uint _VertexCount;
 uint _SplatCount;
 float4 _SelectionRect;
-uint _ColorClustersPerChannel;
 
 float4x4 _MatrixObjectToWorld;
 float4x4 _MatrixVP;
@@ -42,7 +28,6 @@ void CSSelectionUpdate (uint3 id : SV_DispatchThreadID)
         return;
 
     float3 pos = _VertexProps[idx].pos + _VertexProps[idx].posMod;
-
 
     float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(pos,1)).xyz;
     float4 centerClipPos = mul(_MatrixVP, float4(centerWorldPos, 1));
@@ -180,54 +165,5 @@ void CSVertexTransform(uint3 id : SV_DispatchThreadID)
         _VertexProps[idx].posMod = rotatedPos + _PivotPoint;  // Translate back
         float3 scaledPos = (_VertexProps[idx].posMod - _PivotPoint) * (1.0f + _ScaleDiff);  // Scale relative to pivot
         _VertexProps[idx].posMod = scaledPos + _PivotPoint - _VertexProps[idx].pos;  // Translate back
-
-        _VertexProps[idx].scaleMod += _ScaleDiff;
-        _VertexProps[idx].rotMod = QuatMul(_VertexProps[idx].rotMod, _RotationDiff);
     }
-}
-
-
-
-
-uint ColorToId(half3 color)
-{
-    // Calculate the quantization step size
-    float step = 1.0 / _ColorClustersPerChannel;
-
-    // Quantize each color channel to its cluster
-    uint rCluster = (uint)(color.r / step);
-    uint gCluster = (uint)(color.g / step);
-    uint bCluster = (uint)(color.b / step);
-
-    // Clamp clusters to ensure they don't exceed the range [0, clustersPerChannel-1]
-    rCluster = min(rCluster, _ColorClustersPerChannel - 1);
-    gCluster = min(gCluster, _ColorClustersPerChannel - 1);
-    bCluster = min(bCluster, _ColorClustersPerChannel - 1);
-
-    // Compute a unique ID using the cluster indices
-    return rCluster + gCluster * _ColorClustersPerChannel + bCluster * _ColorClustersPerChannel * _ColorClustersPerChannel;
-}
-
-
-
-[numthreads(GROUP_SIZE, 1, 1)]
-void CSColorExtract(uint3 id : SV_DispatchThreadID)
-{
-    // uint idx = id.x;
-    // if (idx >= _SplatCount)
-    //     return;
-
-    // for(int i = 0; i < 10; i++) {
-    //     int vertexId = _SplatLinkBuffer[idx].linkIds[i];
-    //     uint wordIndex = vertexId >> 5;
-    //     uint bitPosition = vertexId & 31;
-    //     uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
-    //     uint isBitSet = (selectionWord >> bitPosition) & 1;
-
-    //     if (isBitSet) {
-    //         SplatData splat = LoadSplatData(idx);
-    //         uint colorClusterId = ColorToId(splat.sh.col);
-    //         _ColorClusterSelected[colorClusterId] += splat.opacity * length(splat.scale;
-    //     }
-    // }
 }

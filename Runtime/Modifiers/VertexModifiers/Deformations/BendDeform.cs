@@ -40,7 +40,7 @@ namespace UnityEngine.GsplEdit
 
         public override void Run()
         {
-            if (m_Context.gpuMeshVerts == null)
+            if (m_Context.gpuMeshPosData == null)
                 throw new InvalidOperationException("GraphicsBuffer is not initialized.");
             
             if (m_ComputeShader == null)
@@ -60,7 +60,7 @@ namespace UnityEngine.GsplEdit
             int kernel = m_ComputeShader.FindKernel("CSMain");
             
             // Set buffers
-            m_ComputeShader.SetBuffer(kernel, "vertexBuffer", m_Context.gpuMeshVerts);
+            m_ComputeShader.SetBuffer(kernel, "vertexBuffer", m_Context.gpuMeshPosData);
             m_ComputeShader.SetBuffer(kernel, "_VertexSelectedBits", m_SelectionGroup.m_SelectedVerticesBuffer);
             
             // Set bend parameters
