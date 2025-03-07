@@ -1,8 +1,9 @@
 using System.Linq;
+using UnityEditor;
 
 namespace UnityEngine.GsplEdit
 {
-    [ExecuteInEditMode]
+    [ExecuteAlways]
     public class DynamicSplat : MonoBehaviour
     {
         private EditableMesh m_Mesh;
@@ -12,8 +13,9 @@ namespace UnityEngine.GsplEdit
         private LinkGen m_LinkGenerator;
         private ModifierSystem m_ModifierSystem;
 
-        public void OnEnable()
-        {
+        private Rect m_ScreenSize;
+
+        public void OnEnable() {
             m_Context = new();
             m_MeshGenerator = new(ref m_Context);
             m_LinkGenerator = new(ref m_Context);
@@ -25,8 +27,7 @@ namespace UnityEngine.GsplEdit
         }
 
 
-        public unsafe void CreateBuffers()
-        {
+        public unsafe void CreateBuffers() {
             if (m_Context.splatData != null && m_Context.splatData.splatCount > 0)
             {
                 m_GSRenderer = GSRenderer.Create(transform, isActiveAndEnabled, ref m_Context);
@@ -53,7 +54,28 @@ namespace UnityEngine.GsplEdit
                 m_Context.gpuForwardLinks.SetData(Enumerable.Repeat(ForwardLink.Default(), m_Context.splatData.splatCount).ToArray());
                 m_Context.gpuBackwardLinks = new ComputeBuffer(1, sizeof(BackwardLink));
                 m_Context.gpuBackwardLinks.SetData(Enumerable.Repeat(BackwardLink.Default(), 1).ToArray());
+
+                // Create offscreen camera
+                GameObject offscreenCameraObject = new GameObject("offscreenCameraObject");
+                offscreenCameraObject.hideFlags = HideFlags.HideAndDontSave;
+                m_Context.offscreenRenderCamera = offscreenCameraObject.AddComponent<Camera>();
+                m_Context.offscreenRenderCamera.enabled = false;
+                m_Context.offscreenRenderCamera.clearFlags = CameraClearFlags.SolidColor;
+                m_Context.offscreenRenderCamera.backgroundColor = Color.clear;
+                m_ScreenSize = SceneView.lastActiveSceneView.camera.pixelRect;
             }
+        }
+
+        public void CreateOffscreenTexture() {
+            m_Context.offscreenMeshTarget = new RenderTexture(
+                (int)m_ScreenSize.width, 
+                (int)m_ScreenSize.height, 
+                24,
+                RenderTextureFormat.ARGB32
+            );
+            m_Context.offscreenMeshTarget.antiAliasing = 1;
+            m_Context.offscreenMeshTarget.Create();
+            m_Context.offscreenRenderCamera.targetTexture = m_Context.offscreenMeshTarget;
         }
 
         public void Destroy() {
@@ -64,8 +86,7 @@ namespace UnityEngine.GsplEdit
             DestroyBuffers();
         }
 
-        private void DestroyBuffers()
-        {
+        private void DestroyBuffers() {
             m_Context.gpuGSPosData?.Dispose();
             m_Context.gpuGSPosData = null;
             m_Context.gpuGSOtherData?.Dispose();
@@ -82,17 +103,26 @@ namespace UnityEngine.GsplEdit
             m_Context.gpuBackwardLinks = null;
             m_Context.splatCount = 0;
             m_Context.vertexCount = 0;
+            if (m_Context.offscreenRenderCamera != null) {
+                DestroyImmediate(m_Context.offscreenRenderCamera);
+            }
         }
 
-        public void LoadGS(SplatData data)
-        {
+        private void DestroyOffscreenTexture() {
+            if (m_Context != null && m_Context.offscreenMeshTarget != null) {
+                m_Context.offscreenMeshTarget.Release();
+                DestroyImmediate(m_Context.offscreenMeshTarget);
+                m_Context.offscreenMeshTarget = null;
+            }
+        }
+
+        public void LoadGS(SplatData data) {
             Destroy();
             m_Context.splatData = data;
             CreateBuffers();
         }
 
-        public SplatData GetSplatData()
-        {
+        public SplatData GetSplatData() {
             return m_Context.splatData;
         }
         public GSRenderer GetSplatRenderer() {
@@ -130,27 +160,31 @@ namespace UnityEngine.GsplEdit
         }
 
         public void GenerateLinks() {
-            // Bug workaround, calling functions once sometimes results in incorrect results due to previously set links
-            m_LinkGenerator.GenerateForward();
-            m_LinkGenerator.GenerateBackward();
+            // TODO: Sometimes link weights are not automatically updated
             m_LinkGenerator.GenerateForward();
             m_LinkGenerator.GenerateBackward();
         }
 
-        public void Update()
-        {
-
-            if (m_Context != null && m_GSRenderer != null)
-            {
+        public void Update() {
+            if (m_Context != null && m_GSRenderer != null) {
                 m_GSRenderer.m_Transform = transform;
                 m_GSRenderer.m_IsActiveAndEnabled = isActiveAndEnabled;
                 m_GSRenderer.Update();
             }
 
-            if (m_Context != null && m_Mesh != null)
-            {                
+            if (m_Context != null && m_Mesh != null && m_GSRenderer != null) {                
                 m_Mesh.m_GlobalTransform = transform;
                 m_Mesh.UpdateDraw();
+
+                if (m_Context.offscreenMeshTarget == null) {
+                    CreateOffscreenTexture();
+                }
+
+                if (m_ScreenSize != Camera.current.pixelRect) {
+                    m_ScreenSize = Camera.current.pixelRect;
+                    DestroyOffscreenTexture();
+                    CreateOffscreenTexture();
+                }
             }
         }
     }

@@ -2,22 +2,22 @@ Shader "Custom/ProceduralMeshShader"
 {
     Properties
     {
-        _Color("Main Color", Color) = (1.0, 1.0, 1.0, 0.5) // Set alpha to 0.5 for transparency
-        _CastShadows("Cast Shadows", Float) = 1 // Add this property
+        _Color("Main Color", Color) = (1.0, 1.0, 1.0, 0.7) // Increase alpha to reduce flickering
         _ReceiveShadows("Receive Shadows", Float) = 1 // Add this property
     }
     SubShader
     {
-        Tags { "Queue"="Transparent" "RenderType"="Transparent" }
+        Tags { "Queue"="Transparent+100" "RenderType"="Transparent" }
         LOD 100
 
-        // Main pass (renders the mesh)
+        // Depth prepass (write to depth buffer)
         Pass
         {
             Tags { "LightMode"="ForwardBase" }
+            ZWrite On
+            ZTest LEqual
             Cull Back
-            ZWrite Off // Disable depth writing for transparency
-            Blend SrcAlpha OneMinusSrcAlpha // Enable alpha blending
+            ColorMask 0 // Disable color writing
 
             CGPROGRAM
             #pragma target 5.0
@@ -29,9 +29,61 @@ Shader "Custom/ProceduralMeshShader"
             struct VertexProperties {
                 float3 pos;
                 float3 posMod;
+                float3 normal;
+                float2 uv;
             };
 
-            StructuredBuffer<VertexProperties> _VertexProps;
+            StructuredBuffer<VertexProperties> _MeshVertexPos;
+            StructuredBuffer<int> _IndexBuffer;
+            float4x4 _ObjectToWorld;
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+            };
+
+            v2f vert(uint vid : SV_VertexID)
+            {
+                v2f o;
+                int index = _IndexBuffer[vid];
+
+                float3 worldPos = mul(_ObjectToWorld, float4(_MeshVertexPos[index].pos + _MeshVertexPos[index].posMod, 1.0)).xyz;
+                o.pos = UnityWorldToClipPos(worldPos);
+                return o;
+            }
+
+            fixed4 frag(v2f i) : SV_Target
+            {
+                return fixed4(0, 0, 0, 0); // No color output
+            }
+            ENDCG
+        }
+
+        // Main pass (renders the mesh with transparency)
+        Pass
+        {
+            Tags { "LightMode"="ForwardBase" }
+            Cull Back
+            ZWrite Off // Disable depth writing for transparency
+            ZTest LEqual // Ensure depth testing works correctly
+            Blend SrcAlpha OneMinusSrcAlpha // Enable alpha blending
+            Offset 0, -1 // Apply a small depth bias
+
+            CGPROGRAM
+            #pragma target 5.0
+            #pragma vertex vert
+            #pragma fragment frag
+
+            #include "UnityCG.cginc"
+
+            struct VertexProperties {
+                float3 pos;
+                float3 posMod;
+                float3 normal;
+                float2 uv;
+            };
+
+            StructuredBuffer<VertexProperties> _MeshVertexPos;
             StructuredBuffer<int> _IndexBuffer;
             float4x4 _ObjectToWorld;
             float4 _Color;
@@ -49,9 +101,9 @@ Shader "Custom/ProceduralMeshShader"
                 v2f o;
                 int index = _IndexBuffer[vid];
 
-                float3 worldPos = mul(_ObjectToWorld, float4(_VertexProps[index].pos + _VertexProps[index].posMod, 1.0)).xyz;
+                float3 worldPos = mul(_ObjectToWorld, float4(_MeshVertexPos[index].pos + _MeshVertexPos[index].posMod, 1.0)).xyz;
                 o.pos = UnityWorldToClipPos(worldPos);
-                // o.normal = UnityObjectToWorldNormal(_VertexProps[index].normal);
+                o.normal = UnityObjectToWorldNormal(_MeshVertexPos[index].normal);
                 return o;
             }
 

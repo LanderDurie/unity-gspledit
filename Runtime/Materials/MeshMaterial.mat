@@ -16,7 +16,7 @@ Material:
   - _CAST_SHADOWS
   - _RECEIVE_SHADOWS
   m_LightmapFlags: 4
-  m_EnableInstancingVariants: 0
+  m_EnableInstancingVariants: 1
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: -1
   stringTagMap: {}
@@ -46,10 +46,14 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 3a5a3011bcb4ce640bbcdd5d1fa2a417, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MetallicGlossMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _NormalMap:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
@@ -68,16 +72,20 @@ Material:
     - _Cutoff: 0.5
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
+    - _EmissionIntensity: 0
     - _Enable: 1
     - _GlossMapScale: 1
-    - _Glossiness: 0.5
+    - _Glossiness: 0.582
     - _GlossyReflections: 1
-    - _Metallic: 0
+    - _Metallic: 0.462
     - _Mode: 0
+    - _NormalStrength: 1
     - _OcclusionStrength: 1
+    - _Opacity: 1
     - _Parallax: 0.02
     - _PointSize: 2
     - _ReceiveShadows: 0
+    - _Smoothness: 0.456
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
     - _SrcBlend: 1
@@ -85,11 +93,14 @@ Material:
     - _WireframeAliasing: 1.5
     - _ZWrite: 1
     m_Colors:
+    - _Albedo: {r: 1, g: 1, b: 1, a: 1}
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
-    - _Color: {r: 0.04212606, g: 1, b: 0, a: 0}
+    - _Color: {r: 0.089931525, g: 1, b: 0, a: 1}
     - _DefaultColor: {r: 1, g: 0, b: 0, a: 1}
-    - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
+    - _EmissionColor: {r: 1, g: 0.903612, b: 0, a: 1}
     - _SelectedColor: {r: 0, g: 1, b: 0, a: 1}
+    - _UVOffset: {r: 0, g: 0, b: 0, a: 0}
+    - _UVScale: {r: 1, g: 1, b: 0, a: 0}
     - _WireframeColor: {r: 1, g: 0, b: 0, a: 1}
     - _WireframeColour: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

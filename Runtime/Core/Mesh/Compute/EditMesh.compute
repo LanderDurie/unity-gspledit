@@ -5,12 +5,14 @@
 #pragma kernel CSSelectionUpdate
 #pragma kernel CSVertexTransform
 
-struct VertexPos {
+struct VertexProperties {
     float3 pos;
     float3 posMod;
+    float3 normal;
+    float2 uv;
 };
 
-RWStructuredBuffer<VertexPos> _VertexProps;
+RWStructuredBuffer<VertexProperties> _VertexProps;
 RWByteAddressBuffer _VertexSelectedBits;
 uint _VertexCount;
 uint _SplatCount;

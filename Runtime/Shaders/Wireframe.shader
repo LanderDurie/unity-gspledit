@@ -42,12 +42,14 @@ Shader "Custom/ProceduralWireframe"
                 float3 barycentric : TEXCOORD0;
             };
 
-            struct VertexPos {
+            struct VertexProperties {
                 float3 pos;
                 float3 posMod; 
+                float3 normal;
+                float2 uv;
             };
 
-            StructuredBuffer<VertexPos> _MeshVertexPos;
+            StructuredBuffer<VertexProperties> _MeshVertexPos;
             StructuredBuffer<int> _IndexBuffer;
             float4x4 _ObjectToWorld;
             float _Enable;

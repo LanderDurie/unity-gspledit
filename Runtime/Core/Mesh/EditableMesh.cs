@@ -6,6 +6,8 @@ namespace UnityEngine.GsplEdit
 {
     public class EditableMesh : ScriptableObject
     {
+        
+        public GameObject m_DebugPlane;
         private VertexPos[] m_Vertices;
         private int[] m_Indices;
         private Edge[] m_Edges;
@@ -22,6 +24,8 @@ namespace UnityEngine.GsplEdit
         private CommandBuffer m_Cmd;
         public bool m_StaticModifierPass = true;
         public bool m_DynamicModifierPass = true;
+        public float m_TextureResolutionMultiplier = 1.0f;
+        private OffscreenRendering m_OffscreenRenderer;
 
         public Vector3 m_LocalPos;
         public Vector3 m_LocalScale;
@@ -72,15 +76,26 @@ namespace UnityEngine.GsplEdit
             CreateBuffers();
 
             m_SelectionGroup = new VertexSelectionGroup(ref m_Vertices);
+
+
+            // Initialize the offscreen renderer
+            if (m_OffscreenRenderer == null) {
+                // Create debug plane for rendering
+                m_DebugPlane = GameObject.CreatePrimitive(PrimitiveType.Plane);
+                m_DebugPlane.name = "MeshDebugPlane";
+                m_DebugPlane.transform.position = new Vector3(5f, 0f, 0f); // Position to the side
+                
+                m_OffscreenRenderer = new OffscreenRendering(ref m_Context, m_DebugPlane);
+            }        
         }
 
         [System.Obsolete]
         private void OnEnable()
         {
-                           m_Cmd = new CommandBuffer
-                    {
-                        name = "Vertex Drawing"
-                    };
+            m_Cmd = new CommandBuffer
+            {
+                name = "Vertex Drawing"
+            };
             SceneView.onSceneGUIDelegate -= OnSceneGUI;
             SceneView.onSceneGUIDelegate += OnSceneGUI;
         }
@@ -88,6 +103,23 @@ namespace UnityEngine.GsplEdit
         public void Destroy()
         {
             DestroyBuffers();
+            
+            // Clean up the offscreen renderer
+            if (m_OffscreenRenderer != null)
+            {
+                #if UNITY_EDITOR
+                EditorApplication.update -= m_OffscreenRenderer.UpdateRendering;
+                #endif
+                m_OffscreenRenderer.OnDisable();
+                m_OffscreenRenderer = null;
+            }
+            
+            // Destroy the debug plane
+            if (m_DebugPlane != null)
+            {
+                GameObject.DestroyImmediate(m_DebugPlane);
+                m_DebugPlane = null;
+            }
         }
 
         private void OnSceneGUI(SceneView sceneView)
@@ -309,37 +341,7 @@ namespace UnityEngine.GsplEdit
                 return;
             }
 
-            Debug.Log(m_SelectionGroup.m_SelectedCount);
-
             m_SelectionGroup.m_SelectedVerticesBuffer.SetData(m_SelectionGroup.m_SelectedBits);
-        }
-
-        public void DrawFill()
-        {
-            if (!AreBuffersValid() || m_Context.gpuMeshPosData == null || !m_FillMaterial)
-                return;
-
-            // Set up material properties
-            m_FillMaterial.SetBuffer("_MeshVertexPos", m_Context.gpuMeshPosData);
-            m_FillMaterial.SetBuffer("_IndexBuffer", m_IndexBuffer);
-            m_FillMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
-
-            // Define bounds for the procedural drawing
-            Bounds bounds = new Bounds(m_GlobalTransform.position, Vector3.one * 10f); // Adjust bounds as needed
-
-            // Draw the procedural mesh with shadow settings
-            Graphics.DrawProceduralIndirect(
-                m_FillMaterial,
-                bounds,
-                MeshTopology.Triangles,
-                m_ArgsBuffer,
-                argsOffset: 0,
-                camera: null, // Use the current camera
-                properties: null, // No additional properties
-                castShadows: m_CastShadow ? ShadowCastingMode.On : ShadowCastingMode.Off, // Cast shadows
-                receiveShadows: true, // Receive shadows
-                layer: 0 // Default layer
-            );
         }
 
         public void DrawSelectedVertices()
@@ -359,8 +361,8 @@ namespace UnityEngine.GsplEdit
 
         public void DrawWireframe()
         {
-            // if (!AreBuffersValid() || m_Context.gpuMeshPosData == null || !m_WireframeMaterial)
-            //     return;
+            if (!AreBuffersValid() || m_Context.gpuMeshPosData == null || !m_WireframeMaterial)
+                return;
 
             // Set up material properties
             m_WireframeMaterial.SetBuffer("_MeshVertexPos", m_Context.gpuMeshPosData);
@@ -386,11 +388,20 @@ namespace UnityEngine.GsplEdit
 
             // Apply Modifier System
             m_ModifierSystem.RunAll();
-
-            DrawFill();
+            
+            // Draw to the offscreen texture
+            // DrawFill();
             DrawWireframe();
             DrawSelectedVertices();
             Graphics.ExecuteCommandBuffer(m_Cmd);
+
+            m_OffscreenRenderer.m_Renderers = FindObjectsOfType<Renderer>();
+            m_OffscreenRenderer.m_Material = m_FillMaterial;
+            m_OffscreenRenderer.m_IndexBuffer = m_IndexBuffer;
+            m_OffscreenRenderer.m_GlobalTransform = m_GlobalTransform;
+            m_OffscreenRenderer.m_ArgsBuffer = m_ArgsBuffer;
+            m_OffscreenRenderer.m_CastShadow = m_CastShadow;
+            m_OffscreenRenderer.Render();
         }
     }
 }

@@ -138,10 +138,10 @@ namespace UnityEditor.GsplEdit
             // Wireframe Alias
             float wireframeAlias = wireframeMaterial.GetFloat("_WireframeAliasing");
             wireframeAlias = EditorGUILayout.Slider(
-                new GUIContent("Wireframe alias", ""),
+                new GUIContent("Wireframe Alias", ""),
                 wireframeAlias,
                 0.01f,
-                2.0f
+                10.0f
             );
             wireframeMaterial.SetFloat("_WireframeAliasing", wireframeAlias);
 
@@ -177,18 +177,6 @@ namespace UnityEditor.GsplEdit
 
             fillMaterial.SetFloat("_CastShadows", mesh.m_CastShadow ? 1f : 0f);
             fillMaterial.SetFloat("_ReceiveShadows", receiveShadows ? 1f : 0f);
-
-            // // Enable Shader Keywords
-            // if (castShadows) 
-            //     fillMaterial.EnableKeyword("_CAST_SHADOWS");
-            // else 
-            //     fillMaterial.DisableKeyword("_CAST_SHADOWS");
-
-            // if (receiveShadows) 
-            //     fillMaterial.EnableKeyword("_RECEIVE_SHADOWS");
-            // else 
-            //     fillMaterial.DisableKeyword("_RECEIVE_SHADOWS");
-
         }
     }
 }

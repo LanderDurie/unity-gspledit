@@ -164,7 +164,7 @@ namespace UnityEngine.GsplEdit
             gsr.m_MatDebugBoxes = new Material(gsr.m_ShaderDebugBoxes) { name = "GaussianDebugBoxes" };
 
             gsr.m_Sorter = new GpuSorting(gsr.m_CSSplatUtilities);
-            GSRenderSystem.instance.RegisterSplat(gsr);
+            GSRenderSystem.instance.RegisterSplat(gsr, ref context);
 
             gsr.CreateResourcesForAsset();
 

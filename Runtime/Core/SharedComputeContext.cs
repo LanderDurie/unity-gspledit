@@ -15,6 +15,7 @@ namespace UnityEngine.GsplEdit
         public ComputeBuffer gpuForwardLinks; // Links from splats to vertices
         public ComputeBuffer gpuBackwardLinks; // Links from vertices to splats
         public RenderTexture offscreenMeshTarget;
+        public Camera offscreenRenderCamera;
 
         public int vertexCount;
         public int triangleCount;

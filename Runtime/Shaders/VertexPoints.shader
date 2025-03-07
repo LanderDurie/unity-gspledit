@@ -36,12 +36,14 @@ Shader "Custom/ProceduralPointAroundVertices"
                 float4 color : COLOR;
             };
 
-            struct VertexPos {
+            struct VertexProperties {
                 float3 pos;
-                float3 posMod; 
+                float3 posMod;
+                float3 normal;
+                float2 uv;
             };
 
-            StructuredBuffer<VertexPos> _MeshVertexPos;
+            StructuredBuffer<VertexProperties> _MeshVertexPos;
 
             float _PointSize;
             float4 _DefaultColor;

@@ -30,15 +30,14 @@ Material:
     m_Ints: []
     m_Floats:
     - _Shininess: 0.7
-    - _SurfaceOpacity: 0.5
+    - _SurfaceOpacity: 0.538
     - _TessEdgeLength: 20
     - _TessPhongStrength: 0.5
     - _TessellationEdgeLength: 20
     - _TessellationFactor: 16
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
-    - _FillColor: {r: 1, g: 1, b: 1, a: 1}
+    - _FillColor: {r: 0.9528302, g: 0, b: 0, a: 1}
     - _LightColor: {r: 1, g: 1, b: 1, a: 1}
-    - _SpecColor: {r: 1, g: 1, b: 1, a: 1}
+    - _SpecColor: {r: 1, g: 0.0141509175, b: 0.0141509175, a: 1}
   m_BuildTextureStacks: []
-  m_AllowLocking: 1

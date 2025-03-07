@@ -22,8 +22,9 @@ namespace UnityEngine.GsplEdit
         readonly List<(GSRenderer, MaterialPropertyBlock)> m_ActiveSplats = new();
 
         CommandBuffer m_CommandBuffer;
+        private SharedComputeContext m_Context;
 
-        public void RegisterSplat(GSRenderer r)
+        public void RegisterSplat(GSRenderer r, ref SharedComputeContext context)
         {
             if (m_Splats.Count == 0)
             {
@@ -32,6 +33,8 @@ namespace UnityEngine.GsplEdit
             }
 
             m_Splats.Add(r, new MaterialPropertyBlock());
+
+            m_Context = context;
         }
 
         public void UnregisterSplat(GSRenderer r)
@@ -180,6 +183,10 @@ namespace UnityEngine.GsplEdit
 
         public void OnPreCullCamera(Camera cam)
         {
+            // Dont render to offscreen camera
+            if (m_Context.offscreenRenderCamera != null && cam == m_Context.offscreenRenderCamera)
+                return;
+
             if (!GatherSplatsForCamera(cam))
                 return;
 

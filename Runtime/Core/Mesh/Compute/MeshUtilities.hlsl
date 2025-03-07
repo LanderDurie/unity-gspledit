@@ -9,7 +9,9 @@ struct TriangleProperties {
 
 struct VertexPos {
     float3 pos;
-    float3 posMod;     
+    float3 posMod; 
+    float3 normal;
+    float2 uv;    
 };
 
 struct Triangle {
