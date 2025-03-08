@@ -1,5 +1,4 @@
 using System.Linq;
-using UnityEditor;
 
 namespace UnityEngine.GsplEdit
 {
@@ -12,8 +11,8 @@ namespace UnityEngine.GsplEdit
         private MeshGen m_MeshGenerator;
         private LinkGen m_LinkGenerator;
         private ModifierSystem m_ModifierSystem;
-
         private Rect m_ScreenSize;
+        public GameObject m_DebugRect;
 
         public void OnEnable() {
             m_Context = new();
@@ -60,19 +59,32 @@ namespace UnityEngine.GsplEdit
                 offscreenCameraObject.hideFlags = HideFlags.HideAndDontSave;
                 m_Context.offscreenRenderCamera = offscreenCameraObject.AddComponent<Camera>();
                 m_Context.offscreenRenderCamera.enabled = false;
-                m_Context.offscreenRenderCamera.clearFlags = CameraClearFlags.SolidColor;
-                m_Context.offscreenRenderCamera.backgroundColor = Color.clear;
-                m_ScreenSize = SceneView.lastActiveSceneView.camera.pixelRect;
+                m_Context.offscreenRenderCamera.renderingPath = RenderingPath.DeferredShading;
+                m_Context.offscreenRenderCamera.clearFlags = CameraClearFlags.Color;
+                m_Context.offscreenRenderCamera.backgroundColor = new Color(0,0,0,0);
+                CreateOffscreenTexture();
+                if (Camera.current != null) {
+                    m_ScreenSize = Camera.current.pixelRect;
+                }
             }
         }
 
         public void CreateOffscreenTexture() {
-            m_Context.offscreenMeshTarget = new RenderTexture(
-                (int)m_ScreenSize.width, 
-                (int)m_ScreenSize.height, 
-                24,
-                RenderTextureFormat.ARGB32
-            );
+            if (m_ScreenSize != null && m_ScreenSize.width != 0 & m_ScreenSize.height != 0) {
+                m_Context.offscreenMeshTarget = new RenderTexture(
+                    (int)m_ScreenSize.width, 
+                    (int)m_ScreenSize.height, 
+                    24,
+                    RenderTextureFormat.ARGB32
+                );
+            } else {
+                m_Context.offscreenMeshTarget = new RenderTexture(
+                    1, 
+                    1, 
+                    24,
+                    RenderTextureFormat.ARGB32
+                );
+            }
             m_Context.offscreenMeshTarget.antiAliasing = 1;
             m_Context.offscreenMeshTarget.Create();
             m_Context.offscreenRenderCamera.targetTexture = m_Context.offscreenMeshTarget;
@@ -106,6 +118,7 @@ namespace UnityEngine.GsplEdit
             if (m_Context.offscreenRenderCamera != null) {
                 DestroyImmediate(m_Context.offscreenRenderCamera);
             }
+            DestroyOffscreenTexture();
         }
 
         private void DestroyOffscreenTexture() {
@@ -174,14 +187,16 @@ namespace UnityEngine.GsplEdit
 
             if (m_Context != null && m_Mesh != null && m_GSRenderer != null) {                
                 m_Mesh.m_GlobalTransform = transform;
+                m_Mesh.m_DebugPlane = m_DebugRect;
                 m_Mesh.UpdateDraw();
 
                 if (m_Context.offscreenMeshTarget == null) {
                     CreateOffscreenTexture();
                 }
 
-                if (m_ScreenSize != Camera.current.pixelRect) {
+                if (Camera.current != null && m_ScreenSize != Camera.current.pixelRect) {
                     m_ScreenSize = Camera.current.pixelRect;
+                    Debug.Log(m_ScreenSize);
                     DestroyOffscreenTexture();
                     CreateOffscreenTexture();
                 }

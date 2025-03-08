@@ -30,7 +30,9 @@
 
 #include "DeviceRadixSort.hlsl"
 #include "GaussianSplatting.hlsl"
+#include "ColorMixer.hlsl"
 #include "../../Mesh/Compute/MeshUtilities.hlsl"
+#include "../../Mesh/Compute/OffscreenUtilities.hlsl"
 #include "../../Links/Compute/LinkUtilities.hlsl"
 
 
@@ -57,17 +59,18 @@ struct ModSplat {
     float3 pos;
     float4 rot;
     float3 scale;
+    half4 color;
 };
 
 float4x4 _MatrixObjectToWorld;
 float4x4 _MatrixWorldToObject;
-float4x4 _MatrixVP;
+// float4x4 _MatrixVP;
 float4x4 _MatrixMV;
 float4x4 _MatrixP;
-float4 _VecScreenParams;
+// float4 _VecScreenParams;
 float4 _VecWorldSpaceCameraPos;
 int _SelectionMode;
-uint _ColorClustersPerChannel;
+// uint _ColorClustersPerChannel;
 
 RWStructuredBuffer<uint> _SplatSortDistances;
 RWStructuredBuffer<uint> _SplatSortKeys;
@@ -322,14 +325,6 @@ bool fitSteinerCircumellipsoid(Tetrahedron t, inout ModSplat result)
     float3 scale;
 
     JacobiEigenvalueDecomposition(covMatrix, scale, V);
-
-    // Compute eigenvalues
-    // computeEigenvectors(covMatrix, V);
-    // scale = float3(
-        // dot(mul(covMatrix, float3(V[0][0], V[1][0], V[2][0])), float3(V[0][0], V[1][0], V[2][0])),
-        // dot(mul(covMatrix, float3(V[0][1], V[1][1], V[2][1])), float3(V[0][1], V[1][1], V[2][1])),
-        // dot(mul(covMatrix, float3(V[0][2], V[1][2], V[2][2])), float3(V[0][2], V[1][2], V[2][2]))
-    // );
 
     // Scale factor for Steiner circumellipsoid
     scale = 2 * sqrt(3 * scale);
@@ -745,15 +740,46 @@ float3 translatePoint(int splatIndex, float3 p) {
 }
 
 
+half4 getModColor(int splatIndex) {
+    half4 avgColor = half4(0, 0, 0, 0);
+
+    SplatLink currentSplat = LoadSplatLink(splatIndex);
+
+    [unroll]
+    for (uint i = 0; i < 8; i++) {
+        int triangleId = currentSplat.triangleIds[i];
+        float triangleWeight = currentSplat.triangleWeights[i];
+
+        if (triangleId < 0 || triangleWeight <= 0) continue;
+
+        // Get the triangle
+        Triangle t = GetTriangle(triangleId);
+
+        // Get barycentric coordinates
+        float baryV = currentSplat.triangleX[i];
+        float baryW = currentSplat.triangleY[i];
+        float baryU = 1.0 - baryV - baryW;  // Calculate the first barycentric coordinate
+
+        float3 surfacePos = baryU * t.v0.pos + baryV * t.v1.pos + baryW * t.v2.pos;
+
+        avgColor += SampleTextureWorldSpace(surfacePos);
+    }
+
+    return avgColor;
+}
+
+
+
 
 ModSplat calcModSplat(int splatIndex, SplatData splat) {
     
     bool ignore = true;
+    SplatLink currentSplat = LoadSplatLink(splatIndex);
     [unroll]
     for (int i = 0; i < 8; i++) {
         // Check if valid triangle
-        int triangleId = LoadSplatLink(splatIndex).triangleIds[i];
-        float triangleWeight = LoadSplatLink(splatIndex).triangleWeights[i];
+        int triangleId = currentSplat.triangleIds[i];
+        float triangleWeight = currentSplat.triangleWeights[i];
         if (triangleId == -1 || triangleWeight <= 0) continue;
 
         if (any(LoadVertexPos1(triangleId).posMod) ||
@@ -763,29 +789,28 @@ ModSplat calcModSplat(int splatIndex, SplatData splat) {
         }
     }
 
+    ModSplat m;
     if (ignore) {
-        ModSplat m;
         m.pos = splat.pos;
         m.scale = splat.scale;
         m.rot = splat.rot;
-        return m;
+    } else {
+        // Ensure numerical stability
+        float maxScale = max(splat.scale.x, max(splat.scale.y, splat.scale.z));
+        splat.scale = max(splat.scale, maxScale / 1000.0);
+
+        Tetrahedron baseTetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
+        Tetrahedron transformTetra;
+        transformTetra.v0 = translatePoint(splatIndex, baseTetra.v0);
+        transformTetra.v1 = translatePoint(splatIndex, baseTetra.v1);
+        transformTetra.v2 = translatePoint(splatIndex, baseTetra.v2);
+        transformTetra.v3 = translatePoint(splatIndex, baseTetra.v3);
+
+        fitSteinerCircumellipsoid(transformTetra, m);
     }
+    m.color = getModColor(splatIndex);
 
-    // Ensure numerical stability
-    float maxScale = max(splat.scale.x, max(splat.scale.y, splat.scale.z));
-    splat.scale = max(splat.scale, maxScale / 1000.0);
-
-    Tetrahedron baseTetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
-    Tetrahedron transformTetra;
-    transformTetra.v0 = translatePoint(splatIndex, baseTetra.v0);
-    transformTetra.v1 = translatePoint(splatIndex, baseTetra.v1);
-    transformTetra.v2 = translatePoint(splatIndex, baseTetra.v2);
-    transformTetra.v3 = translatePoint(splatIndex, baseTetra.v3);
-
-    ModSplat mod;
-    fitSteinerCircumellipsoid(transformTetra, mod);
-
-    return mod;
+    return m;
 }
 
 
@@ -970,6 +995,8 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
         half4 col;
         col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
         col.a = min(splat.opacity * opacityScale, 65000);
+
+        col = fullBg(col, modSplat.color);
 
         view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
         view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);

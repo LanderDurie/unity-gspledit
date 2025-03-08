@@ -6,21 +6,25 @@ namespace UnityEngine.GsplEdit
 {
     public class OffscreenRendering
     {
-        private GameObject m_DebugPlane;
+        public GameObject m_DebugPlane;
         private SharedComputeContext m_Context;
         public Renderer[] m_Renderers;
         public Material m_Material;
-        public ComputeBuffer m_IndexBuffer;
+        public GraphicsBuffer m_IndexBuffer;
         public Transform m_GlobalTransform;
         public ComputeBuffer m_ArgsBuffer;
         public bool m_CastShadow;
 
         // Store original shadow casting modes
         private System.Collections.Generic.Dictionary<Renderer, UnityEngine.Rendering.ShadowCastingMode> originalShadowModes;
+        // Command buffer for unified rendering
+        private CommandBuffer m_CommandBuffer;
 
-        public OffscreenRendering(ref SharedComputeContext context, GameObject debugPlane) {
+        public OffscreenRendering(ref SharedComputeContext context) {
             m_Context = context;
-            m_DebugPlane = debugPlane;
+            // Initialize the command buffer
+            m_CommandBuffer = new CommandBuffer();
+            m_CommandBuffer.name = "OffscreenRenderingPass";
             
             Recreate(1.0f);
         }
@@ -59,8 +63,14 @@ namespace UnityEngine.GsplEdit
             EditorApplication.update -= UpdateRendering;
             #endif
 
-            CleanupResources();
             RestoreShadowModes(); // Restore original shadow modes
+            
+            // Clean up command buffer
+            if (m_CommandBuffer != null)
+            {
+                m_CommandBuffer.Release();
+                m_CommandBuffer = null;
+            }
         }
 
         private void SyncWithSceneViewCamera()
@@ -126,14 +136,21 @@ namespace UnityEngine.GsplEdit
             // Explicitly ensure the camera is targeting our render texture
             m_Context.offscreenRenderCamera.targetTexture = m_Context.offscreenMeshTarget;
             
-            // Clear the render texture first
-            RenderTexture.active = m_Context.offscreenMeshTarget;
-            GL.Clear(true, true, m_Context.offscreenRenderCamera.backgroundColor);
-            RenderTexture.active = null;
-            
+            // Set shadow modes for all renderers
             SetShadowModes();
-            DrawFill();
+            
+            // Clear the command buffer to build a new rendering sequence
+            m_CommandBuffer.Clear();
+            
+            // Clear the render texture
+            m_CommandBuffer.SetRenderTarget(m_Context.offscreenMeshTarget);
+            m_CommandBuffer.ClearRenderTarget(true, true, m_Context.offscreenRenderCamera.backgroundColor);
+            
+            // Add the DrawFill commands directly to the command buffer
+            PrepareDrawFillCommands();
             m_Context.offscreenRenderCamera.Render();
+            
+            // Restore shadow modes
             RestoreShadowModes();
             
             // Ensure the debug plane material has the texture
@@ -147,54 +164,43 @@ namespace UnityEngine.GsplEdit
             }
         }
 
-        private void DrawFill()
+        private void PrepareDrawFillCommands()
         {
-            if (m_Context == null || m_Context.gpuMeshPosData == null || m_Material == null || m_IndexBuffer == null || m_ArgsBuffer == null)
+            // Set up RenderParams
+            RenderParams rp = new RenderParams(m_Material);
+            rp.worldBounds = new Bounds(m_GlobalTransform.position, Vector3.one * 10f);
+            rp.matProps = new MaterialPropertyBlock();
+            rp.matProps.SetBuffer("_MeshVertexPos", m_Context.gpuMeshPosData);
+            rp.matProps.SetBuffer("_IndexBuffer", m_IndexBuffer);
+            rp.matProps.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
+            rp.camera = m_Context.offscreenRenderCamera;
+            rp.receiveShadows = true;
+            rp.shadowCastingMode = ShadowCastingMode.Off; // Dont cast shadows
+            rp.layer = 0;
+
+            Graphics.RenderPrimitives(rp, MeshTopology.Triangles, m_IndexBuffer.count, 1);
+        }
+
+        void SetShadowModes()
+        {
+            originalShadowModes = new System.Collections.Generic.Dictionary<Renderer, UnityEngine.Rendering.ShadowCastingMode>();
+
+            // Store the original shadow mode for each renderer
+            foreach (Renderer renderer in m_Renderers)
             {
-                Debug.LogWarning("Cannot draw fill: one or more required resources are null");
-                return;
+                if (renderer != null)
+                {
+                    originalShadowModes[renderer] = renderer.shadowCastingMode;
+                    
+                    // Set to cast shadows only if needed
+                    if (m_CastShadow)
+                    {
+                        // renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
+                    }
+                }
             }
-
-            // Set up material properties
-            m_Material.SetBuffer("_MeshVertexPos", m_Context.gpuMeshPosData);
-            m_Material.SetBuffer("_IndexBuffer", m_IndexBuffer);
-            m_Material.SetMatrix("_ObjectToWorld", m_GlobalTransform != null ? m_GlobalTransform.localToWorldMatrix : Matrix4x4.identity);
-
-            // Define bounds for the procedural drawing - make it large enough to ensure visibility
-            Bounds bounds = new Bounds(
-                m_GlobalTransform != null ? m_GlobalTransform.position : Vector3.zero, 
-                Vector3.one * 100f
-            );
-            
-            // Draw the procedural mesh directly to the render texture
-            Graphics.DrawProceduralIndirect(
-                m_Material,
-                bounds,
-                MeshTopology.Triangles,
-                m_ArgsBuffer,
-                argsOffset: 0,
-                camera: m_Context.offscreenRenderCamera,  // Explicitly specify the camera
-                properties: null,
-                castShadows: m_CastShadow ? ShadowCastingMode.On : ShadowCastingMode.Off,
-                receiveShadows: true,  // Allow shadows to be received
-                layer: 0
-            );
         }
 
-    void SetShadowModes()
-    {
-        originalShadowModes = new System.Collections.Generic.Dictionary<Renderer, UnityEngine.Rendering.ShadowCastingMode>();
-
-        // Find all renderers in the scene
-        foreach (Renderer renderer in m_Renderers)
-        {
-            // Store the original shadow mode
-            originalShadowModes[renderer] = renderer.shadowCastingMode;
-
-            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
-            
-        }
-    }
         void RestoreShadowModes()
         {
             // Restore original shadow modes
@@ -208,22 +214,6 @@ namespace UnityEngine.GsplEdit
                     }
                 }
             }
-        }
-
-        void CleanupResources()
-        {
-            // if (m_Context.offscreenRenderCamera != null)
-            // {
-            //     Object.DestroyImmediate(m_Context.offscreenRenderCamera.gameObject);
-            //     tempRenderCamera = null;
-            // }
-
-            // if (m_Context != null && m_Context.offscreenMeshTarget != null)
-            // {
-            //     m_Context.offscreenMeshTarget.Release();
-            //     Object.DestroyImmediate(m_Context.offscreenMeshTarget);
-            //     m_Context.offscreenMeshTarget = null;
-            // }
         }
     }
 }

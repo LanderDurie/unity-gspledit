@@ -78,29 +78,38 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
     float minDistances[LINK_COUNT] = { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, 
                                       MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE };
     int minIndices[LINK_COUNT] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+    float baryV[LINK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    float baryW[LINK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
     // First pass: find closest triangles
     [loop]
     for (uint i = 0; i < _IndexCount; i++) {
-        float3 center = (
-            LoadVertexPos1(i).pos + 
-            LoadVertexPos2(i).pos +
-            LoadVertexPos3(i).pos) / 3.0;
+        float3 p1 = LoadVertexPos1(i).pos;
+        float3 p2 = LoadVertexPos2(i).pos;
+        float3 p3 = LoadVertexPos3(i).pos;
 
-        float d = length(center - splat.pos);
+        // Calculate distance and barycentric coordinates
+        float3 distAndBary = dist(p1, p2, p3, splat.pos);
+        float d = distAndBary.x;
+        float v = distAndBary.y;  // Second barycentric coordinate
+        float w = distAndBary.z;  // Third barycentric coordinate
 
-        // Insert the new distance and index into the sorted list
+        // Insert the new distance, index, and barycentric coordinates into the sorted list
         for (uint j = 0; j < LINK_COUNT; j++) {
             if (d < minDistances[j]) {
                 // Shift existing values down
                 for (uint k = LINK_COUNT - 1; k > j; k--) {
                     minDistances[k] = minDistances[k - 1];
                     minIndices[k] = minIndices[k - 1];
+                    baryV[k] = baryV[k - 1];
+                    baryW[k] = baryW[k - 1];
                 }
 
-                // Insert the new triangle
+                // Insert the new triangle and its barycentric coordinates
                 minDistances[j] = d;
                 minIndices[j] = i;
+                baryV[j] = v;
+                baryW[j] = w;
 
                 break;
             }
@@ -123,8 +132,9 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
         splatLinks.triangleIds[k] = (weight > threshold) ? minIndices[k] : -1;
         splatLinks.triangleWeights[k] = (weight > threshold) ? weight : 0;
 
-        splatLinks.triangleX[k] = 0;
-        splatLinks.triangleY[k] = 0;
+        // Store the barycentric coordinates
+        splatLinks.triangleX[k] = (weight > threshold) ? baryV[k] : 0;
+        splatLinks.triangleY[k] = (weight > threshold) ? baryW[k] : 0;
     }
 
     SetSplatLink(splatIndex, splatLinks);

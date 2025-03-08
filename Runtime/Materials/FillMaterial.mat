@@ -30,7 +30,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _Shininess: 0.7
-    - _SurfaceOpacity: 0.538
+    - _SurfaceOpacity: 0.502
     - _TessEdgeLength: 20
     - _TessPhongStrength: 0.5
     - _TessellationEdgeLength: 20

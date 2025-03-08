@@ -15,7 +15,9 @@ namespace UnityEditor.GsplEdit
 
             // Dropdown for selecting mesh meshGeneration options
             GUILayout.Label("Select Mesh Option", EditorStyles.label);
+
             MeshGen meshGen = gs.GetMeshGen();
+
             meshGen.m_SelectedType = (MeshGen.GenType)EditorGUILayout.EnumPopup("Mesh Option", meshGen.m_SelectedType);
             switch (meshGen.m_SelectedType)
             {
@@ -32,6 +34,7 @@ namespace UnityEditor.GsplEdit
                     DrawDualContourSettings((DualContouringGen)meshGen.m_Generators[meshGen.m_SelectedType]);
                     break;
             }
+
 
             GUILayout.Label("Link Generator Options", EditorStyles.boldLabel);
 

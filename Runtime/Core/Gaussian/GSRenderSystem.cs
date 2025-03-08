@@ -132,11 +132,12 @@ namespace UnityEngine.GsplEdit
                 mpb.SetBuffer(GSRenderer.Props.SplatChunks, gs.m_SharedContext.gpuGSChunks);
                 mpb.SetBuffer(GSRenderer.Props.SplatViewData, gs.m_GpuView);
                 mpb.SetBuffer(GSRenderer.Props.OrderBuffer, gs.m_GpuSortKeys);
+
                 mpb.SetBuffer("_MeshVertexPos", gs.m_SharedContext.gpuMeshPosData);
                 mpb.SetBuffer("_SplatLinks", gs.m_SharedContext.gpuForwardLinks);
                 mpb.SetBuffer("_MeshIndices", gs.m_SharedContext.gpuMeshIndexData);
+                mpb.SetTexture("_OffscreenMeshTexture", gs.m_SharedContext.offscreenMeshTarget);
 
-                // mpb.SetInt("_ColorsPerChannel", gs.m_ColorsPerChannel);
                 mpb.SetFloat(GSRenderer.Props.SplatScale, gs.m_SplatScale);
                 mpb.SetFloat(GSRenderer.Props.SplatOpacityScale, gs.m_OpacityScale);
                 mpb.SetFloat(GSRenderer.Props.SplatSize, gs.m_PointDisplaySize);

@@ -13,10 +13,9 @@ namespace UnityEngine.GsplEdit
         private Edge[] m_Edges;
         private Triangle[] m_Triangles;
         
-        public ComputeBuffer m_IndexBuffer;
+        public GraphicsBuffer m_IndexBuffer;
         public GraphicsBuffer m_VertexBuffer; // Stores base vertices before running modifier system
         private ComputeBuffer m_ArgsBuffer;
-        private static readonly int ARGS_STRIDE = sizeof(int) * 4;
         public ComputeShader m_CSVertexUtilities;
         public Material m_WireframeMaterial;
         public Material m_SelectedVertexMaterial;
@@ -80,12 +79,7 @@ namespace UnityEngine.GsplEdit
 
             // Initialize the offscreen renderer
             if (m_OffscreenRenderer == null) {
-                // Create debug plane for rendering
-                m_DebugPlane = GameObject.CreatePrimitive(PrimitiveType.Plane);
-                m_DebugPlane.name = "MeshDebugPlane";
-                m_DebugPlane.transform.position = new Vector3(5f, 0f, 0f); // Position to the side
-                
-                m_OffscreenRenderer = new OffscreenRendering(ref m_Context, m_DebugPlane);
+                m_OffscreenRenderer = new OffscreenRendering(ref m_Context);
             }        
         }
 
@@ -112,13 +106,6 @@ namespace UnityEngine.GsplEdit
                 #endif
                 m_OffscreenRenderer.OnDisable();
                 m_OffscreenRenderer = null;
-            }
-            
-            // Destroy the debug plane
-            if (m_DebugPlane != null)
-            {
-                GameObject.DestroyImmediate(m_DebugPlane);
-                m_DebugPlane = null;
             }
         }
 
@@ -155,7 +142,7 @@ namespace UnityEngine.GsplEdit
                 // Create triangle buffer
                 if (m_Indices.Length > 0)
                 {
-                    m_IndexBuffer = new ComputeBuffer(m_Indices.Length, sizeof(int));
+                    m_IndexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Index, m_Indices.Length, sizeof(int));
                     m_IndexBuffer.SetData(m_Indices);
                 }
                 
@@ -170,13 +157,19 @@ namespace UnityEngine.GsplEdit
                 // Arguments for DrawProceduralIndirect
                 uint[] args = new uint[4]
                 {
-            (uint)m_Indices.Length,    // Index count per instance
-            1,                           // Instance count
-            0,                           // Start index location
-            0                            // Base vertex location
+                    (uint)m_Indices.Length,    // Index count per instance
+                    1,                           // Instance count
+                    0,                           // Start index location
+                    0                            // Base vertex location
                 };
 
-                m_ArgsBuffer = new ComputeBuffer(1, ARGS_STRIDE, ComputeBufferType.IndirectArguments);
+                // // Setup the argument array with the necessary values
+                // int[] args = new int[5] { m_IndexBuffer.count, 1, 0, 0, 0 }; // Setup for indexed drawing
+
+                // // Initialize the ComputeBuffer for indirect arguments
+                m_ArgsBuffer = new ComputeBuffer(1, sizeof(int) * args.Length, ComputeBufferType.IndirectArguments);
+
+                // // Set the data into the ComputeBuffer
                 m_ArgsBuffer.SetData(args);
 
             }
@@ -369,15 +362,47 @@ namespace UnityEngine.GsplEdit
             m_WireframeMaterial.SetBuffer("_IndexBuffer", m_IndexBuffer);
             m_WireframeMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
 
-            m_Cmd.DrawProceduralIndirect(
+            m_Cmd.DrawProcedural(
                 Matrix4x4.identity,
                 m_WireframeMaterial,
                 0,
                 MeshTopology.Triangles,
-                m_ArgsBuffer,
-                0
+                m_Indices.Length
             );
         }
+
+        // public void DrawFill()
+        // {
+        //     if (!AreBuffersValid() || m_Context.gpuMeshPosData == null || !m_FillMaterial)
+        //         return;
+
+        //     // Set up material properties
+        //     m_FillMaterial.SetBuffer("_VertexProps", m_Context.gpuMeshPosData);
+        //     m_FillMaterial.SetBuffer("_IndexBuffer", m_IndexBuffer);
+        //     m_FillMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
+
+        //     // Define bounds for the procedural drawing
+        //     Bounds bounds = new Bounds(m_GlobalTransform.position, Vector3.one * 10f); // Adjust bounds as needed
+
+        //     // Set up RenderParams
+        //     RenderParams renderParams = new RenderParams(m_FillMaterial)
+        //     {
+        //         camera = null, // Use the current camera
+        //         receiveShadows = true, // Enable shadow receiving
+        //         shadowCastingMode = m_CastShadow ? ShadowCastingMode.On : ShadowCastingMode.Off, // Enable shadow casting
+        //         worldBounds = bounds, // Define the bounds for culling
+        //         layer = 0 // Default layer
+        //     };
+
+        //     // Render the procedural mesh
+        //     Graphics.RenderPrimitives(
+        //         renderParams,
+        //         MeshTopology.Triangles,
+        //         m_Indices.Length
+        //         // m_IndexBuffer,
+        //         // m_Indices.Length // Number of indices
+        //     );
+        // }
 
         private void Draw()
         {
@@ -395,6 +420,8 @@ namespace UnityEngine.GsplEdit
             DrawSelectedVertices();
             Graphics.ExecuteCommandBuffer(m_Cmd);
 
+            // m_DebugPlane.transform.localScale = new Vector3(Camera.current.pixelWidth / 400, 1f, Camera.current.pixelHeight / 400); // Position to the side
+            m_OffscreenRenderer.m_DebugPlane = m_DebugPlane;
             m_OffscreenRenderer.m_Renderers = FindObjectsOfType<Renderer>();
             m_OffscreenRenderer.m_Material = m_FillMaterial;
             m_OffscreenRenderer.m_IndexBuffer = m_IndexBuffer;
