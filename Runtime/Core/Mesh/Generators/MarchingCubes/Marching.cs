@@ -40,7 +40,7 @@ namespace UnityEngine.GsplEdit.MarchingCubes
         /// <param name="voxels"></param>
         /// <param name="verts"></param>
         /// <param name="indices"></param>
-        public virtual void Generate(float[,,] voxels, IList<VertexPos> verts, IList<int> indices)
+        public virtual void Generate(float[,,] voxels, IList<Vector3> verts, IList<int> indices)
         {
 
             int width = voxels.GetLength(0);
@@ -84,7 +84,7 @@ namespace UnityEngine.GsplEdit.MarchingCubes
         /// <param name="depth"></param>
         /// <param name="verts"></param>
         /// <param name="indices"></param>
-        public virtual void Generate(IList<float> voxels, int width, int height, int depth, IList<VertexPos> verts, IList<int> indices)
+        public virtual void Generate(IList<float> voxels, int width, int height, int depth, IList<Vector3> verts, IList<int> indices)
         {
 
             UpdateWindingOrder();
@@ -138,7 +138,7 @@ namespace UnityEngine.GsplEdit.MarchingCubes
          /// <summary>
         /// MarchCube performs the Marching algorithm on a single cube
         /// </summary>
-        protected abstract void March(float x, float y, float z, float[] cube, IList<VertexPos> vertList, IList<int> indexList);
+        protected abstract void March(float x, float y, float z, float[] cube, IList<Vector3> vertList, IList<int> indexList);
 
         /// <summary>
         /// GetOffset finds the approximate point of intersection of the surface

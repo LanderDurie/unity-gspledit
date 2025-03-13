@@ -27,9 +27,9 @@ namespace UnityEditor.GsplEdit
                 case MeshGen.GenType.MarchingCubes:
                     DrawMarchingCubesSettings((MarchingCubesGen)meshGen.m_Generators[meshGen.m_SelectedType]);
                     break;
-                case MeshGen.GenType.SurfaceNets:
-                    DrawSurfaceNetsSettings((SurfaceNetsGen)meshGen.m_Generators[meshGen.m_SelectedType]);
-                    break;
+                // case MeshGen.GenType.SurfaceNets:
+                //     DrawSurfaceNetsSettings((SurfaceNetsGen)meshGen.m_Generators[meshGen.m_SelectedType]);
+                //     break;
                 case MeshGen.GenType.DualContouringGen:
                     DrawDualContourSettings((DualContouringGen)meshGen.m_Generators[meshGen.m_SelectedType]);
                     break;
@@ -59,7 +59,7 @@ namespace UnityEditor.GsplEdit
             linkGen.m_BackwardSelectedType = (LinkGen.BackwardGenType)EditorGUILayout.EnumPopup("Backward Link Option", linkGen.m_BackwardSelectedType);
             switch (linkGen.m_BackwardSelectedType)
             {
-                case LinkGen.BackwardGenType.Euclidean:
+                case LinkGen.BackwardGenType.Texture:
                     break;
             }
 
@@ -102,17 +102,17 @@ namespace UnityEditor.GsplEdit
             meshGen.m_Settings.lod = EditorGUILayout.IntField("Level Of Detail", Mathf.Clamp(meshGen.m_Settings.lod, 4, 1000));
         }
 
-        private void DrawSurfaceNetsSettings(SurfaceNetsGen meshGen)
-        {
-            meshGen.m_Settings.scale = EditorGUILayout.FloatField("Scale", Mathf.Clamp(meshGen.m_Settings.scale, 0.1f, 100.0f));
-            meshGen.m_Settings.threshold = EditorGUILayout.Slider(
-                new GUIContent("Activation threshold", ""), 
-                meshGen.m_Settings.threshold, 
-                0.0f, 
-                1.0f
-            );
-            meshGen.m_Settings.lod = EditorGUILayout.IntField("Level Of Detail", Mathf.Clamp(meshGen.m_Settings.lod, 4, 1000));
-        }
+        // private void DrawSurfaceNetsSettings(SurfaceNetsGen meshGen)
+        // {
+        //     meshGen.m_Settings.scale = EditorGUILayout.FloatField("Scale", Mathf.Clamp(meshGen.m_Settings.scale, 0.1f, 100.0f));
+        //     meshGen.m_Settings.threshold = EditorGUILayout.Slider(
+        //         new GUIContent("Activation threshold", ""), 
+        //         meshGen.m_Settings.threshold, 
+        //         0.0f, 
+        //         1.0f
+        //     );
+        //     meshGen.m_Settings.lod = EditorGUILayout.IntField("Level Of Detail", Mathf.Clamp(meshGen.m_Settings.lod, 4, 1000));
+        // }
 
         private void DrawDualContourSettings(DualContouringGen meshGen)
         {

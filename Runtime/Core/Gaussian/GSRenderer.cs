@@ -263,9 +263,10 @@ namespace UnityEngine.GsplEdit
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatDeletedBits, m_GpuEditDeleted ?? m_SharedContext.gpuGSPosData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatViewData, m_GpuView);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.OrderBuffer, m_GpuSortKeys);
-            cmb.SetComputeBufferParam(cs, kernelIndex, "_MeshVertexPos", m_SharedContext.gpuMeshPosData);
+            cmb.SetComputeBufferParam(cs, kernelIndex, "_VertexBasePos", m_SharedContext.gpuMeshBaseVertex);
+            cmb.SetComputeBufferParam(cs, kernelIndex, "_VertexModPos", m_SharedContext.gpuMeshModVertex);
+            cmb.SetComputeBufferParam(cs, kernelIndex, "_MeshIndices", m_SharedContext.gpuMeshIndices);
             cmb.SetComputeBufferParam(cs, kernelIndex, "_SplatLinks", m_SharedContext.gpuForwardLinks);
-            cmb.SetComputeBufferParam(cs, kernelIndex, "_MeshIndices", m_SharedContext.gpuMeshIndexData);
             cmb.SetComputeTextureParam(cs, kernelIndex, "_OffscreenMeshTexture", m_SharedContext.offscreenMeshTarget);
 
             cmb.SetComputeIntParam(cs, Props.SplatBitsValid, m_GpuEditSelected != null && m_GpuEditDeleted != null ? 1 : 0);
@@ -395,9 +396,11 @@ namespace UnityEngine.GsplEdit
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatPos, m_SharedContext.gpuGSPosData);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatOther, m_SharedContext.gpuGSOtherData);
             cmd.SetComputeTextureParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatColor, m_SharedContext.gpuGSColorData);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_MeshVertexPos", m_SharedContext.gpuMeshPosData);
+
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_VertexBasePos", m_SharedContext.gpuMeshBaseVertex);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_VertexModPos", m_SharedContext.gpuMeshModVertex);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_MeshIndices", m_SharedContext.gpuMeshIndices);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_SplatLinks", m_SharedContext.gpuForwardLinks);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_MeshIndices", m_SharedContext.gpuMeshIndexData);
             cmd.SetComputeTextureParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_OffscreenMeshTexture", m_SharedContext.offscreenMeshTarget);
 
             cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, (int)m_SharedContext.splatData.posFormat);

@@ -1,12 +1,9 @@
 #pragma kernel CSMain
 
-struct VertexProperties {
-    float3 pos;
-    float3 posMod;
-};
+RWStructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<float3> _VertexModPos;
 
 // Buffers
-RWStructuredBuffer<VertexProperties> vertexBuffer;
 RWByteAddressBuffer _VertexSelectedBits;
 
 // Time and animation parameters
@@ -37,7 +34,7 @@ bool isSelected(uint idx) {
 void CSMain(uint id : SV_DispatchThreadID)
 {
     // Ensure we don't go out of bounds
-    if (id >= vertexBuffer.Length)
+    if (id >= _VertexBasePos.Length)
         return;
        
     // Check if vertex is selected
@@ -45,26 +42,27 @@ void CSMain(uint id : SV_DispatchThreadID)
         return;
        
     // Read the current vertex
-    VertexProperties vertex = vertexBuffer[id];
-   
+    float3 basePos = _VertexBasePos[id];
+    float3 modPos = _VertexModPos[id];
+
     // IMPORTANT: Reset posMod to zero first to avoid accumulation
-    vertex.posMod = float3(0, 0, 0);
+    modPos = float3(0, 0, 0);
    
     // For X axis
     float timeValueX = animateFlags.x > 0 ? time : 0;
     // X axis deformation - using pos.x and pos.z for variation
-    vertex.posMod.x = sin((timeValueX + vertex.pos.x * frequencyX) + phaseX) * amplitudeX;
+    modPos.x = sin((timeValueX + basePos.x * frequencyX) + phaseX) * amplitudeX;
     
     // For Y axis
     float timeValueY = animateFlags.y > 0 ? time : 0;
     // Y axis deformation - using pos.z for variation
-    vertex.posMod.y = sin((timeValueY + vertex.pos.z * frequencyY) + phaseY) * amplitudeY;
+    modPos.y = sin((timeValueY + basePos.z * frequencyY) + phaseY) * amplitudeY;
     
     // For Z axis
     float timeValueZ = animateFlags.z > 0 ? time : 0;
     // Z axis deformation
-    vertex.posMod.z = sin((timeValueZ + vertex.pos.y * frequencyZ) + phaseZ) * amplitudeZ;
+    modPos.z = sin((timeValueZ + basePos.y * frequencyZ) + phaseZ) * amplitudeZ;
    
     // Write back the modified vertex
-    vertexBuffer[id] = vertex;
+    _VertexModPos[id] = modPos + basePos;
 }

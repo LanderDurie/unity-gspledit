@@ -25,13 +25,13 @@ namespace UnityEngine.GsplEdit
             m_InterpolateLinkageCompute.SetInt("_SplatFormat", (int)format);
             m_InterpolateLinkageCompute.SetTexture(0, "_SplatColor", context.gpuGSColorData);
 
-            m_InterpolateLinkageCompute.SetBuffer(0, "_MeshVertexPos", context.gpuMeshPosData);
+            m_InterpolateLinkageCompute.SetBuffer(0, "_VertexBasePos", context.gpuMeshBaseVertex);
             m_InterpolateLinkageCompute.SetBuffer(0, "_SplatLinks", context.gpuForwardLinks);
-            m_InterpolateLinkageCompute.SetBuffer(0, "_MeshIndices", context.gpuMeshIndexData);
+            m_InterpolateLinkageCompute.SetBuffer(0, "_MeshIndices", context.gpuMeshIndices);
 
             m_InterpolateLinkageCompute.SetInt("_SplatCount", context.splatData.splatCount);
             m_InterpolateLinkageCompute.SetInt("_VertexCount", context.vertexCount);
-            m_InterpolateLinkageCompute.SetInt("_IndexCount", context.triangleCount);
+            m_InterpolateLinkageCompute.SetInt("_IndexCount", context.indexCount);
             m_InterpolateLinkageCompute.SetFloat("_BlendFactor", m_Settings.blendFactor);
 
             // Calculate number of thread groups needed

@@ -1,0 +1,172 @@
+#pragma kernel OpacityContributions
+#include "../../../../Gaussian/Compute/GaussianSplatting.hlsl"
+#include "../../../Compute/LinkUtilities.hlsl"
+#include "../../../../Gaussian/Compute/SamplePoints.hlsl"
+
+struct Triangle {
+    int v0;
+    int v1;
+    int v2;
+};
+
+RWStructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<Triangle> _MeshIndices;
+uint _IndexCount;
+
+uint _SplatCount;
+float _GlobalSigma;
+static const float MAX_DISTANCE = 1e30f;
+
+// Helper function to convert a 3x3 matrix to a 4x4 matrix
+float4x4 Convert3x3To4x4(float3x3 mat3x3) {
+    return float4x4(
+        float4(mat3x3[0], 0.0f),
+        float4(mat3x3[1], 0.0f),
+        float4(mat3x3[2], 0.0f),
+        float4(0.0f, 0.0f, 0.0f, 1.0f)
+    );
+}
+
+// Function to convert a quaternion to a 4x4 rotation matrix
+float4x4 quatToMatrix(float4 quat) {
+    float3x3 rotationMat = float3x3(
+        1.0f - 2.0f * (quat.y * quat.y + quat.z * quat.z),  2.0f * (quat.x * quat.y - quat.w * quat.z),  2.0f * (quat.x * quat.z + quat.w * quat.y),
+        2.0f * (quat.x * quat.y + quat.w * quat.z),  1.0f - 2.0f * (quat.x * quat.x + quat.z * quat.z),  2.0f * (quat.y * quat.z - quat.w * quat.x),
+        2.0f * (quat.x * quat.z - quat.w * quat.y),  2.0f * (quat.y * quat.z + quat.w * quat.x),  1.0f - 2.0f * (quat.x * quat.x + quat.y * quat.y)
+    );
+    return Convert3x3To4x4(rotationMat);
+}
+
+float3 dist(float3 p1, float3 p2, float3 p3, float3 extPos) {
+    // Compute vectors relative to p1
+    float3 v0 = p2 - p1;
+    float3 v1 = p3 - p1;
+    float3 v2 = extPos - p1;
+
+    // Compute dot products
+    float d00 = dot(v0, v0);
+    float d01 = dot(v0, v1);
+    float d11 = dot(v1, v1);
+    float d20 = dot(v2, v0);
+    float d21 = dot(v2, v1);
+
+    // Compute the denominator of the barycentric coordinates
+    float denom = d00 * d11 - d01 * d01;
+
+    // Compute barycentric coordinates with improved stability
+    float v = (d11 * d20 - d01 * d21) / max(denom, 1e-6f);
+    float w = (d00 * d21 - d01 * d20) / max(denom, 1e-6f);
+    float u = 1.0f - v - w;
+
+    // Clamp barycentric coordinates
+    v = max(0.0f, v);
+    w = max(0.0f, w);
+    u = max(0.0f, u);
+
+    float sum = u + v + w;
+    u /= sum;
+    v /= sum;
+    w /= sum;
+
+    // Compute the closest point in the triangle
+    float3 closestPoint = u * p1 + v * p2 + w * p3;
+
+    // Compute the shortest distance
+    float distance = length(extPos - closestPoint);
+
+    return float3(distance, v, w);
+}
+
+[numthreads(128, 1, 1)]
+void OpacityContributions(uint3 id : SV_DispatchThreadID) {
+    uint splatIndex = id.x;
+    if (splatIndex >= _SplatCount) return;
+
+    SplatData splat = LoadSplatData(splatIndex);
+
+    float minDistances[LINK_COUNT] = { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, 
+                                      MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE };
+    int minIndices[LINK_COUNT] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+    float baryV[LINK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    float baryW[LINK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+
+    // Compute the hexahedron vertices from the ellipsoid
+    Hexahedron hex = computeHexahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
+    
+    // Collect all hexahedron vertices
+    float3 hexVertices[6];
+    hexVertices[0] = hex.v0;
+    hexVertices[1] = hex.v1;
+    hexVertices[2] = hex.v2;
+    hexVertices[3] = hex.v3;
+    hexVertices[4] = hex.v4;
+    hexVertices[5] = hex.v5;
+
+    // First pass: find closest triangles for each hexahedron vertex
+    [loop]
+    for (uint i = 0; i < _IndexCount; i++) {
+        Triangle t = _MeshIndices[i];
+        float3 p1 = _VertexBasePos[t.v0];
+        float3 p2 = _VertexBasePos[t.v1];
+        float3 p3 = _VertexBasePos[t.v2];
+
+        // Find the minimum distance from any hexahedron vertex to this triangle
+        float minHexDistance = MAX_DISTANCE;
+        float bestV = 0;
+        float bestW = 0;
+        
+        for (uint v = 0; v < 6; v++) {
+            // Calculate distance and barycentric coordinates for each hexahedron vertex
+            float3 distAndBary = dist(p1, p2, p3, hexVertices[v]);
+            if (distAndBary.x < minHexDistance) {
+                minHexDistance = distAndBary.x;
+                bestV = distAndBary.y;
+                bestW = distAndBary.z;
+            }
+        }
+
+        // Insert the new minimum distance into the sorted list
+        for (uint j = 0; j < LINK_COUNT; j++) {
+            if (minHexDistance < minDistances[j]) {
+                // Shift existing values down
+                for (uint k = LINK_COUNT - 1; k > j; k--) {
+                    minDistances[k] = minDistances[k - 1];
+                    minIndices[k] = minIndices[k - 1];
+                    baryV[k] = baryV[k - 1];
+                    baryW[k] = baryW[k - 1];
+                }
+
+                // Insert the new triangle and its barycentric coordinates
+                minDistances[j] = minHexDistance;
+                minIndices[j] = i;
+                baryV[j] = bestV;
+                baryW[j] = bestW;
+
+                break;
+            }
+        }
+    }
+
+    float totalDist = 0.0;
+    for (uint j = 0; j < LINK_COUNT; j++) {
+        totalDist += minDistances[j];
+    }
+
+    // Calculate weights and store results
+    SplatLink splatLinks;
+    float sigmaSquared = _GlobalSigma * _GlobalSigma;
+    float threshold = 0.00001;
+
+    [unroll]
+    for (uint k = 0; k < LINK_COUNT; k++) {
+        float weight = 1 - (minDistances[k] / totalDist);
+        splatLinks.triangleIds[k] = (weight > threshold) ? minIndices[k] : -1;
+        splatLinks.triangleWeights[k] = (weight > threshold) ? weight : 0;
+
+        // Store the barycentric coordinates
+        splatLinks.triangleX[k] = (weight > threshold) ? baryV[k] : 0;
+        splatLinks.triangleY[k] = (weight > threshold) ? baryW[k] : 0;
+    }
+
+    SetSplatLink(splatIndex, splatLinks);
+}

@@ -7,8 +7,8 @@ namespace UnityEngine.GsplEdit
     {
         // Sine wave parameters
         [Header("Sine Wave Parameters")]
-        [SerializeField] private float m_AmplitudeX = 0.8f;
-        [SerializeField] private float m_AmplitudeY = 0.8f;
+        [SerializeField] private float m_AmplitudeX = 0.0f;
+        [SerializeField] private float m_AmplitudeY = 0.0f;
         [SerializeField] private float m_AmplitudeZ = 0.0f;
         
         [SerializeField] private float m_FrequencyX = 1.0f;
@@ -20,8 +20,8 @@ namespace UnityEngine.GsplEdit
         [SerializeField] private float m_PhaseZ = 0.0f;
         
         [Header("Animation Settings")]
-        [SerializeField] private bool m_AnimateX = true;
-        [SerializeField] private bool m_AnimateY = true;
+        [SerializeField] private bool m_AnimateX = false;
+        [SerializeField] private bool m_AnimateY = false;
         [SerializeField] private bool m_AnimateZ = false;
         [SerializeField] private float m_AnimationSpeed = 1.0f;
 
@@ -42,7 +42,7 @@ namespace UnityEngine.GsplEdit
 
         public override void Run()
         {
-            if (m_Context.gpuMeshPosData == null)
+            if (m_Context.gpuMeshBaseVertex == null || m_Context.gpuMeshModVertex == null)
                 throw new InvalidOperationException("GraphicsBuffer is not initialized.");
             
             if (m_ComputeShader == null)
@@ -55,7 +55,8 @@ namespace UnityEngine.GsplEdit
             int kernel = m_ComputeShader.FindKernel("CSMain");
             
             // Set buffers
-            m_ComputeShader.SetBuffer(kernel, "vertexBuffer", m_Context.gpuMeshPosData);
+            m_ComputeShader.SetBuffer(kernel, "_VertexBasePos", m_Context.gpuMeshBaseVertex);
+            m_ComputeShader.SetBuffer(kernel, "_VertexModPos", m_Context.gpuMeshModVertex);
             m_ComputeShader.SetBuffer(kernel, "_VertexSelectedBits", m_SelectionGroup.m_SelectedVerticesBuffer);
             
             // Set sine wave parameters

@@ -3,7 +3,13 @@ guid: 3a2c951b2630bf94e93bf74d0ebdff2e
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2
-  defaultReferences: []
+  defaultReferences:
+  - m_ScaffoldMaterial: {fileID: 2100000, guid: 72588216a90fb5d46b56d31b91efffb1, type: 2}
+  - m_SurfaceMaterial: {fileID: 2100000, guid: 3e5ef55075ed20d46a960d2e91c806b7, type: 2}
+  - m_ShadowCasterMaterial: {fileID: 2100000, guid: 9f78a298f510c7d4ba967ac4f0f0c4ca, type: 2}
+  - m_PostProcessMaterial: {fileID: 2100000, guid: d4f890401b40b4b47891561d8f3a2e2f, type: 2}
+  - m_CSEditMesh: {fileID: 7200000, guid: 41ef2e764e8820d4db5ced649b3d4d01, type: 3}
+  - m_DebugPlane: {instanceID: 0}
   executionOrder: 0
   icon: {instanceID: 0}
   userData: 

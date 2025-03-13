@@ -26,13 +26,13 @@ namespace UnityEngine.GsplEdit
             m_PCASmoothLinkageCompute.SetInt("_SplatFormat", (int)format);
             m_PCASmoothLinkageCompute.SetTexture(0, "_SplatColor", context.gpuGSColorData);
 
-            m_PCASmoothLinkageCompute.SetBuffer(0, "_MeshVertexPos", context.gpuMeshPosData);
+            m_PCASmoothLinkageCompute.SetBuffer(0, "_VertexBasePos", context.gpuMeshBaseVertex);
             m_PCASmoothLinkageCompute.SetBuffer(0, "_SplatLinks", context.gpuForwardLinks);
-            m_PCASmoothLinkageCompute.SetBuffer(0, "_MeshIndices", context.gpuMeshIndexData);
+            m_PCASmoothLinkageCompute.SetBuffer(0, "_MeshIndices", context.gpuMeshIndices);
 
             m_PCASmoothLinkageCompute.SetInt("_SplatCount", context.splatData.splatCount);
             m_PCASmoothLinkageCompute.SetInt("_VertexCount", context.vertexCount);
-            m_PCASmoothLinkageCompute.SetInt("_IndexCount", context.triangleCount);
+            m_PCASmoothLinkageCompute.SetInt("_IndexCount", context.indexCount);
             m_PCASmoothLinkageCompute.SetFloat("_StartBlend", m_Settings.startBlend);
             m_PCASmoothLinkageCompute.SetFloat("_StopBlend", m_Settings.stopBlend);
 

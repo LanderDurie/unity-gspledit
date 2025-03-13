@@ -1,8 +1,16 @@
 #pragma kernel OpacityContributions
 #include "../../../../Gaussian/Compute/GaussianSplatting.hlsl"
 #include "../../../Compute/LinkUtilities.hlsl"
-#include "../../../../Mesh/Compute/MeshUtilities.hlsl"
 
+struct Triangle {
+    int v0;
+    int v1;
+    int v2;
+};
+
+RWStructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<Triangle> _MeshIndices;
+uint _IndexCount;
 
 uint _SplatCount;
 float _GlobalSigma;
@@ -96,17 +104,18 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
     for (uint i = 0; i < _IndexCount; i++) {
 
         // Transform vertices to splat's local space
-        float3 pos1 = LoadVertexPos1(i).pos;
-        float3 pos2 = LoadVertexPos2(i).pos;
-        float3 pos3 = LoadVertexPos3(i).pos;
+        Triangle t = _MeshIndices[i];
+        float3 p1 = _VertexBasePos[t.v0];
+        float3 p2 = _VertexBasePos[t.v1];
+        float3 p3 = _VertexBasePos[t.v2];
 
         float3 worldDistance = dist(
-            pos1, 
-            pos2, 
-            pos3, 
+            p1, 
+            p2, 
+            p3, 
             splat.pos);
 
-        float3 localDistance = dist(pos1, pos2, pos3, splat.pos);
+        float3 localDistance = dist(p1, p2, p3, splat.pos);
 
         // Insert the new distance and index into the sorted list
         for (uint j = 0; j < LINK_COUNT; j++) {

@@ -2,33 +2,25 @@
 using System;
 using System.Collections.Generic;
 
-namespace UnityEngine.GsplEdit
-{
+namespace UnityEngine.GsplEdit {
 
-    public class SelectionGroup
-    {
+    public class SelectionGroup {
         public List<Modifier> m_Modifiers;
         public String m_Name = "New Selection Group";
         public bool m_Enabled = true;
         public VertexSelectionGroup m_Selection;
-        private SharedComputeContext m_Context;
 
-        public SelectionGroup(ref SharedComputeContext context, ref EditableMesh mesh)
-        {
-            m_Context = context;
+        public SelectionGroup(ref EditableMesh mesh) {
             m_Selection = mesh.m_SelectionGroup.Clone();
             m_Modifiers = new List<Modifier>();
         }
 
-        public void Insert(Modifier m)
-        {
+        public void Insert(Modifier m) {
             m_Modifiers.Add(m);
         }
 
-        public void Remove(uint id)
-        {
-            if (id >= m_Modifiers.Count)
-            {
+        public void Remove(uint id) {
+            if (id >= m_Modifiers.Count) {
                 Debug.LogWarning($"Invalid Id: {id}. No modifier at this position.");
                 return;
             }
@@ -36,10 +28,8 @@ namespace UnityEngine.GsplEdit
             m_Modifiers.RemoveAt((int)id);
         }
 
-        public void Reorder(uint fromId, uint toId)
-        {
-            if (fromId >= m_Modifiers.Count || toId >= m_Modifiers.Count)
-            {
+        public void Reorder(uint fromId, uint toId) {
+            if (fromId >= m_Modifiers.Count || toId >= m_Modifiers.Count) {
                 Debug.LogWarning($"Invalid Id(s). FromId: {fromId}, ToId: {toId}. Out of range.");
                 return;
             }
@@ -53,19 +43,15 @@ namespace UnityEngine.GsplEdit
             m_Modifiers.Insert((int)toId, modifier);
         }
 
-        public void RunAll(bool runStatic = true)
-        {
-            for (int i = 0; i < m_Modifiers.Count; i++)
-            {
-                if (m_Modifiers[i].m_Enabled)
-                {
+        public void RunAll() {
+            for (int i = 0; i < m_Modifiers.Count; i++) {
+                if (m_Modifiers[i].m_Enabled) {
                     m_Modifiers[i].Run();
                 }
             }
         }
 
-        public void RunModifier(int modId)
-        {
+        public void RunModifier(int modId) {
             m_Modifiers[modId].Run();
         }
     }

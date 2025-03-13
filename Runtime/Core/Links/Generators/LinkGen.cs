@@ -1,11 +1,12 @@
 using System.Collections.Generic;
+using UnityEditor.AssetImporters;
 
 namespace UnityEngine.GsplEdit
 {
     public class LinkGen
     {
-        public enum ForwardGenType {Euclidean, Mahalanobis, Interpolate, PCASmooth};
-        public enum BackwardGenType {Euclidean};
+        public enum ForwardGenType {Euclidean, Mahalanobis, Interpolate, PCASmooth, MultiPointEuclidean};
+        public enum BackwardGenType {Texture};
 
         public ForwardGenType m_ForwardSelectedType;
         public BackwardGenType m_BackwardSelectedType;
@@ -25,11 +26,13 @@ namespace UnityEngine.GsplEdit
                 { ForwardGenType.Euclidean, ScriptableObject.CreateInstance<EuclideanGen>() },
                 { ForwardGenType.Mahalanobis, ScriptableObject.CreateInstance<MahalanobisGen>() },
                 { ForwardGenType.Interpolate, ScriptableObject.CreateInstance<InterpolateGen>() },
-                { ForwardGenType.PCASmooth, ScriptableObject.CreateInstance<PCASmoothGen>() }
+                { ForwardGenType.PCASmooth, ScriptableObject.CreateInstance<PCASmoothGen>() },
+                { ForwardGenType.MultiPointEuclidean, ScriptableObject.CreateInstance<MultiPointEuclideanGen>() }
             };
 
             m_BackwardGenerators = new Dictionary<BackwardGenType, LinkGenBackwardBase>
             {
+                { BackwardGenType.Texture, ScriptableObject.CreateInstance<TextureGen>() }
             };
         }
 
@@ -40,7 +43,7 @@ namespace UnityEngine.GsplEdit
 
         public void GenerateBackward()
         {
-            // m_BackwardGenerators[m_BackwardSelectedType].Generate(m_Context);
+            m_BackwardGenerators[m_BackwardSelectedType].Generate(m_Context);
         }
     }
 }

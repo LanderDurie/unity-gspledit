@@ -31,7 +31,7 @@ namespace UnityEngine.GsplEdit
         {
             // Instantiate deformers as components of the container GameObject
             m_Generators[GenType.Sine] = _deformContainer.AddComponent<SinDeform>();
-            m_Generators[GenType.Wave] = _deformContainer.AddComponent<WaveDeform>();
+            // m_Generators[GenType.Wave] = _deformContainer.AddComponent<WaveDeform>(); //TODO: add normals
             m_Generators[GenType.Twist] = _deformContainer.AddComponent<TwistDeform>();
             m_Generators[GenType.Bend] = _deformContainer.AddComponent<BendDeform>();
 

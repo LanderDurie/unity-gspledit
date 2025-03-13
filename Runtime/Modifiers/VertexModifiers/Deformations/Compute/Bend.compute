@@ -1,17 +1,8 @@
 #pragma kernel CSMain
 
-struct VertexProperties {
-    float3 pos;
-    float3 normal;
-    uint colorIds[4];
-    float3 posMod;  // This is the key field we need to modify
-    float4 rotMod;
-    float3 scaleMod;
-    uint colorModIds[4];
-};
+RWStructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<float3> _VertexModPos;
 
-// Buffers
-RWStructuredBuffer<VertexProperties> vertexBuffer;
 RWByteAddressBuffer _VertexSelectedBits;
 
 // Bend parameters
@@ -59,7 +50,7 @@ float3x3 AxisAngleRotationMatrix(float3 axis, float angle)
 void CSMain(uint id : SV_DispatchThreadID)
 {
     // Ensure we don't go out of bounds
-    if (id >= vertexBuffer.Length)
+    if (id >= _VertexBasePos.Length)
         return;
         
     // Check if vertex is selected
@@ -67,13 +58,14 @@ void CSMain(uint id : SV_DispatchThreadID)
         return;
         
     // Read the current vertex
-    VertexProperties vertex = vertexBuffer[id];
+    float3 basePos = _VertexBasePos[id];
+    float3 modPos = _VertexModPos[id];
     
     // Reset posMod to avoid accumulation
-    vertex.posMod = float3(0, 0, 0);
+    modPos = float3(0, 0, 0);
     
     // Calculate local position relative to bend center
-    float3 localPos = vertex.pos - bendCenter;
+    float3 localPos = basePos - bendCenter;
     
     // Create a coordinate space for the bend
     float3 axisNorm = normalize(bendAxis);
@@ -90,7 +82,7 @@ void CSMain(uint id : SV_DispatchThreadID)
     if (clampBounds && (distAlongDir < bendStart || distAlongDir > bendEnd))
     {
         // Outside of bend bounds, no deformation
-        vertexBuffer[id] = vertex;
+        _VertexModPos[id] = modPos + basePos;
         return;
     }
     
@@ -133,9 +125,9 @@ void CSMain(uint id : SV_DispatchThreadID)
         float3 newPos = rotatedPos + distAlongAxis * axisNorm;
         
         // Calculate the positional modification
-        vertex.posMod = newPos - localPos;
+        modPos = newPos - localPos;
     }
     
     // Write back the modified vertex
-    vertexBuffer[id] = vertex;
+    _VertexModPos[id] = modPos + basePos;
 }

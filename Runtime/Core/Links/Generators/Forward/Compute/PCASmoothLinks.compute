@@ -1,8 +1,16 @@
 #pragma kernel OpacityContributions
 #include "../../../../Gaussian/Compute/GaussianSplatting.hlsl"
 #include "../../../Compute/LinkUtilities.hlsl"
-#include "../../../../Mesh/Compute/MeshUtilities.hlsl"
 
+struct Triangle {
+    int v0;
+    int v1;
+    int v2;
+};
+
+RWStructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<Triangle> _MeshIndices;
+uint _IndexCount;
 
 uint _SplatCount;
 float _StartBlend;
@@ -203,9 +211,10 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
     [loop]
     for (uint i = 0; i < _IndexCount; i++) {
         // Get triangle vertices
-        float3 p1 = LoadVertexPos1(i).pos;
-        float3 p2 = LoadVertexPos2(i).pos;
-        float3 p3 = LoadVertexPos3(i).pos;
+        Triangle t = _MeshIndices[i];
+        float3 p1 = _VertexBasePos[t.v0];
+        float3 p2 = _VertexBasePos[t.v1];
+        float3 p3 = _VertexBasePos[t.v2];
         
         // Find closest point on triangle and distance
         float3 distInfo = dist(p1, p2, p3, splat.pos);

@@ -43,9 +43,9 @@ namespace UnityEditor.GsplEdit
             Handles.EndGUI();
             SceneView.RepaintAll();
 
-            Vector3 newPos = mesh.m_LocalPos;
-            Quaternion newRot = mesh.m_LocalRot;
-            Vector3 newScale = mesh.m_LocalScale;
+            Vector3 newPos = mesh.m_SelectedPos;
+            Quaternion newRot = mesh.m_SelectedRot;
+            Vector3 newScale = mesh.m_SelectedScale;
 
             // Draw tool handle
             if (mesh.m_SelectionGroup.m_SelectedCount > 0) {
@@ -53,17 +53,17 @@ namespace UnityEditor.GsplEdit
                 {
                     case EditorTool.MOVE:
                         {
-                            newPos = Handles.PositionHandle(mesh.m_LocalPos, Quaternion.identity);
+                            newPos = Handles.PositionHandle(mesh.m_SelectedPos, Quaternion.identity);
                             break;
                         }
                     case EditorTool.ROTATE:
                         {
-                            newRot = Handles.RotationHandle(mesh.m_LocalRot, newPos);
+                            newRot = Handles.RotationHandle(mesh.m_SelectedRot, newPos);
                             break;
                         }
                     case EditorTool.SCALE:
                         {
-                            newScale = Handles.ScaleHandle(mesh.m_LocalScale, newPos, Quaternion.identity);
+                            newScale = Handles.ScaleHandle(mesh.m_SelectedScale, newPos, Quaternion.identity);
                             break;
                         }
                 }
@@ -92,29 +92,29 @@ namespace UnityEditor.GsplEdit
                 {
                     case EditorTool.MOVE:
                         {
-                            if (mesh.m_LocalPos != newPos)
+                            if (mesh.m_SelectedPos != newPos)
                             {
-                                mesh.EditVertexTransformation(newPos - mesh.m_LocalPos, new Vector4(0, 0, 0, 1), new Vector3());
-                                mesh.m_LocalPos = newPos;
+                                mesh.EditVertexTransformation(newPos - mesh.m_SelectedPos, new Vector4(0, 0, 0, 1), new Vector3());
+                                mesh.m_SelectedPos = newPos;
                             }
                             break;
                         }
                     case EditorTool.ROTATE:
                         {
-                            if (mesh.m_LocalRot != newRot)
+                            if (mesh.m_SelectedRot != newRot)
                             {
-                                Quaternion rotationDiff = Quaternion.Inverse(mesh.m_LocalRot) * newRot;
+                                Quaternion rotationDiff = Quaternion.Inverse(mesh.m_SelectedRot) * newRot;
                                 mesh.EditVertexTransformation(new Vector3(), new Vector4(rotationDiff.x, rotationDiff.y, rotationDiff.z, rotationDiff.w), new Vector3());
-                                mesh.m_LocalRot = newRot;
+                                mesh.m_SelectedRot = newRot;
                             }
                             break;
                         }
                     case EditorTool.SCALE:
                         {
-                            if (mesh.m_LocalScale != newScale)
+                            if (mesh.m_SelectedScale != newScale)
                             {
-                                mesh.EditVertexTransformation(new Vector3(), new Vector4(0, 0, 0, 1), newScale - mesh.m_LocalScale);
-                                mesh.m_LocalScale = newScale;
+                                mesh.EditVertexTransformation(new Vector3(), new Vector4(0, 0, 0, 1), newScale - mesh.m_SelectedScale);
+                                mesh.m_SelectedScale = newScale;
                             }
                             break;
                         }

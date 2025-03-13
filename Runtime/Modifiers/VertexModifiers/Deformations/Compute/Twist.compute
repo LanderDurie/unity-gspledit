@@ -1,17 +1,8 @@
 #pragma kernel CSMain
 
-struct VertexProperties {
-    float3 pos;
-    float3 normal;
-    uint colorIds[4];
-    float3 posMod;  // This is the key field we need to modify
-    float4 rotMod;
-    float3 scaleMod;
-    uint colorModIds[4];
-};
+RWStructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<float3> _VertexModPos;
 
-// Buffers
-RWStructuredBuffer<VertexProperties> vertexBuffer;
 RWByteAddressBuffer _VertexSelectedBits;
 
 // Twist parameters
@@ -70,7 +61,7 @@ bool isSelected(uint idx) {
 void CSMain(uint id : SV_DispatchThreadID)
 {
     // Ensure we don't go out of bounds
-    if (id >= vertexBuffer.Length)
+    if (id >= _VertexBasePos.Length)
         return;
         
     // Check if vertex is selected
@@ -78,13 +69,14 @@ void CSMain(uint id : SV_DispatchThreadID)
         return;
         
     // Read the current vertex
-    VertexProperties vertex = vertexBuffer[id];
+    float3 basePos = _VertexBasePos[id];
+    float3 modPos = _VertexModPos[id];
     
     // Reset posMod to avoid accumulation
-    vertex.posMod = float3(0, 0, 0);
+    modPos = float3(0, 0, 0);
     
     // Calculate local position relative to twist center
-    float3 localPos = vertex.pos - twistCenter;
+    float3 localPos = basePos - twistCenter;
     
     // Project the point onto the twist axis to find its position along the axis
     float3 projOnAxis = twistCenter + dot(localPos, twistAxis) * twistAxis;
@@ -109,9 +101,9 @@ void CSMain(uint id : SV_DispatchThreadID)
         float3 rotatedPoint = RotateAroundAxis(pointToRotate, twistAxis, rotationAngle * falloffFactor);
         
         // Calculate the positional modification
-        vertex.posMod = rotatedPoint - localPos;
+        modPos = rotatedPoint - localPos;
     }
     
     // Write back the modified vertex
-    vertexBuffer[id] = vertex;
+    _VertexModPos[id] = modPos + basePos;
 }

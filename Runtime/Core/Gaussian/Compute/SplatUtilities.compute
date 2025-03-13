@@ -31,9 +31,9 @@
 #include "DeviceRadixSort.hlsl"
 #include "GaussianSplatting.hlsl"
 #include "ColorMixer.hlsl"
-#include "../../Mesh/Compute/MeshUtilities.hlsl"
 #include "../../Mesh/Compute/OffscreenUtilities.hlsl"
 #include "../../Links/Compute/LinkUtilities.hlsl"
+#include "SamplePoints.hlsl"
 
 
 #define QUATERNION_IDENTITY float4(0, 0, 0, 1)
@@ -46,15 +46,6 @@ static const float EPSILON = 1e-10;
 static const int MAX_ITERATIONS = 10;
 
 
-
-struct Tetrahedron {
-    float3 v0;
-    float3 v1;
-    float3 v2;
-    float3 v3;
-};
-
-
 struct ModSplat {
     float3 pos;
     float4 rot;
@@ -62,15 +53,29 @@ struct ModSplat {
     half4 color;
 };
 
+struct Triangle {
+    int v0;
+    int v1;
+    int v2;
+};
+
+struct TriangleVerts {
+    float3 v0;
+    float3 v1;
+    float3 v2;
+};
+
+RWStructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<float3> _VertexModPos;
+RWStructuredBuffer<Triangle> _MeshIndices;
+uint _IndexCount;
+
 float4x4 _MatrixObjectToWorld;
 float4x4 _MatrixWorldToObject;
-// float4x4 _MatrixVP;
 float4x4 _MatrixMV;
 float4x4 _MatrixP;
-// float4 _VecScreenParams;
 float4 _VecWorldSpaceCameraPos;
 int _SelectionMode;
-// uint _ColorClustersPerChannel;
 
 RWStructuredBuffer<uint> _SplatSortDistances;
 RWStructuredBuffer<uint> _SplatSortKeys;
@@ -95,39 +100,7 @@ void CSSetIndices (uint3 id : SV_DispatchThreadID)
     _SplatSortKeys[idx] = idx;
 }
 
-Tetrahedron computeTetrahedronFromEllipsoid(float3 center, float3 scale, float4 rotationQuat)
-{
-    rotationQuat = normalize(rotationQuat);
 
-    float xx = rotationQuat.x * rotationQuat.x;
-    float yy = rotationQuat.y * rotationQuat.y;
-    float zz = rotationQuat.z * rotationQuat.z;
-    float xy = rotationQuat.x * rotationQuat.y;
-    float xz = rotationQuat.x * rotationQuat.z;
-    float yz = rotationQuat.y * rotationQuat.z;
-    float xw = rotationQuat.x * rotationQuat.w;
-    float yw = rotationQuat.y * rotationQuat.w;
-    float zw = rotationQuat.z * rotationQuat.w;
-
-    float3x3 rotationMatrix = float3x3(
-        1 - 2 * (yy + zz), 2 * (xy - zw), 2 * (xz + yw),
-        2 * (xy + zw), 1 - 2 * (xx + zz), 2 * (yz - xw),
-        2 * (xz - yw), 2 * (yz + xw), 1 - 2 * (xx + yy)
-    );
-
-    float3 dir0 = normalize(float3(1, 1, 1)) * scale   / 2;
-    float3 dir1 = normalize(float3(-1, -1, 1)) * scale / 2;
-    float3 dir2 = normalize(float3(-1, 1, -1)) * scale / 2;
-    float3 dir3 = normalize(float3(1, -1, -1)) * scale / 2;
-
-    Tetrahedron t;
-    t.v0 = mul(rotationMatrix, dir0) + center;
-    t.v1 = mul(rotationMatrix, dir1) + center;
-    t.v2 = mul(rotationMatrix, dir2) + center;
-    t.v3 = mul(rotationMatrix, dir3) + center;
-
-    return t;
-}
 
 float det3x3(
     float m11, float m12, float m13,
@@ -327,7 +300,7 @@ bool fitSteinerCircumellipsoid(Tetrahedron t, inout ModSplat result)
     JacobiEigenvalueDecomposition(covMatrix, scale, V);
 
     // Scale factor for Steiner circumellipsoid
-    scale = 2 * sqrt(3 * scale);
+    scale = sqrt(3 * scale) / 4.0;
 
     // Convert eigenvectors to quaternion
     float4 rotation = quaternionFromMatrix(V);
@@ -569,20 +542,20 @@ float3 BarycentricCoordinates(float3 p, float3 a, float3 b, float3 c) {
 }
 
 // Calculate the minimum distance from a point to the surface, edges, or vertices of a triangle
-float DistanceToTriangle(Triangle t, float3 p) {
+float DistanceToTriangle(TriangleVerts t, float3 p) {
     // Calculate the triangle's normal
-    float3 edge1 = t.v1.pos - t.v0.pos;
-    float3 edge2 = t.v2.pos - t.v0.pos;
+    float3 edge1 = t.v1 - t.v0;
+    float3 edge2 = t.v2 - t.v0;
     float3 normal = normalize(cross(edge1, edge2));
 
     // Calculate the signed distance from the point to the triangle's plane
-    float planeDistance = dot(p - t.v0.pos, normal);
+    float planeDistance = dot(p - t.v0, normal);
 
     // Project the point onto the triangle's plane
     float3 projectedPoint = p - planeDistance * normal;
 
     // Calculate barycentric coordinates of the projected point
-    float3 barycentric = BarycentricCoordinates(projectedPoint, t.v0.pos, t.v1.pos, t.v2.pos);
+    float3 barycentric = BarycentricCoordinates(projectedPoint, t.v0, t.v1, t.v2);
 
     // Check if the projected point is inside the triangle
     bool isInside = (barycentric.x >= 0.0) && (barycentric.y >= 0.0) && (barycentric.z >= 0.0);
@@ -592,21 +565,69 @@ float DistanceToTriangle(Triangle t, float3 p) {
         return abs(planeDistance); // Perpendicular distance to the plane
     } else {
         // The closest point is on one of the edges or vertices
-        float distAB = DistanceToEdge(p, t.v0.pos, t.v1.pos);
-        float distBC = DistanceToEdge(p, t.v1.pos, t.v2.pos);
-        float distCA = DistanceToEdge(p, t.v2.pos, t.v0.pos);
+        float distAB = DistanceToEdge(p, t.v0, t.v1);
+        float distBC = DistanceToEdge(p, t.v1, t.v2);
+        float distCA = DistanceToEdge(p, t.v2, t.v0);
 
-        float distA = length(p - t.v0.pos);
-        float distB = length(p - t.v1.pos);
-        float distC = length(p - t.v2.pos);
+        float distA = length(p - t.v0);
+        float distB = length(p - t.v1);
+        float distC = length(p - t.v2);
 
         return min(min(min(distAB, distBC), distCA), min(min(distA, distB), distC));
     }
 }
 
-float3 translatePoint(int splatIndex, float3 p) {
+float3 ClosestPointOnTriangle(float3 p, float3 v0, float3 v1, float3 v2) {
+    float3 edge1 = v1 - v0;
+    float3 edge2 = v2 - v0;
+    float3 normal = normalize(cross(edge1, edge2));
+
+    // Project point onto the plane of the triangle
+    float3 toPoint = p - v0;
+    float perpDistance = dot(toPoint, normal);
+    float3 projPoint = p - perpDistance * normal;
+
+    // Compute barycentric coordinates
+    float3 toProj = projPoint - v0;
+    float dot11 = dot(edge1, edge1);
+    float dot12 = dot(edge1, edge2);
+    float dot22 = dot(edge2, edge2);
+    float dot1p = dot(edge1, toProj);
+    float dot2p = dot(edge2, toProj);
+    float denom = dot11 * dot22 - dot12 * dot12;
+
+    float u = (dot22 * dot1p - dot12 * dot2p) / denom;
+    float v = (dot11 * dot2p - dot12 * dot1p) / denom;
+    float w = 1.0f - u - v;
+
+    // Clamp barycentric coordinates to the triangle
+    if (u < 0.0f) {
+        u = 0.0f;
+        v = clamp(v, 0.0f, 1.0f);
+        w = 1.0f - v;
+    } else if (v < 0.0f) {
+        v = 0.0f;
+        u = clamp(u, 0.0f, 1.0f);
+        w = 1.0f - u;
+    } else if (w < 0.0f) {
+        w = 0.0f;
+        u = clamp(u, 0.0f, 1.0f);
+        v = 1.0f - u;
+    }
+
+    // Compute the closest point
+    return u * v1 + v * v2 + w * v0;
+}
+
+struct TranslateOut {
+    float3 pos;
+    float4 col;
+};
+
+TranslateOut translatePoint(int splatIndex, float3 p) {
     // Cache splat links data once
     SplatLink currentSplat = LoadSplatLink(splatIndex);
+
     
     // First pass: gather valid triangles and calculate initial values
     float weights[8];
@@ -614,6 +635,7 @@ float3 translatePoint(int splatIndex, float3 p) {
     float totalWeight = 0.0;
     int closestId = -1;
     float closestDist = 3.402823466e+30;
+    float4 avgColor = float4(0,0,0,0);
     
     // First pass to gather triangle data and determine weights
     [unroll]
@@ -627,21 +649,25 @@ float3 translatePoint(int splatIndex, float3 p) {
         if (triangleId == -1 || triangleWeight <= 0) continue;
         
         // Fetch triangle data once
-        Triangle t = GetTriangle(triangleId);
+        Triangle t = _MeshIndices[triangleId];
+        TriangleVerts tv;
+        tv.v0 = _VertexBasePos[t.v0];
+        tv.v1 = _VertexBasePos[t.v1];
+        tv.v2 = _VertexBasePos[t.v2];
 
         // Calculate triangle properties once
-        float3 edge1 = t.v1.pos - t.v0.pos;
-        float3 edge2 = t.v2.pos - t.v0.pos;
+        float3 edge1 = tv.v1 - tv.v0;
+        float3 edge2 = tv.v2 - tv.v0;
         float3 crossProduct = cross(edge1, edge2);
         float surfaceArea = 0.5 * length(cross(edge1, edge2));
         if (surfaceArea <= 0.0) continue;
         
         // Cache triangle data for reuse in second pass
         float3 normal = normalize(crossProduct);
-        float3 center = (t.v0.pos + t.v1.pos + t.v2.pos) / 3.0;
+        float3 center = (tv.v0 + tv.v1 + tv.v2) / 3.0;
         
         // Compute perpendicular distance once
-        float3 toPoint = p - t.v0.pos;
+        float3 toPoint = p - tv.v0;
         float perpDistance = dot(toPoint, normal);
         
         // Project point onto triangle plane once
@@ -651,8 +677,8 @@ float3 translatePoint(int splatIndex, float3 p) {
         
         // Compute weight based on distance and perpendicular distance
         float distanceToCentroid = length(projPoint - center);
-        // float weight = 1 / (exp(DistanceToTriangle(t, p)) + 1e-5);
-        float weight = surfaceArea / (exp(distanceToCentroid) * sqrt(abs(perpDistance) + 1e-5));
+        // float weight = 1 / (exp(DistanceToTriangle(tv, p)) + 1e-5);
+        float weight = triangleWeight * surfaceArea / (exp(distanceToCentroid) * sqrt(abs(perpDistance) + 1e-5));
 
         if (weight > 0) {
             totalWeight += weight;
@@ -672,14 +698,20 @@ float3 translatePoint(int splatIndex, float3 p) {
     // Handle case where no valid weights were found
     if (validCount == 0) {
         if (closestId == -1) {
-            return float3(0,0,0);
+            TranslateOut to;
+            to.pos = float3(0,0,0);
+            to.col = float4(0,0,0,0);
+            return to;
         }
         weights[closestId] = 1.0;
         totalWeight = 1.0;
     } 
     
     if (totalWeight == 0) {
-        return p;
+        TranslateOut to;
+        to.pos = p;
+        to.col = float4(0,0,0,0);
+        return to;    
     }
 
     
@@ -692,78 +724,141 @@ float3 translatePoint(int splatIndex, float3 p) {
         if (normalizedWeight <= 0) continue;
         
         int triangleId = currentSplat.triangleIds[j];
-        Triangle t = GetTriangle(triangleId);
-        
-        bool isInside = isPointInsideTriangle(p, t.v0.pos, t.v1.pos, t.v2.pos);
+
+        Triangle t = _MeshIndices[triangleId];
+        TriangleVerts tv;
+        tv.v0 = _VertexBasePos[t.v0];
+        tv.v1 = _VertexBasePos[t.v1];
+        tv.v2 = _VertexBasePos[t.v2];
+
+        TriangleVerts tvm;
+        tvm.v0 = _VertexModPos[t.v0];
+        tvm.v1 = _VertexModPos[t.v1];
+        tvm.v2 = _VertexModPos[t.v2];
+
+        bool isInside = isPointInsideTriangle(p, tv.v0, tv.v1, tv.v2);
         if (isInside) {
             // Pre-calculated triangle data
-            float3 center = (t.v0.pos + t.v1.pos + t.v2.pos) / 3.0;
-            float3 edge1 = t.v1.pos - t.v0.pos;
-            float3 edge2 = t.v2.pos - t.v0.pos;
+            float3 center = (tv.v0 + tv.v1 + tv.v2) / 3.0;
+            float3 edge1 = tv.v1 - tv.v0;
+            float3 edge2 = tv.v2 - tv.v0;
             float3 normal = normalize(cross(edge1, edge2));
             float3 autoVert = center + normal;
             
             // Modified triangle data
-            float3 modCenter = (t.v0.pos + t.v1.pos + t.v2.pos + t.v0.posMod + t.v1.posMod + t.v2.posMod) / 3.0;
+            float3 modCenter = (tvm.v0 + tvm.v1 + tvm.v2) / 3.0;
             
             // Avoid recalculating cross product
-            float3 modEdge1 = (t.v1.pos + t.v1.posMod) - (t.v0.pos + t.v0.posMod);
-            float3 modEdge2 = (t.v2.pos + t.v2.posMod) - (t.v0.pos + t.v0.posMod);
+            float3 modEdge1 = tvm.v1 - tvm.v0;
+            float3 modEdge2 = tvm.v2 - tvm.v0;
             float3 modNormal = normalize(cross(modEdge1, modEdge2));
             float3 modAutoVert = modCenter + modNormal;
             
-            float4 barycentricCoords = calculateTetraBarycentricCoordinates(p, t.v0.pos, t.v1.pos, t.v2.pos, autoVert);
+            float4 barycentricCoords = calculateTetraBarycentricCoordinates(p, tv.v0, tv.v1, tv.v2, autoVert);
             
-            float3 baryTransformed = barycentricCoords.x * (t.v0.pos + t.v0.posMod) + 
-                                     barycentricCoords.y * (t.v1.pos + t.v1.posMod) + 
-                                     barycentricCoords.z * (t.v2.pos + t.v2.posMod) + 
+            float3 baryTransformed = barycentricCoords.x * tvm.v0 + 
+                                     barycentricCoords.y * tvm.v1 + 
+                                     barycentricCoords.z * tvm.v2 + 
                                      barycentricCoords.w * modAutoVert;
             
             finalPoint += baryTransformed * normalizedWeight;
         } else {
             // Use pre-computed TANC coordinates
-            TANCCoords tancCoords = triangleAlignedNormalizedCoordinates(p, t.v0.pos, t.v1.pos, t.v2.pos);
-            float3 tancTransformed = TANCToWorld(tancCoords, 
-                                               t.v0.pos + t.v0.posMod, 
-                                               t.v1.pos + t.v1.posMod, 
-                                               t.v2.pos + t.v2.posMod);
+            TANCCoords tancCoords = triangleAlignedNormalizedCoordinates(p, tv.v0, tv.v1, tv.v2);
+            float3 tancTransformed = TANCToWorld(tancCoords, tvm.v0, tvm.v1, tvm.v2);
             
             finalPoint += tancTransformed * normalizedWeight;
         }
     }
 
+    [unroll]
+    for (int j = 0; j < 8; j++) {
+        float normalizedWeight = weights[j] / totalWeight;
+
+        if (normalizedWeight <= 0) continue;
+        int triangleId = currentSplat.triangleIds[j];
+
+        Triangle t = _MeshIndices[triangleId];
+        TriangleVerts tvm;
+        tvm.v0 = _VertexModPos[t.v0];
+        tvm.v1 = _VertexModPos[t.v1];
+        tvm.v2 = _VertexModPos[t.v2];
+        float3 projectedPoint = ClosestPointOnTriangle(finalPoint, tvm.v0, tvm.v1, tvm.v2);
+
+        // Update Color
+        avgColor += SampleTextureWorldSpace(projectedPoint) * normalizedWeight;
+    }
+
     if (abs(totalWeight - 1) < 0.00001) {
-        return p;
+        finalPoint = p;
     }
     
-    return finalPoint;
+    TranslateOut to;
+    to.pos = finalPoint;
+    to.col = avgColor;
+    return to;
 }
 
 
-half4 getModColor(int splatIndex) {
+
+half calculateColorVariance(half4 colors[6], int count) {
+    half4 meanColor = half4(0, 0, 0, 0);
+
+    // Calculate the mean color
+    for (int i = 0; i < count; i++) {
+        meanColor += colors[i];
+    }
+    meanColor /= count;
+
+    // Calculate the variance
+    half variance = 0;
+    for (int i = 0; i < count; i++) {
+        half4 diff = colors[i] - meanColor;
+        variance += dot(diff, diff); // Sum of squared differences
+    }
+    variance /= count; // Average variance
+
+    // Normalize variance to [0, 1] range
+    variance = saturate(variance);
+
+    return variance;
+}
+
+half4 getModColor(int splatIndex, SplatData splat) {
     half4 avgColor = half4(0, 0, 0, 0);
+    half totalWeight = 0;
+    half similarity = 0;
 
     SplatLink currentSplat = LoadSplatLink(splatIndex);
+    Tetrahedron hex = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
+    TranslateOut to;
 
-    [unroll]
-    for (uint i = 0; i < 8; i++) {
-        int triangleId = currentSplat.triangleIds[i];
-        float triangleWeight = currentSplat.triangleWeights[i];
+    half3 colorsLab[4];
 
-        if (triangleId < 0 || triangleWeight <= 0) continue;
+    // Process each vertex of the hexahedron
+    to = translatePoint(splatIndex, hex.v0);
+    colorsLab[0] = (to.col.rgb);
+    avgColor.rgb += colorsLab[0] / 4;
 
-        // Get the triangle
-        Triangle t = GetTriangle(triangleId);
+    to = translatePoint(splatIndex, hex.v1);
+    colorsLab[1] = (to.col.rgb);
+    avgColor.rgb += colorsLab[1] / 4;
 
-        // Get barycentric coordinates
-        float baryV = currentSplat.triangleX[i];
-        float baryW = currentSplat.triangleY[i];
-        float baryU = 1.0 - baryV - baryW;  // Calculate the first barycentric coordinate
+    to = translatePoint(splatIndex, hex.v2);
+    colorsLab[2] = (to.col.rgb);
+    avgColor.rgb += colorsLab[2] / 4;
 
-        float3 surfacePos = baryU * t.v0.pos + baryV * t.v1.pos + baryW * t.v2.pos;
+    to = translatePoint(splatIndex, hex.v3);
+    colorsLab[3] = (to.col.rgb);
+    avgColor.rgb += colorsLab[3] / 4;
 
-        avgColor += SampleTextureWorldSpace(surfacePos);
+    // Compute perceptual similarity using Delta-E 2000
+    for (int i = 0; i < 4; i++) {
+        similarity += 1.0 - DeltaE2000(colorsLab[i], avgColor.rgb) / 100.0;
     }
+    similarity /= 4.0;
+    similarity = similarity * similarity * similarity; // Cubic response
+    avgColor.a *= similarity; // Store similarity in alpha
 
     return avgColor;
 }
@@ -773,22 +868,23 @@ half4 getModColor(int splatIndex) {
 
 ModSplat calcModSplat(int splatIndex, SplatData splat) {
     
-    bool ignore = true;
+    bool ignore = false;
     SplatLink currentSplat = LoadSplatLink(splatIndex);
-    [unroll]
-    for (int i = 0; i < 8; i++) {
-        // Check if valid triangle
-        int triangleId = currentSplat.triangleIds[i];
-        float triangleWeight = currentSplat.triangleWeights[i];
-        if (triangleId == -1 || triangleWeight <= 0) continue;
+    // [unroll]
+    // for (int i = 0; i < 8; i++) {
+    //     // Check if valid triangle
+    //     int triangleId = currentSplat.triangleIds[i];
+    //     float triangleWeight = currentSplat.triangleWeights[i];
+    //     if (triangleId == -1 || triangleWeight <= 0) continue;
 
-        if (any(LoadVertexPos1(triangleId).posMod) ||
-            any(LoadVertexPos2(triangleId).posMod) ||
-            any(LoadVertexPos3(triangleId).posMod)) {
-            ignore = false;
-        }
-    }
+    //     if (any(LoadVector31(triangleId).posMod) ||
+    //         any(LoadVector32(triangleId).posMod) ||
+    //         any(LoadVector33(triangleId).posMod)) {
+    //         ignore = false;
+    //     }
+    // }
 
+    float4 avgColor = float4(0,0,0,0);
     ModSplat m;
     if (ignore) {
         m.pos = splat.pos;
@@ -797,18 +893,23 @@ ModSplat calcModSplat(int splatIndex, SplatData splat) {
     } else {
         // Ensure numerical stability
         float maxScale = max(splat.scale.x, max(splat.scale.y, splat.scale.z));
-        splat.scale = max(splat.scale, maxScale / 1000.0);
+        splat.scale = max(splat.scale, maxScale / 50.0);
 
         Tetrahedron baseTetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
         Tetrahedron transformTetra;
-        transformTetra.v0 = translatePoint(splatIndex, baseTetra.v0);
-        transformTetra.v1 = translatePoint(splatIndex, baseTetra.v1);
-        transformTetra.v2 = translatePoint(splatIndex, baseTetra.v2);
-        transformTetra.v3 = translatePoint(splatIndex, baseTetra.v3);
+        TranslateOut to;
+        to = translatePoint(splatIndex, baseTetra.v0);
+        transformTetra.v0 = to.pos;
+        to = translatePoint(splatIndex, baseTetra.v1);
+        transformTetra.v1 = to.pos;
+        to = translatePoint(splatIndex, baseTetra.v2);
+        transformTetra.v2 = to.pos;
+        to = translatePoint(splatIndex, baseTetra.v3);
+        transformTetra.v3 = to.pos;
 
         fitSteinerCircumellipsoid(transformTetra, m);
     }
-    m.color = getModColor(splatIndex);
+    m.color = getModColor(splatIndex, splat);
 
     return m;
 }
@@ -823,29 +924,29 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
 
     uint origIdx = _SplatSortKeys[idx];
 
-    bool ignore = true;
-    [unroll]
-    for (int i = 0; i < 8; i++) {
-        // Check if valid triangle
-        int triangleId = LoadSplatLink(origIdx).triangleIds[i];
-        float triangleWeight = LoadSplatLink(origIdx).triangleWeights[i];
-        if (triangleId == -1 || triangleWeight <= 0) continue;
+    // bool ignore = true;
+    // [unroll]
+    // for (int i = 0; i < 8; i++) {
+    //     // Check if valid triangle
+    //     int triangleId = LoadSplatLink(origIdx).triangleIds[i];
+    //     float triangleWeight = LoadSplatLink(origIdx).triangleWeights[i];
+    //     if (triangleId == -1 || triangleWeight <= 0) continue;
 
-        if (any(LoadVertexPos1(triangleId).posMod) ||
-            any(LoadVertexPos2(triangleId).posMod) ||
-            any(LoadVertexPos3(triangleId).posMod)) {
-            ignore = false;
-        }
-    }
+    //     if (any(LoadVector31(triangleId).posMod) ||
+    //         any(LoadVector32(triangleId).posMod) ||
+    //         any(LoadVector33(triangleId).posMod)) {
+    //         ignore = false;
+    //     }
+    // }
 
     float3 pos;
-    if (ignore) {
-        pos = LoadSplatPos(origIdx);
-    } else {
+    // if (ignore) {
+        // pos = LoadSplatPos(origIdx);
+    // } else {
         SplatData splat = LoadSplatData(origIdx);
         Tetrahedron baseTetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
-        pos = translatePoint(origIdx, (baseTetra.v0 + baseTetra.v1 + baseTetra.v2 + baseTetra.v3) / 4.0);
-    }
+        pos = translatePoint(origIdx, (baseTetra.v0 + baseTetra.v1 + baseTetra.v2 + baseTetra.v3) / 4.0).pos;
+    // }
 
     pos = mul(_MatrixMV, float4(pos.xyz, 1)).xyz;
 
@@ -984,7 +1085,7 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
         float3 cov3d0, cov3d1;
         CalcCovariance3D(splatRotScaleMat, cov3d0, cov3d1);
 
-        float3 cov2d = CalcCovariance2D(modSplat.pos, cov3d0, cov3d1, _MatrixMV, _MatrixP, _VecScreenParams);
+        float3 cov2d = CalcCovariance2D(splat.pos, cov3d0, cov3d1, _MatrixMV, _MatrixP, _VecScreenParams);
         
         DecomposeCovariance(cov2d, view.axis1, view.axis2);
 
@@ -996,7 +1097,7 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
         col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
         col.a = min(splat.opacity * opacityScale, 65000);
 
-        col = fullBg(col, modSplat.color);
+        col = shadowMix(col, modSplat.color);
 
         view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
         view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);

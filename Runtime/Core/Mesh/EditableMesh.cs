@@ -4,216 +4,113 @@ using UnityEngine.Rendering;
 
 namespace UnityEngine.GsplEdit
 {
-    public class EditableMesh : ScriptableObject
-    {
-        
+    public class EditableMesh {
+        public Material m_ScaffoldMaterial;
+        public Material m_SurfaceMaterial;
+        public Material m_ShadowCasterMaterial;
+        public Material m_PostProcessMaterial;
         public GameObject m_DebugPlane;
-        private VertexPos[] m_Vertices;
-        private int[] m_Indices;
-        private Edge[] m_Edges;
-        private Triangle[] m_Triangles;
-        
-        public GraphicsBuffer m_IndexBuffer;
-        public GraphicsBuffer m_VertexBuffer; // Stores base vertices before running modifier system
-        private ComputeBuffer m_ArgsBuffer;
-        public ComputeShader m_CSVertexUtilities;
-        public Material m_WireframeMaterial;
-        public Material m_SelectedVertexMaterial;
-        public Material m_FillMaterial;
-        private CommandBuffer m_Cmd;
-        public bool m_StaticModifierPass = true;
-        public bool m_DynamicModifierPass = true;
-        public float m_TextureResolutionMultiplier = 1.0f;
-        private OffscreenRendering m_OffscreenRenderer;
-
-        public Vector3 m_LocalPos;
-        public Vector3 m_LocalScale;
-        public Quaternion m_LocalRot;
+        public Vector3 m_SelectedPos;
+        public Vector3 m_SelectedScale;
+        public Quaternion m_SelectedRot;
         public Transform m_GlobalTransform;
+        public bool m_CastShadows = true;
+        public bool m_ReceiveShadows = true;
+        public bool m_DrawScaffoldMesh = false;
+        public ComputeShader m_CSEditMesh;
 
+        private OffscreenRendering m_OffscreenRenderer;
         public VertexSelectionGroup m_SelectionGroup;
-        public SharedComputeContext m_Context;
-        public ModifierSystem m_ModifierSystem;
-        public bool m_CastShadow = true;
+        private SharedComputeContext m_Context;
+        private ModifierSystem m_ModifierSystem;
 
-        internal static class Props
-        {
-            public static readonly int VertexPos = Shader.PropertyToID("_VertexPos");
+        internal static class Props {
+            public static readonly int VertexModPos = Shader.PropertyToID("_VertexModPos");
             public static readonly int VertexSelectedBits = Shader.PropertyToID("_VertexSelectedBits");
             public static readonly int VertexCount = Shader.PropertyToID("_VertexCount");
             public static readonly int MatrixVP = Shader.PropertyToID("_MatrixVP");
-            public static readonly int MatrixMV = Shader.PropertyToID("_MatrixMV");
-            public static readonly int MatrixP = Shader.PropertyToID("_MatrixP");
             public static readonly int MatrixObjectToWorld = Shader.PropertyToID("_MatrixObjectToWorld");
-            public static readonly int MatrixWorldToObject = Shader.PropertyToID("_MatrixWorldToObject");
             public static readonly int VecScreenParams = Shader.PropertyToID("_VecScreenParams");
-            public static readonly int VecWorldSpaceCameraPos = Shader.PropertyToID("_VecWorldSpaceCameraPos");
+            public static readonly int SelectionRect = Shader.PropertyToID("_SelectionRect");
         }
 
-        enum KernelIndices
-        {
-            SelectionUpdate,
-            VertexTransform
-        }
+        enum KernelIndices{SelectionUpdate, VertexTransform}
 
-        public void Initialize(ref SharedComputeContext context, ref ModifierSystem modSystem, VertexPos[] vertices, int[] indices, Edge[] edges, Triangle[] triangles)
-        {
-            m_Indices = indices;
-            m_Vertices = vertices;
-            m_Edges = edges;
-            m_Triangles = triangles;
+        public void Initialize(ref SharedComputeContext context, ref ModifierSystem modSystem, Mesh scaffoldMesh) {
             m_Context = context;
+            m_Context.scaffoldMesh = scaffoldMesh;
             m_ModifierSystem = modSystem;
 
-            m_Context.vertexCount = m_Vertices.Length;
-            m_Context.triangleCount = m_Triangles.Length;
-
-            m_LocalPos = new Vector3();
-            m_LocalRot = new Quaternion(0, 0, 0, 1);
-            m_LocalScale = new Vector3();
+            m_SelectedPos = Vector3.zero;
+            m_SelectedScale = Vector3.one;
+            m_SelectedRot = Quaternion.identity;
 
             CreateBuffers();
 
-            m_SelectionGroup = new VertexSelectionGroup(ref m_Vertices);
-
-
-            // Initialize the offscreen renderer
-            if (m_OffscreenRenderer == null) {
-                m_OffscreenRenderer = new OffscreenRendering(ref m_Context);
-            }        
+            m_SelectionGroup = new VertexSelectionGroup(ref m_Context.scaffoldMesh);
+            m_OffscreenRenderer = new OffscreenRendering(ref m_Context);
         }
 
-        [System.Obsolete]
-        private void OnEnable()
-        {
-            m_Cmd = new CommandBuffer
-            {
-                name = "Vertex Drawing"
-            };
-            SceneView.onSceneGUIDelegate -= OnSceneGUI;
-            SceneView.onSceneGUIDelegate += OnSceneGUI;
-        }
-
-        public void Destroy()
-        {
+        public void Destroy() {
             DestroyBuffers();
-            
+
             // Clean up the offscreen renderer
-            if (m_OffscreenRenderer != null)
-            {
-                #if UNITY_EDITOR
-                EditorApplication.update -= m_OffscreenRenderer.UpdateRendering;
-                #endif
-                m_OffscreenRenderer.OnDisable();
+            if (m_OffscreenRenderer != null) {
+                (m_OffscreenRenderer as IDisposable)?.Dispose();
                 m_OffscreenRenderer = null;
             }
-        }
 
-        private void OnSceneGUI(SceneView sceneView)
-        {
-            Draw();
-        }
+            // Clean up the selection group
+            m_SelectionGroup?.Destroy();
+            m_SelectionGroup = null;
 
-        public void UpdateDraw()
-        {
-            Draw();
-        }
-
-        private bool AreBuffersValid()
-        {
-            if (m_Context != null && m_VertexBuffer == null || m_Context == null || m_Context.gpuMeshPosData == null || m_IndexBuffer == null || m_SelectionGroup.m_SelectedVerticesBuffer == null)
-                return false;
-
-            return true;
-        }
-
-        private unsafe void CreateBuffers()
-        {
-            try
-            {
-                // Create vertex buffer
-                if (m_Context.vertexCount > 0)
-                {
-                    m_VertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.vertexCount, sizeof(VertexPos)) { name = "vertices" };
-                    m_VertexBuffer.SetData(m_Vertices);
-                    m_Context.gpuMeshPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopyDestination, m_Context.vertexCount, sizeof(VertexPos)) { name = "modifiedVertices" };
-                }
-
-                // Create triangle buffer
-                if (m_Indices.Length > 0)
-                {
-                    m_IndexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Index, m_Indices.Length, sizeof(int));
-                    m_IndexBuffer.SetData(m_Indices);
-                }
-                
-                m_Context.gpuMeshIndexData = new ComputeBuffer(m_Context.triangleCount, sizeof(Triangle));
-                m_Context.gpuMeshIndexData.SetData(m_Triangles);
-
-
-                // Create arguments buffer
-                if (m_ArgsBuffer != null)
-                    m_ArgsBuffer.Release();
-
-                // Arguments for DrawProceduralIndirect
-                uint[] args = new uint[4]
-                {
-                    (uint)m_Indices.Length,    // Index count per instance
-                    1,                           // Instance count
-                    0,                           // Start index location
-                    0                            // Base vertex location
-                };
-
-                // // Setup the argument array with the necessary values
-                // int[] args = new int[5] { m_IndexBuffer.count, 1, 0, 0, 0 }; // Setup for indexed drawing
-
-                // // Initialize the ComputeBuffer for indirect arguments
-                m_ArgsBuffer = new ComputeBuffer(1, sizeof(int) * args.Length, ComputeBufferType.IndirectArguments);
-
-                // // Set the data into the ComputeBuffer
-                m_ArgsBuffer.SetData(args);
-
+            // Clean up the scaffold mesh
+            if (m_Context.scaffoldMesh != null) {
+                UnityEngine.Object.DestroyImmediate(m_Context.scaffoldMesh);
+                m_Context.scaffoldMesh = null;
             }
-            catch (System.Exception e)
-            {
+        }
+
+        private bool IsValid() {
+            return !(m_Context == null || m_Context.scaffoldMesh == null || !m_Context.IsValid());
+        }
+
+        private unsafe void CreateBuffers() {
+            try {
+                // Create vertex buffer
+                if (m_Context.scaffoldMesh.vertices.Length > 0 && m_Context.scaffoldMesh.triangles.Length > 0) {
+                    m_Context.vertexCount = m_Context.scaffoldMesh.vertices.Length;
+                    m_Context.indexCount = m_Context.scaffoldMesh.triangles.Length;
+                    m_Context.gpuMeshModVertex = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.scaffoldMesh.vertices.Length, sizeof(Vector3)) { name = "MeshBaseVertices" };
+                    m_Context.gpuMeshModVertex.SetData(m_Context.scaffoldMesh.vertices);
+                    
+                    m_Context.gpuMeshBaseVertex = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.scaffoldMesh.vertices.Length, sizeof(Vector3)) { name = "MeshModVertices" };
+                    m_Context.gpuMeshBaseVertex.SetData(m_Context.scaffoldMesh.vertices);
+
+                    m_Context.gpuMeshIndices = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.scaffoldMesh.triangles.Length, sizeof(int)) { name = "MeshIndices" };
+                    m_Context.gpuMeshIndices.SetData(m_Context.scaffoldMesh.triangles);
+                }
+            }
+            catch (System.Exception e) {
                 Debug.LogError($"Failed to create buffers: {e.Message}");
                 DestroyBuffers();
             }
         }
 
-        public void DestroyBuffers()
-        {
-            if (m_Context == null)
-                return;
-                
-            if (m_VertexBuffer != null)
-            {
-                m_VertexBuffer.Release();
-                m_VertexBuffer = null;
-                m_Context.gpuMeshPosData.Release();
-                m_Context.gpuMeshPosData = null;
+        public void DestroyBuffers() {
+            if (m_Context != null) {
+                m_Context.gpuMeshModVertex?.Dispose();
+                m_Context.gpuMeshModVertex = null;
+                m_Context.gpuMeshBaseVertex?.Dispose();
+                m_Context.gpuMeshBaseVertex = null;
+                m_Context.vertexCount = 0;
+                m_Context.indexCount = 0;
             }
-
-            if (m_IndexBuffer != null)
-            {
-                m_IndexBuffer.Release();
-                m_IndexBuffer = null;
-            }
-
-            if (m_SelectionGroup.m_SelectedVerticesBuffer != null)
-            {
-                m_SelectionGroup.m_SelectedVerticesBuffer.Release();
-                m_SelectionGroup.m_SelectedVerticesBuffer = null;
-            }
-
-            m_Context.vertexCount = 0;
         }
 
-        public void EditUpdateSelection(Vector2 rectMin, Vector2 rectMax, Camera cam)
-        {
-            // Validate buffers before proceeding
-            if (!AreBuffersValid())
-            {
-                Debug.LogWarning("Cannot update selection: buffers not valid or compute shader missing");
+        public void EditUpdateSelection(Vector2 rectMin, Vector2 rectMax, Camera cam) {
+            if (!IsValid()) {
+                Debug.LogWarning("Cannot update selection: buffers not IsValid or compute shader missing");
                 return;
             }
 
@@ -223,78 +120,85 @@ namespace UnityEngine.GsplEdit
             int screenW = cam.pixelWidth, screenH = cam.pixelHeight;
             Vector4 screenPar = new Vector4(screenW, screenH, 0, 0);
 
-            using var cmb = new CommandBuffer { name = "VertexSelectionUpdate" };
-            int kernelIndex = (int)KernelIndices.SelectionUpdate;
-            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, "_VertexProps", m_VertexBuffer);
-            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, Props.VertexSelectedBits, m_SelectionGroup.m_SelectedVerticesBuffer);
-            cmb.SetComputeIntParam(m_CSVertexUtilities, Props.VertexCount, m_Context.vertexCount);
-            cmb.SetComputeVectorParam(m_CSVertexUtilities, "_SelectionRect", new Vector4(rectMin.x, rectMax.y, rectMax.x, rectMin.y));
+            try {
+                using var cmb = new CommandBuffer { name = "VertexSelectionUpdate" };
+                int kernelIndex = (int)KernelIndices.SelectionUpdate;
+                cmb.SetComputeBufferParam(m_CSEditMesh, kernelIndex, Props.VertexModPos, m_Context.gpuMeshModVertex);
+                cmb.SetComputeBufferParam(m_CSEditMesh, kernelIndex, Props.VertexSelectedBits, m_SelectionGroup.m_SelectedVerticesBuffer);
 
-            cmb.SetComputeMatrixParam(m_CSVertexUtilities, Props.MatrixObjectToWorld, matO2W);
-            cmb.SetComputeMatrixParam(m_CSVertexUtilities, Props.MatrixVP, matProj * matView);
-            cmb.SetComputeVectorParam(m_CSVertexUtilities, Props.VecScreenParams, screenPar);
-            DispatchUtilsAndExecute(cmb, KernelIndices.SelectionUpdate, m_Context.vertexCount);
+                cmb.SetComputeIntParam(m_CSEditMesh, Props.VertexCount, m_Context.vertexCount);
+                cmb.SetComputeVectorParam(m_CSEditMesh, Props.SelectionRect, new Vector4(rectMin.x, rectMax.y, rectMax.x, rectMin.y));
 
-            SetSelection();
+                cmb.SetComputeMatrixParam(m_CSEditMesh, Props.MatrixObjectToWorld, matO2W);
+                cmb.SetComputeMatrixParam(m_CSEditMesh, Props.MatrixVP, matProj * matView);
+                cmb.SetComputeVectorParam(m_CSEditMesh, Props.VecScreenParams, screenPar);
+                DispatchUtilsAndExecute(cmb, KernelIndices.SelectionUpdate, m_Context.vertexCount);
+                SetSelection();
+            } catch (Exception e) {
+                Debug.LogError($"Failed to update Selection: {e.Message}");
+                DestroyBuffers();
+            }
         }
 
-        public void DeselectAll()
-        {
-            int selectionBufferSize = (m_Vertices.Length + 31) / 32;
-            if (selectionBufferSize > 0)
-            {
+        public void DeselectAll() {
+            int selectionBufferSize = (m_Context.scaffoldMesh.vertices.Length + 31) / 32;
+            if (selectionBufferSize > 0) {
                 uint[] clearData = new uint[selectionBufferSize];
                 m_SelectionGroup.m_SelectedVerticesBuffer.SetData(clearData);
             }
         }
 
-        public void SelectAll()
-        {
-            int selectionBufferSize = (m_Vertices.Length + 31) / 32;
-            if (selectionBufferSize > 0)
-            {
+        public void SelectAll() {
+            int selectionBufferSize = (m_Context.scaffoldMesh.vertices.Length + 31) / 32;
+            if (selectionBufferSize > 0) {
                 uint[] clearData = new uint[selectionBufferSize];
                 Array.Fill(clearData, uint.MaxValue);
                 m_SelectionGroup.m_SelectedVerticesBuffer.SetData(clearData);
             }
         }
 
-        public void EditVertexTransformation(Vector3 positionDiff, Vector4 rotationDiff, Vector3 scaleDiff)
-        {
-            // Validate buffers before proceeding
-            if (!AreBuffersValid() || m_CSVertexUtilities == null)
-            {
-                Debug.LogWarning("Cannot update selection: buffers not valid or compute shader missing");
+        public void EditVertexTransformation(Vector3 positionDiff, Vector4 rotationDiff, Vector3 scaleDiff) {
+            // IsValidate buffers before proceeding
+            if (!IsValid() || m_CSEditMesh == null) {
+                Debug.LogWarning("Cannot update selection: buffers not IsValid or compute shader missing");
                 return;
             }
-
             using var cmb = new CommandBuffer { name = "VertexSelectionUpdate" };
             int kernelIndex = (int)KernelIndices.VertexTransform;
-            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, "_VertexProps", m_VertexBuffer);
-            cmb.SetComputeBufferParam(m_CSVertexUtilities, kernelIndex, Props.VertexSelectedBits, m_SelectionGroup.m_SelectedVerticesBuffer);
-            cmb.SetComputeIntParam(m_CSVertexUtilities, Props.VertexCount, m_Vertices.Length);
-            cmb.SetComputeVectorParam(m_CSVertexUtilities, "_PositionDiff", positionDiff);
-            cmb.SetComputeVectorParam(m_CSVertexUtilities, "_RotationDiff", rotationDiff);
-            cmb.SetComputeVectorParam(m_CSVertexUtilities, "_ScaleDiff", scaleDiff);
-            cmb.SetComputeVectorParam(m_CSVertexUtilities, "_PivotPoint", m_LocalPos);
+            cmb.SetComputeBufferParam(m_CSEditMesh, kernelIndex, Props.VertexModPos, m_Context.gpuMeshModVertex);
+            cmb.SetComputeBufferParam(m_CSEditMesh, kernelIndex, Props.VertexSelectedBits, m_SelectionGroup.m_SelectedVerticesBuffer);
+            cmb.SetComputeIntParam(m_CSEditMesh, Props.VertexCount, m_Context.vertexCount);
+            cmb.SetComputeVectorParam(m_CSEditMesh, "_PositionDiff", positionDiff);
+            cmb.SetComputeVectorParam(m_CSEditMesh, "_RotationDiff", rotationDiff);
+            cmb.SetComputeVectorParam(m_CSEditMesh, "_ScaleDiff", scaleDiff);
+            cmb.SetComputeVectorParam(m_CSEditMesh, "_PivotPoint", m_SelectedPos);
 
-            DispatchUtilsAndExecute(cmb, KernelIndices.VertexTransform, m_Vertices.Length);
+            DispatchUtilsAndExecute(cmb, KernelIndices.VertexTransform, m_Context.vertexCount);
+
+            // Update mesh with modified positions
+
+            // Read modified vertex data back from GPU
+            Vector3[] modifiedVertices = new Vector3[m_Context.vertexCount];
+            m_Context.gpuMeshModVertex.GetData(modifiedVertices);
+
+            // Update the mesh vertices
+            m_Context.scaffoldMesh.vertices = modifiedVertices;
+
+            // Recalculate normals and bounds
+            m_Context.scaffoldMesh.RecalculateNormals();
+            m_Context.scaffoldMesh.RecalculateBounds();
         }
 
-        void DispatchUtilsAndExecute(CommandBuffer cmb, KernelIndices kernel, int count)
-        {
-            m_CSVertexUtilities.GetKernelThreadGroupSizes((int)kernel, out uint gsX, out _, out _);
-            cmb.DispatchCompute(m_CSVertexUtilities, (int)kernel, (int)((count + gsX - 1) / gsX), 1, 1);
+        void DispatchUtilsAndExecute(CommandBuffer cmb, KernelIndices kernel, int count) {
+            m_CSEditMesh.GetKernelThreadGroupSizes((int)kernel, out uint gsX, out _, out _);
+            cmb.DispatchCompute(m_CSEditMesh, (int)kernel, (int)((count + gsX - 1) / gsX), 1, 1);
             Graphics.ExecuteCommandBuffer(cmb);
         }
 
-
-
-        public void SetSelection()
-        {
-            if (!AreBuffersValid())
+        public void SetSelection() {
+            if (!IsValid())
             {
-                Debug.LogWarning("Buffers are not valid or no base mesh found.");
+                Debug.LogWarning("Buffers are not IsValid or no base mesh found.");
                 return;
             }
 
@@ -323,112 +227,91 @@ namespace UnityEngine.GsplEdit
                 }
             }
 
-            m_LocalPos = m_SelectionGroup.m_CenterPos;
-            EditorUtility.SetDirty(this);
+            m_SelectedPos = m_SelectionGroup.m_CenterPos;
         }
 
         public void SetSelectionBuffer() {
-            if (!AreBuffersValid())
-            {
-                Debug.LogWarning("Buffers are not valid or no base mesh found.");
+            if (!IsValid()) {
+                Debug.LogWarning("Buffers are not IsValid or no base mesh found.");
                 return;
             }
 
             m_SelectionGroup.m_SelectedVerticesBuffer.SetData(m_SelectionGroup.m_SelectedBits);
         }
 
-        public void DrawSelectedVertices()
-        {
-            if (m_Context == null || m_Context.gpuMeshPosData == null || m_SelectionGroup.m_SelectedVerticesBuffer == null || !m_SelectedVertexMaterial)
+        private void DrawScaffold() {
+            if (m_Context.scaffoldMesh == null) {
+                Debug.LogWarning("Scaffold mesh is not assigned.");
                 return;
+            }
 
-            // Set up material properties
-            m_SelectedVertexMaterial.SetBuffer("_MeshVertexPos", m_Context.gpuMeshPosData);
-            m_SelectedVertexMaterial.SetBuffer("_VertexSelectedBits", m_SelectionGroup.m_SelectedVerticesBuffer);
-            m_SelectedVertexMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
-
-            // Set up the draw command
-            m_Cmd.DrawProcedural(Matrix4x4.identity, m_SelectedVertexMaterial, 0, MeshTopology.Points, m_Vertices.Length);
-
-        }
-
-        public void DrawWireframe()
-        {
-            if (!AreBuffersValid() || m_Context.gpuMeshPosData == null || !m_WireframeMaterial)
+            if (m_ScaffoldMaterial == null) {
+                Debug.LogError("Material is not assigned.");
                 return;
+            }
 
-            // Set up material properties
-            m_WireframeMaterial.SetBuffer("_MeshVertexPos", m_Context.gpuMeshPosData);
-            m_WireframeMaterial.SetBuffer("_IndexBuffer", m_IndexBuffer);
-            m_WireframeMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
+            m_ScaffoldMaterial.SetBuffer("_VertexSelectedBits", m_SelectionGroup.m_SelectedVerticesBuffer);
 
-            m_Cmd.DrawProcedural(
-                Matrix4x4.identity,
-                m_WireframeMaterial,
-                0,
-                MeshTopology.Triangles,
-                m_Indices.Length
+            Graphics.DrawMesh(
+                m_Context.scaffoldMesh,
+                m_GlobalTransform.localToWorldMatrix,
+                m_ScaffoldMaterial,
+                layer: 0,
+                camera: SceneView.lastActiveSceneView.camera,
+                submeshIndex: 0,
+                null
             );
         }
 
-        // public void DrawFill()
-        // {
-        //     if (!AreBuffersValid() || m_Context.gpuMeshPosData == null || !m_FillMaterial)
-        //         return;
+        private void DrawShadowCaster() {
+            if (m_Context.scaffoldMesh == null) {
+                Debug.LogWarning("Scaffold mesh is not assigned.");
+                return;
+            }
 
-        //     // Set up material properties
-        //     m_FillMaterial.SetBuffer("_VertexProps", m_Context.gpuMeshPosData);
-        //     m_FillMaterial.SetBuffer("_IndexBuffer", m_IndexBuffer);
-        //     m_FillMaterial.SetMatrix("_ObjectToWorld", m_GlobalTransform.localToWorldMatrix);
+            if (m_ShadowCasterMaterial == null) {
+                Debug.LogError("Material is not assigned.");
+                return;
+            }
 
-        //     // Define bounds for the procedural drawing
-        //     Bounds bounds = new Bounds(m_GlobalTransform.position, Vector3.one * 10f); // Adjust bounds as needed
+            // Draw the mesh using Graphics.DrawMesh
+            Graphics.DrawMesh(
+                m_Context.scaffoldMesh,
+                m_GlobalTransform.localToWorldMatrix,
+                m_ShadowCasterMaterial,
+                layer: 0,
+                camera: null,
+                submeshIndex: 0,
+                null
+            );
+        }
 
-        //     // Set up RenderParams
-        //     RenderParams renderParams = new RenderParams(m_FillMaterial)
-        //     {
-        //         camera = null, // Use the current camera
-        //         receiveShadows = true, // Enable shadow receiving
-        //         shadowCastingMode = m_CastShadow ? ShadowCastingMode.On : ShadowCastingMode.Off, // Enable shadow casting
-        //         worldBounds = bounds, // Define the bounds for culling
-        //         layer = 0 // Default layer
-        //     };
-
-        //     // Render the procedural mesh
-        //     Graphics.RenderPrimitives(
-        //         renderParams,
-        //         MeshTopology.Triangles,
-        //         m_Indices.Length
-        //         // m_IndexBuffer,
-        //         // m_Indices.Length // Number of indices
-        //     );
-        // }
-
-        private void Draw()
-        {
-            m_Cmd.Clear();
-
-            if (!AreBuffersValid())
+        public void Draw(Renderer[] renderers) {
+            if (m_Context.scaffoldMesh == null || m_Context.scaffoldMesh.triangles.Length == 0 || m_Context.scaffoldMesh.vertices.Length == 0)
                 return;
 
             // Apply Modifier System
             m_ModifierSystem.RunAll();
-            
-            // Draw to the offscreen texture
-            // DrawFill();
-            DrawWireframe();
-            DrawSelectedVertices();
-            Graphics.ExecuteCommandBuffer(m_Cmd);
 
-            // m_DebugPlane.transform.localScale = new Vector3(Camera.current.pixelWidth / 400, 1f, Camera.current.pixelHeight / 400); // Position to the side
+            if (m_DrawScaffoldMesh) {
+                DrawScaffold();
+            }
+
+            if (m_CastShadows) {
+                DrawShadowCaster();
+            }
+
+            // m_SurfaceMaterial.SetTexture("_MainTex", m_Context.splatColorMap);
+            // m_SurfaceMaterial.SetTexture("_BumpMap", m_Context.splatNormalMap);
+            // m_SurfaceMaterial.EnableKeyword("_NORMALMAP");
+
             m_OffscreenRenderer.m_DebugPlane = m_DebugPlane;
-            m_OffscreenRenderer.m_Renderers = FindObjectsOfType<Renderer>();
-            m_OffscreenRenderer.m_Material = m_FillMaterial;
-            m_OffscreenRenderer.m_IndexBuffer = m_IndexBuffer;
+            m_OffscreenRenderer.m_SurfaceMesh = m_Context.scaffoldMesh;
+            m_OffscreenRenderer.m_SurfaceMaterial = m_SurfaceMaterial;
             m_OffscreenRenderer.m_GlobalTransform = m_GlobalTransform;
-            m_OffscreenRenderer.m_ArgsBuffer = m_ArgsBuffer;
-            m_OffscreenRenderer.m_CastShadow = m_CastShadow;
-            m_OffscreenRenderer.Render();
+            m_OffscreenRenderer.m_ReceiveShadows = m_ReceiveShadows;
+            // m_OffscreenRenderer.m_PostProcessMaterial = m_PostProcessMaterial;
+            m_OffscreenRenderer.Render(renderers);
         }
     }
 }

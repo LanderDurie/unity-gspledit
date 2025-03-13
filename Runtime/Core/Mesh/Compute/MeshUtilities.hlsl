@@ -7,7 +7,7 @@ struct TriangleProperties {
     uint vertexId3;
 };
 
-struct VertexPos {
+struct Vector3 {
     float3 pos;
     float3 posMod; 
     float3 normal;
@@ -15,41 +15,41 @@ struct VertexPos {
 };
 
 struct Triangle {
-    VertexPos v0;
-    VertexPos v1;
-    VertexPos v2;
+    Vector3 v0;
+    Vector3 v1;
+    Vector3 v2;
 };
 
 uint _VertexCount;
 uint _IndexCount;
-RWStructuredBuffer<VertexPos> _MeshVertexPos;
+RWStructuredBuffer<Vector3> _MeshVector3;
 RWStructuredBuffer<TriangleProperties> _MeshIndices;
 
 TriangleProperties LoadTriangleProps(uint triangleId) {
     return _MeshIndices[triangleId];
 }
 
-VertexPos LoadVertexPos1(uint triangleId) {
-    return _MeshVertexPos[_MeshIndices[triangleId].vertexId1];
+Vector3 LoadVector31(uint triangleId) {
+    return _MeshVector3[_MeshIndices[triangleId].vertexId1];
 }
 
-VertexPos LoadVertexPos2(uint triangleId) {
-    return _MeshVertexPos[_MeshIndices[triangleId].vertexId2];
+Vector3 LoadVector32(uint triangleId) {
+    return _MeshVector3[_MeshIndices[triangleId].vertexId2];
 }
 
-VertexPos LoadVertexPos3(uint triangleId) {
-    return _MeshVertexPos[_MeshIndices[triangleId].vertexId3];
+Vector3 LoadVector33(uint triangleId) {
+    return _MeshVector3[_MeshIndices[triangleId].vertexId3];
 }
 
-VertexPos LoadVertexPos(uint vertexId) {
-    return _MeshVertexPos[vertexId];
+Vector3 LoadVector3(uint vertexId) {
+    return _MeshVector3[vertexId];
 }
 
 Triangle GetTriangle(uint triangleId) {
     Triangle t;
-    t.v0 = LoadVertexPos1(triangleId);
-    t.v1 = LoadVertexPos2(triangleId);
-    t.v2 = LoadVertexPos3(triangleId);
+    t.v0 = LoadVector31(triangleId);
+    t.v1 = LoadVector32(triangleId);
+    t.v2 = LoadVector33(triangleId);
     return t;
 }
 
