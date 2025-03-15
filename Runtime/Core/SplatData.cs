@@ -5,6 +5,7 @@ using UnityEngine.Experimental.Rendering;
 
 namespace UnityEngine.GsplEdit
 {
+    [Serializable]
     public class SplatData : ScriptableObject
     {
         public const int kCurrentVersion = 2023_10_20;

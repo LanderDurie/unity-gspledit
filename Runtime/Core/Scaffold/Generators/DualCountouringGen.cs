@@ -571,11 +571,11 @@ namespace UnityEngine.GsplEdit
 
         public unsafe override void Generate(SharedComputeContext context, ref Vector3[] vertexList, ref int[] indexList)
         {
-            Vector3 size = context.splatData.boundsMax - context.splatData.boundsMin;
-            Vector3 center = (context.splatData.boundsMax + context.splatData.boundsMin) * 0.5f;
+            Vector3 size = context.gsSplatData.boundsMax - context.gsSplatData.boundsMin;
+            Vector3 center = (context.gsSplatData.boundsMax + context.gsSplatData.boundsMin) * 0.5f;
             m_Root = new OctreeNode(new Bounds(center, size), 0);
 
-            int splatCount = context.splatData.splatCount;
+            int splatCount = context.gsSplatData.splatCount;
             int itemsPerDispatch = 65535;
 
             SplatData[] splatArray = new SplatData[splatCount];
@@ -641,14 +641,14 @@ namespace UnityEngine.GsplEdit
         private void SetupComputeShader(SharedComputeContext context, ComputeBuffer IcosahedronBuffer)
         {
             m_IcosahedronComputeShader.SetFloat("_GlobalScaleFactor", m_Settings.scale);
-            m_IcosahedronComputeShader.SetBuffer(0, "_SplatPos", context.gpuGSPosData);
-            m_IcosahedronComputeShader.SetBuffer(0, "_SplatOther", context.gpuGSOtherData);
-            m_IcosahedronComputeShader.SetBuffer(0, "_SplatSH", context.gpuGSSHData);
-            m_IcosahedronComputeShader.SetBuffer(0, "_SplatChunks", context.gpuGSChunks);
-            m_IcosahedronComputeShader.SetInt("_SplatChunkCount", context.gpuGSChunksValid ? context.gpuGSChunks.count : 0);
-            uint format = (uint)context.splatData.posFormat | ((uint)context.splatData.scaleFormat << 8) | ((uint)context.splatData.shFormat << 16);
+            m_IcosahedronComputeShader.SetBuffer(0, "_SplatPos", context.gsPosData);
+            m_IcosahedronComputeShader.SetBuffer(0, "_SplatOther", context.gsOtherData);
+            m_IcosahedronComputeShader.SetBuffer(0, "_SplatSH", context.gsSHData);
+            m_IcosahedronComputeShader.SetBuffer(0, "_SplatChunks", context.gsChunks);
+            m_IcosahedronComputeShader.SetInt("_SplatChunkCount", context.gsChunksValid ? context.gsChunks.count : 0);
+            uint format = (uint)context.gsSplatData.posFormat | ((uint)context.gsSplatData.scaleFormat << 8) | ((uint)context.gsSplatData.shFormat << 16);
             m_IcosahedronComputeShader.SetInt("_SplatFormat", (int)format);
-            m_IcosahedronComputeShader.SetTexture(0, "_SplatColor", context.gpuGSColorData);
+            m_IcosahedronComputeShader.SetTexture(0, "_SplatColor", context.gsColorData);
             m_IcosahedronComputeShader.SetBuffer(0, "_IcosahedronBuffer", IcosahedronBuffer);
         }
     }

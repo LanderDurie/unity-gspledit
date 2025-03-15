@@ -40,7 +40,7 @@ namespace UnityEngine.GsplEdit
 
         public override void Run()
         {
-            if (m_Context.gpuMeshBaseVertex == null || m_Context.gpuMeshModVertex == null)
+            if (m_Context.scaffoldBaseVertex == null || m_Context.scaffoldModVertex == null)
                 throw new InvalidOperationException("GraphicsBuffer is not initialized.");
             
             if (m_ComputeShader == null)
@@ -60,8 +60,8 @@ namespace UnityEngine.GsplEdit
             int kernel = m_ComputeShader.FindKernel("CSMain");
             
             // Set buffers
-            m_ComputeShader.SetBuffer(kernel, "_VertexBasePos", m_Context.gpuMeshBaseVertex);
-            m_ComputeShader.SetBuffer(kernel, "_VertexModPos", m_Context.gpuMeshModVertex);
+            m_ComputeShader.SetBuffer(kernel, "_VertexBasePos", m_Context.scaffoldBaseVertex);
+            m_ComputeShader.SetBuffer(kernel, "_VertexModPos", m_Context.scaffoldModVertex);
             m_ComputeShader.SetBuffer(kernel, "_VertexSelectedBits", m_SelectionGroup.m_SelectedVerticesBuffer);
             
             // Set bend parameters
@@ -77,7 +77,7 @@ namespace UnityEngine.GsplEdit
             m_ComputeShader.SetBool("clampBounds", m_ClampBounds);
             
             // Calculate thread groups based on vertex count
-            int threadGroups = Mathf.CeilToInt(m_Context.vertexCount / 256.0f);
+            int threadGroups = Mathf.CeilToInt(m_Context.scaffoldData.vertexCount / 256.0f);
             m_ComputeShader.Dispatch(kernel, threadGroups, 1, 1);
             
             // Force mesh update to see changes

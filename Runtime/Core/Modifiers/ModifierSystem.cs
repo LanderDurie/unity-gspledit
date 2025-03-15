@@ -90,8 +90,8 @@ namespace UnityEngine.GsplEdit {
         }
 
         private void UpdateMesh() {
-            Vector3[] vertices = new Vector3[m_Context.gpuMeshModVertex.count];
-            m_Context.gpuMeshModVertex.GetData(vertices);
+            Vector3[] vertices = new Vector3[m_Context.scaffoldModVertex.count];
+            m_Context.scaffoldModVertex.GetData(vertices);
             m_Context.scaffoldMesh.vertices = vertices;
             m_Context.scaffoldMesh.RecalculateNormals();
             m_Context.scaffoldMesh.RecalculateBounds();

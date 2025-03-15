@@ -3,10 +3,8 @@ using UnityEngine;
 using UnityEditorInternal;
 using UnityEngine.GsplEdit;
 
-namespace UnityEditor.GsplEdit
-{
-    public class ModifierEditorTab : Tab
-    {
+namespace UnityEditor.GsplEdit {
+    public class ModifierEditorTab : Tab {
         private static List<SelectionGroupBox> m_SelectionGroups = new List<SelectionGroupBox>();
         private static  ReorderableList m_ReorderableList;
         private static Vector2 m_ScrollPosition;
@@ -84,8 +82,7 @@ namespace UnityEditor.GsplEdit
             };
 
             // Reorder handle callback
-            m_ReorderableList.drawElementBackgroundCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
-            {
+            m_ReorderableList.drawElementBackgroundCallback = (Rect rect, int index, bool isActive, bool isFocused) => {
                 if (index < 0 || index >= m_SelectionGroups.Count)
                     return;
 
@@ -94,15 +91,13 @@ namespace UnityEditor.GsplEdit
             };
 
             // Track selected index
-            m_ReorderableList.onSelectCallback = (ReorderableList list) =>
-            {
+            m_ReorderableList.onSelectCallback = (ReorderableList list) => {
                 m_SelectedIndex = list.index;
                 gs.SetVertexGroup(ms.m_SelectionGroups[m_SelectedIndex].m_Selection);
             };
         }
 
-        public override void Draw(DynamicSplat gs)
-        {
+        public override void Draw(DynamicSplat gs) {
             GUILayout.Label("Modifiers", EditorStyles.boldLabel);
 
             ModifierSystem ms = gs.GetModifierSystem();
@@ -116,8 +111,7 @@ namespace UnityEditor.GsplEdit
             // }
 
             // Add new modifier button
-            if (GUILayout.Button("Add Group"))
-            {
+            if (GUILayout.Button("Add Group")) {
                 m_SelectionGroups.Add(CreateInstance<SelectionGroupBox>());
                 ms.Insert();
                 m_SelectionGroups[m_SelectionGroups.Count - 1].Init(ms.m_SelectionGroups[m_SelectionGroups.Count - 1]);
@@ -140,12 +134,9 @@ namespace UnityEditor.GsplEdit
             EditorGUILayout.EndScrollView();
 
             // Display selected item name
-            if (m_SelectedIndex >= 0 && m_SelectedIndex < m_SelectionGroups.Count)
-            {
+            if (m_SelectedIndex >= 0 && m_SelectedIndex < m_SelectionGroups.Count) {
                 m_SelectionGroups[m_SelectedIndex].Draw(gs, ms.m_SelectionGroups[m_SelectedIndex]);
-            }
-            else
-            {
+            } else {
                 EditorGUILayout.LabelField("No Group Selected");
             }
         }

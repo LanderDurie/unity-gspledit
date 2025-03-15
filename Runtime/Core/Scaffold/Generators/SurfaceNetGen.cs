@@ -39,11 +39,11 @@
 
 //         public unsafe override void Generate(SharedComputeContext context, ref Vector3[] vertexList, ref int[] indexList)
 //         {
-//             int splatCount = context.splatData.splatCount;
+//             int splatCount = context.gsSplatData.gsSplatCount;
 
 //             // Calculate size and scale
 //             float padding = 0.1f;
-//             Vector3 size = context.splatData.boundsMax - context.splatData.boundsMin;
+//             Vector3 size = context.gsSplatData.boundsMax - context.gsSplatData.boundsMin;
 //             float maxSize = Mathf.Max(size.x, size.y, size.z);
 //             float paddingValue = maxSize * padding;
 //             maxSize += paddingValue * 2;
@@ -54,9 +54,9 @@
 //             uint maxGridDimension = (uint)Mathf.Max(x, y, z);
 //             float voxelScale = maxSize / (maxGridDimension - 1);
 //             Vector3 startPos = new Vector3(
-//                 context.splatData.boundsMin.x - voxelScale / 2,
-//                 context.splatData.boundsMin.y - voxelScale / 2,
-//                 context.splatData.boundsMin.z - voxelScale / 2
+//                 context.gsSplatData.boundsMin.x - voxelScale / 2,
+//                 context.gsSplatData.boundsMin.y - voxelScale / 2,
+//                 context.gsSplatData.boundsMin.z - voxelScale / 2
 //             );
 //             int itemsPerDispatch = 65535;
 
@@ -64,14 +64,14 @@
 //             IcosahedronBuffer.SetData(new Icosahedron[splatCount]);
 
 //             m_IcosahedronComputeShader.SetFloat("_GlobalScaleFactor", m_Settings.scale);
-//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatPos", context.gpuGSPosData);
-//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatOther", context.gpuGSOtherData);
-//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatSH", context.gpuGSSHData);
-//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatChunks", context.gpuGSChunks);
-//             m_IcosahedronComputeShader.SetInt("_SplatChunkCount", context.gpuGSChunksValid ? context.gpuGSChunks.count : 0);
-//             uint format = (uint)context.splatData.posFormat | ((uint)context.splatData.scaleFormat << 8) | ((uint)context.splatData.shFormat << 16);
+//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatPos", context.gsPosData);
+//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatOther", context.gsOtherData);
+//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatSH", context.gsSHData);
+//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatChunks", context.gsChunks);
+//             m_IcosahedronComputeShader.SetInt("_SplatChunkCount", context.gsChunksValid ? context.gsChunks.count : 0);
+//             uint format = (uint)context.gsSplatData.posFormat | ((uint)context.gsSplatData.scaleFormat << 8) | ((uint)context.gsSplatData.shFormat << 16);
 //             m_IcosahedronComputeShader.SetInt("_SplatFormat", (int)format);
-//             m_IcosahedronComputeShader.SetTexture(0, "_SplatColor", context.gpuGSColorData);
+//             m_IcosahedronComputeShader.SetTexture(0, "_SplatColor", context.gsColorData);
 //             m_IcosahedronComputeShader.SetBuffer(0, "_IcosahedronBuffer", IcosahedronBuffer);
 //             for (int i = 0; i < Mathf.CeilToInt((float)splatCount / itemsPerDispatch); i++)
 //             {
@@ -88,13 +88,13 @@
 //             ComputeBuffer voxelBuffer = new(voxelCount, sizeof(float));
 //             float[] d = new float[voxelCount];
 //             voxelBuffer.SetData(d);
-//             m_VoxelizeIcosahedron.SetBuffer(0, "_SplatChunks", context.gpuGSChunks);
-//             m_VoxelizeIcosahedron.SetInt("_SplatChunkCount", context.gpuGSChunksValid ? context.gpuGSChunks.count : 0);
-//             m_VoxelizeIcosahedron.SetBuffer(0, "_SplatPos", context.gpuGSPosData);
-//             m_VoxelizeIcosahedron.SetBuffer(0, "_SplatOther", context.gpuGSOtherData);
-//             m_VoxelizeIcosahedron.SetBuffer(0, "_SplatSH", context.gpuGSSHData);
+//             m_VoxelizeIcosahedron.SetBuffer(0, "_SplatChunks", context.gsChunks);
+//             m_VoxelizeIcosahedron.SetInt("_SplatChunkCount", context.gsChunksValid ? context.gsChunks.count : 0);
+//             m_VoxelizeIcosahedron.SetBuffer(0, "_SplatPos", context.gsPosData);
+//             m_VoxelizeIcosahedron.SetBuffer(0, "_SplatOther", context.gsOtherData);
+//             m_VoxelizeIcosahedron.SetBuffer(0, "_SplatSH", context.gsSHData);
 //             m_VoxelizeIcosahedron.SetInt("_SplatFormat", (int)format);
-//             m_VoxelizeIcosahedron.SetTexture(0, "_SplatColor", context.gpuGSColorData);
+//             m_VoxelizeIcosahedron.SetTexture(0, "_SplatColor", context.gsColorData);
 //             m_VoxelizeIcosahedron.SetBuffer(0, "_IcosahedronBuffer", IcosahedronBuffer);
 //             m_VoxelizeIcosahedron.SetBuffer(0, "VoxelGrid", voxelBuffer);
 //             m_VoxelizeIcosahedron.SetInt("_SplatCount", splatCount);

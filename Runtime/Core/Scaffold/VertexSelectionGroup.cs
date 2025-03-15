@@ -1,14 +1,14 @@
 namespace UnityEngine.GsplEdit {
     public class VertexSelectionGroup {
-        private Mesh m_ScaffoldMesh;
+        private SharedComputeContext m_Context;
         public uint[] m_SelectedBits;
         public uint m_SelectedCount = 0;
         public Vector3 m_CenterPos;
         public ComputeBuffer m_SelectedVerticesBuffer;
 
-        public VertexSelectionGroup(ref Mesh scaffoldMesh) {
-            m_ScaffoldMesh = scaffoldMesh;
-            int selectionBufferSize = (m_ScaffoldMesh.vertexCount + 31) / 32;
+        public VertexSelectionGroup(ref SharedComputeContext context) {
+            m_Context = context;
+            int selectionBufferSize = (m_Context.scaffoldData.vertexCount + 31) / 32;
             m_SelectedBits = new uint[selectionBufferSize];
             m_CenterPos = Vector3.zero;
             if (selectionBufferSize > 0) {
@@ -18,12 +18,12 @@ namespace UnityEngine.GsplEdit {
 
         }
 
-        public VertexSelectionGroup(ref Mesh scaffoldMesh, uint[] selectedBits, uint count, Vector3 centerPos, ComputeBuffer selectedBuffer) {
-            m_ScaffoldMesh = scaffoldMesh;
+        public VertexSelectionGroup(ref SharedComputeContext context, uint[] selectedBits, uint count, Vector3 centerPos, ComputeBuffer selectedBuffer) {
+            m_Context = context;
             m_SelectedBits = selectedBits;
             m_SelectedCount = count;
             m_CenterPos = centerPos;
-            int selectionBufferSize = (m_ScaffoldMesh.vertexCount + 31) / 32;
+            int selectionBufferSize = (m_Context.scaffoldData.vertexCount + 31) / 32;
             if (selectionBufferSize > 0) {
                 m_SelectedVerticesBuffer = new ComputeBuffer(selectionBufferSize, sizeof(uint));
                 CopyBufferData(m_SelectedVerticesBuffer, selectedBuffer, selectionBufferSize);
@@ -54,7 +54,7 @@ namespace UnityEngine.GsplEdit {
 
 
         public VertexSelectionGroup Clone() {
-            return new VertexSelectionGroup(ref m_ScaffoldMesh, m_SelectedBits, m_SelectedCount, m_CenterPos, m_SelectedVerticesBuffer);
+            return new VertexSelectionGroup(ref m_Context, m_SelectedBits, m_SelectedCount, m_CenterPos, m_SelectedVerticesBuffer);
         }
 
         public uint[] GetBits() {
@@ -89,10 +89,10 @@ namespace UnityEngine.GsplEdit {
 
                 // Update center position
                 if (m_SelectedCount == 1) {
-                    m_CenterPos = m_ScaffoldMesh.vertices[id];
+                    m_CenterPos = m_Context.scaffoldData.modVertices[id];
                 } else {
                     // Incrementally update center position
-                    m_CenterPos = ((m_CenterPos * (m_SelectedCount - 1)) + m_ScaffoldMesh.vertices[id]) / m_SelectedCount;
+                    m_CenterPos = ((m_CenterPos * (m_SelectedCount - 1)) + m_Context.scaffoldData.modVertices[id]) / m_SelectedCount;
                 }
             }
         }
@@ -107,7 +107,7 @@ namespace UnityEngine.GsplEdit {
                     m_CenterPos = Vector3.zero;
                 } else {
                     // Incrementally update center position
-                    m_CenterPos = ((m_CenterPos * (m_SelectedCount + 1)) - m_ScaffoldMesh.vertices[id]) / m_SelectedCount;
+                    m_CenterPos = ((m_CenterPos * (m_SelectedCount + 1)) - m_Context.scaffoldData.modVertices[id]) / m_SelectedCount;
                 }
             }
         }

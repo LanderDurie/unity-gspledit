@@ -96,7 +96,7 @@
 //             // }
            
 //             // // Calculate thread groups based on vertex count
-//             // int threadGroups = Mathf.CeilToInt(m_Context.vertexCount / 256.0f);
+//             // int threadGroups = Mathf.CeilToInt(m_Context.scaffoldVertexCount / 256.0f);
 //             // m_ComputeShader.Dispatch(kernel, threadGroups, 1, 1);
             
 //             // Debug.Log("Applied rig weights to vertices via compute shader.");
@@ -136,7 +136,7 @@
 //             //     // Button to calculate weights
 //             //     if (GUILayout.Button("Calculate Weights"))
 //             //     {
-//             //         if (m_Context.vertexCount > 0)
+//             //         if (m_Context.scaffoldVertexCount > 0)
 //             //         {
 //             //             CalculateWeights();
 //             //             m_WeightsCalculated = true;
@@ -179,14 +179,14 @@
         
 //         private void CalculateWeights() 
 //         {
-//             // if (m_Context.vertexCount == 0 || m_BonesList.Count == 0)
+//             // if (m_Context.scaffoldVertexCount == 0 || m_BonesList.Count == 0)
 //             // {
 //             //     Debug.LogError("No vertices or bones to calculate weights.");
 //             //     return;
 //             // }
             
 //             // // Get mesh data from compute context
-//             // Vector3[] vertices = new Vector3[m_Context.vertexCount];
+//             // Vector3[] vertices = new Vector3[m_Context.scaffoldVertexCount];
 //             // m_Context.gpuMeshPosData.GetData(vertices);
             
 //             // // Initialize the weight storage array

@@ -84,8 +84,6 @@ namespace UnityEngine.GsplEdit
             
             // Generate UV coordinates
             Unwrapping.GenerateSecondaryUVSet(mesh, unwrapParams);
-            
-            Debug.Log("Successfully unwrapped UVs for mesh: " + mesh.name);
         }
     }
 }

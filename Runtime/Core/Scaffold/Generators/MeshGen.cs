@@ -35,7 +35,7 @@ namespace UnityEngine.GsplEdit
             }
         }
 
-        public EditableMesh Generate(ref ModifierSystem modSystem)
+        public void Generate()
         {
             Vector3[] vertexList = new Vector3[0];
             int[] indexList = new int[0];
@@ -46,7 +46,7 @@ namespace UnityEngine.GsplEdit
             // Optimize the mesh
             MeshGenUtils.OptimizeMesh(ref vertexList, ref indexList);
 
-            Debug.Log($"Mesh Generated: {vertexList.Length} vertices, {indexList.Length} indices.");
+            // Debug.Log($"Mesh Generated: {vertexList.Length} vertices, {indexList.Length} indices.");
 
             // Set Mesh
             Mesh baseMesh = new Mesh();
@@ -55,13 +55,17 @@ namespace UnityEngine.GsplEdit
             baseMesh.Optimize();
             baseMesh.RecalculateNormals();
             baseMesh.RecalculateBounds();
-            MeshGenUtils.AutoUVUnwrap(ref baseMesh);
+            // MeshGenUtils.AutoUVUnwrap(ref baseMesh);
+
 
             // Create and initialize the EditableMesh
-            EditableMesh m = new();
-            m.Initialize(ref m_Context, ref modSystem, baseMesh);
-
-            return m;
+            m_Context.scaffoldMesh = baseMesh;
+            m_Context.scaffoldData.vertexCount = baseMesh.vertices.Length;
+            m_Context.scaffoldData.baseVertices = baseMesh.vertices;
+            m_Context.scaffoldData.modVertices = baseMesh.vertices;
+            m_Context.scaffoldData.indices = baseMesh.triangles;
+            m_Context.scaffoldData.indexCount = baseMesh.triangles.Length;
+            m_Context.scaffoldData.deletedBits = new uint[(baseMesh.vertices.Length + 31) / 32];
         }
     }
 }

@@ -1,16 +1,11 @@
 using UnityEngine;
 using UnityEngine.GsplEdit;
 
-namespace UnityEditor.GsplEdit
-{
-    public class MeshGenEditorTab : Tab
-    {
-        public override void Init(DynamicSplat gs)
-        {
-        }
+namespace UnityEditor.GsplEdit {
+    public class MeshGenEditorTab : Tab {
+        public override void Init(DynamicSplat gs) {}
 
-        public override void Draw(DynamicSplat gs)
-        {
+        public override void Draw(DynamicSplat gs) {
             GUILayout.Label("Mesh Generator Options", EditorStyles.boldLabel);
 
             // Dropdown for selecting mesh meshGeneration options
@@ -19,8 +14,7 @@ namespace UnityEditor.GsplEdit
             MeshGen meshGen = gs.GetMeshGen();
 
             meshGen.m_SelectedType = (MeshGen.GenType)EditorGUILayout.EnumPopup("Mesh Option", meshGen.m_SelectedType);
-            switch (meshGen.m_SelectedType)
-            {
+            switch (meshGen.m_SelectedType) {
                 case MeshGen.GenType.Icosahedron:
                     DrawIcosahedronSettings((IcosaehdronGen)meshGen.m_Generators[meshGen.m_SelectedType]);
                     break;
@@ -40,8 +34,7 @@ namespace UnityEditor.GsplEdit
 
             LinkGen linkGen = gs.GetLinkGen();
             linkGen.m_ForwardSelectedType = (LinkGen.ForwardGenType)EditorGUILayout.EnumPopup("Forward Link Option", linkGen.m_ForwardSelectedType);
-            switch (linkGen.m_ForwardSelectedType)
-            {
+            switch (linkGen.m_ForwardSelectedType) {
                 case LinkGen.ForwardGenType.Euclidean:
                     DrawEuclideanSettings((EuclideanGen)linkGen.m_ForwardGenerators[linkGen.m_ForwardSelectedType]);
                     break;
@@ -57,26 +50,28 @@ namespace UnityEditor.GsplEdit
             }
 
             linkGen.m_BackwardSelectedType = (LinkGen.BackwardGenType)EditorGUILayout.EnumPopup("Backward Link Option", linkGen.m_BackwardSelectedType);
-            switch (linkGen.m_BackwardSelectedType)
-            {
+            switch (linkGen.m_BackwardSelectedType) {
                 case LinkGen.BackwardGenType.Texture:
                     break;
             }
 
-            if (GUILayout.Button("Bake Mesh"))
-            {
+            if (GUILayout.Button("Bake Mesh")) {
                 gs.GenerateMesh();
                 gs.GenerateLinks();
             }
 
-            if (GUILayout.Button("Recreate Links"))
-            {
+            EditorGUI.BeginDisabledGroup(gs.GetMesh() == null); 
+            if (GUILayout.Button("Reset Mesh")) {
+                gs.GetMesh().ResetMesh();
+            }
+
+            if (GUILayout.Button("Recreate Links")) {
                 gs.GenerateLinks();
             }
+            EditorGUI.EndDisabledGroup();
         }
 
-        private void DrawIcosahedronSettings(IcosaehdronGen meshGen)
-        {
+        private void DrawIcosahedronSettings(IcosaehdronGen meshGen) {
             meshGen.m_Settings.scale = EditorGUILayout.FloatField("Scale", Mathf.Clamp(meshGen.m_Settings.scale, 0.1f, 100.0f));
             meshGen.m_Settings.limit = EditorGUILayout.IntField(
                 new GUIContent("Draw Limit", ""), 
@@ -84,8 +79,7 @@ namespace UnityEditor.GsplEdit
             );
         }
 
-        private void DrawMarchingCubesSettings(MarchingCubesGen meshGen)
-        {
+        private void DrawMarchingCubesSettings(MarchingCubesGen meshGen) {
             meshGen.m_Settings.scale = EditorGUILayout.FloatField("Scale", Mathf.Clamp(meshGen.m_Settings.scale, 0.1f, 100.0f));
             meshGen.m_Settings.threshold = EditorGUILayout.Slider(
                 new GUIContent("Activation threshold", ""), 
@@ -114,8 +108,7 @@ namespace UnityEditor.GsplEdit
         //     meshGen.m_Settings.lod = EditorGUILayout.IntField("Level Of Detail", Mathf.Clamp(meshGen.m_Settings.lod, 4, 1000));
         // }
 
-        private void DrawDualContourSettings(DualContouringGen meshGen)
-        {
+        private void DrawDualContourSettings(DualContouringGen meshGen) {
             meshGen.m_Settings.scale = EditorGUILayout.FloatField("Scale", Mathf.Clamp(meshGen.m_Settings.scale, 0.1f, 100.0f));
             meshGen.m_Settings.threshold = EditorGUILayout.Slider(
                 new GUIContent("Activation threshold", ""), 
@@ -127,8 +120,7 @@ namespace UnityEditor.GsplEdit
             meshGen.m_Settings.maxDepth = EditorGUILayout.IntField("Max Tree Depth", Mathf.Clamp(meshGen.m_Settings.maxDepth, 1, 100));
         }
 
-        private void DrawMahalanobisSettings(MahalanobisGen linkGen)
-        {
+        private void DrawMahalanobisSettings(MahalanobisGen linkGen) {
             linkGen.m_Settings.sigma = EditorGUILayout.Slider(
                 new GUIContent("Distribution Size", ""), 
                 linkGen.m_Settings.sigma, 
@@ -137,8 +129,7 @@ namespace UnityEditor.GsplEdit
             );
         }
 
-        private void DrawEuclideanSettings(EuclideanGen linkGen)
-        {
+        private void DrawEuclideanSettings(EuclideanGen linkGen) {
             linkGen.m_Settings.sigma = EditorGUILayout.Slider(
                 new GUIContent("Distribution Size", ""), 
                 linkGen.m_Settings.sigma, 
@@ -147,8 +138,7 @@ namespace UnityEditor.GsplEdit
             );
         }
 
-        private void DrawInterpolateSettings(InterpolateGen linkGen)
-        {
+        private void DrawInterpolateSettings(InterpolateGen linkGen) {
             linkGen.m_Settings.blendFactor = EditorGUILayout.Slider(
                 new GUIContent("Blend Factor", ""), 
                 linkGen.m_Settings.blendFactor, 
@@ -157,8 +147,7 @@ namespace UnityEditor.GsplEdit
             );
         }
 
-        private void DrawPCASmoothSettings(PCASmoothGen linkGen)
-        {
+        private void DrawPCASmoothSettings(PCASmoothGen linkGen) {
             linkGen.m_Settings.startBlend = EditorGUILayout.Slider(
                 new GUIContent("Start Blend Distance", ""), 
                 linkGen.m_Settings.startBlend, 

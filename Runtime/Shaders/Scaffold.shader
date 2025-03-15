@@ -1,8 +1,8 @@
-Shader "Custom/ScaffoldShader" {
+Shader "Hidden/GsplEdit/Scaffold" {
     Properties {
         _WireframeColour("Wireframe Color", Color) = (1.0, 0.635, 0, 0.15)
         _WireframeAliasing("Wireframe Aliasing", Float) = 0.5
-        _DefaultColor("Default Color", Color) = (1.0, 0.635, 0, 0.01)
+        _DefaultColor("Default Color", Color) = (1.0, 0.635, 0, 0.08)
         _SelectedColor("Selected Color", Color) = (0.356, 0.878, 0.270, 0.6)
         _PointSize("Point Size", Float) = 1.0
     }
@@ -30,6 +30,7 @@ Shader "Custom/ScaffoldShader" {
             float _PointSize;
 
             ByteAddressBuffer _VertexSelectedBits;
+            ByteAddressBuffer _VertexDeletedBits;
 
             struct appdata {
                 float4 vertex : POSITION;
@@ -42,6 +43,8 @@ Shader "Custom/ScaffoldShader" {
                 float4 pos : SV_POSITION; 
                 float4 color : COLOR;     
                 float3 worldPos : TEXCOORD0;
+                uint vid : TEXCOORD1;
+                float isDeleted : TEXCOORD2;
             };
 
             struct g2f {
@@ -51,12 +54,24 @@ Shader "Custom/ScaffoldShader" {
                 float isPoint : TEXCOORD1;
             };
 
+            // Helper function to check if a vertex is deleted
+            bool IsVertexDeleted(uint vertexId) {
+                uint wordIndex = vertexId >> 5;      // Divide by 32
+                uint bitPosition = vertexId & 31;    // Modulo 32
+                uint word = _VertexDeletedBits.Load(wordIndex * 4);
+                return ((word >> bitPosition) & 1) != 0;
+            }
+
             v2g vert(appdata v) {
                 v2g o;
 
                 // Transform vertex position to clip space
                 o.pos = UnityObjectToClipPos(v.vertex);
                 o.worldPos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                o.vid = v.vid;
+
+                // Check if vertex is deleted
+                o.isDeleted = IsVertexDeleted(v.vid) ? 1.0 : 0.0;
 
                 // Selection logic
                 uint wordIndex = v.vid >> 5;
@@ -72,19 +87,34 @@ Shader "Custom/ScaffoldShader" {
             void geom(triangle v2g input[3], inout TriangleStream<g2f> triStream) {
                 g2f output;
 
-                // Wireframe mode
-                for (int j = 0; j < 3; j++) {
-                    output.pos = input[j].pos;
-                    output.color = input[j].color;
-                    output.barycentric = float3(j == 0 ? 1 : 0, j == 1 ? 1 : 0, j == 2 ? 1 : 0);
-                    output.isPoint = 0;
-                    triStream.Append(output);
+                // Check if any vertex is deleted
+                bool anyDeleted = false;
+                for (int i = 0; i < 3; i++) {
+                    if (input[i].isDeleted > 0.5) {
+                        anyDeleted = true;
+                        break;
+                    }
                 }
 
-                triStream.RestartStrip();
+                // Only proceed with wireframe if no vertices are deleted
+                if (!anyDeleted) {
+                    // Wireframe mode
+                    for (int j = 0; j < 3; j++) {
+                        output.pos = input[j].pos;
+                        output.color = input[j].color;
+                        output.barycentric = float3(j == 0 ? 1 : 0, j == 1 ? 1 : 0, j == 2 ? 1 : 0);
+                        output.isPoint = 0;
+                        triStream.Append(output);
+                    }
 
-                // Points mode
+                    triStream.RestartStrip();
+                }
+
+                // Points mode - only for non-deleted vertices
                 for (int i = 0; i < 3; i++) {
+                    // Skip deleted vertices
+                    if (input[i].isDeleted > 0.5) continue;
+
                     float size = _PointSize * 0.01;
                     float aspectRatio = _ScreenParams.y / _ScreenParams.x;
                     float4 center = input[i].pos;

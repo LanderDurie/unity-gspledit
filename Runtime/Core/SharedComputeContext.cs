@@ -1,90 +1,62 @@
-namespace UnityEngine.GsplEdit
-{
-    public class SharedComputeContext
-    {
-        public SplatData splatData;
-        public GraphicsBuffer gpuGSPosData;
-        public GraphicsBuffer gpuGSOtherData;
-        public GraphicsBuffer gpuGSSHData;
-        public GraphicsBuffer gpuGSChunks;
-        public Texture2D splatColorMap;
-        public Texture2D splatNormalMap;
+using System;
 
-        public int splatCount;
+namespace UnityEngine.GsplEdit {
+    [Serializable]
+    public class SharedComputeContext {
+        // Serializable fields
+        public SplatData gsSplatData;
+        public ScaffoldData scaffoldData;
+        public int gsSplatCount;
+        public bool gsChunksValid;
 
-        public Texture gpuGSColorData;
-        public GraphicsBuffer gpuMeshBaseVertex;
-        public GraphicsBuffer gpuMeshModVertex;
-        public GraphicsBuffer gpuMeshIndices;
-        public int indexCount;
-        public int vertexCount;
+        // Non-serialized fields
+        [NonSerialized] public GraphicsBuffer gsPosData;
+        [NonSerialized] public GraphicsBuffer gsOtherData;
+        [NonSerialized] public GraphicsBuffer gsSHData;
+        [NonSerialized] public GraphicsBuffer gsChunks;
+        [NonSerialized] public Texture2D splatColorMap;
+        [NonSerialized] public Texture2D splatNormalMap;
+        [NonSerialized] public Texture gsColorData;
+        [NonSerialized] public GraphicsBuffer scaffoldBaseVertex;
+        [NonSerialized] public GraphicsBuffer scaffoldModVertex;
+        [NonSerialized] public GraphicsBuffer scaffoldIndices;
+        [NonSerialized] public ComputeBuffer scaffoldDeletedBits;
 
-        public ComputeBuffer gpuForwardLinks; // Links from splats to vertices
-        // public ComputeBuffer gpuBackwardLinks; // Links from vertices to splats
-        public RenderTexture offscreenMeshTarget;
-        public Camera offscreenRenderCamera;
-        public Mesh scaffoldMesh;
+        [NonSerialized] public ComputeBuffer forwardLinks;
+        [NonSerialized] public RenderTexture offscreenBuffer;
+        [NonSerialized] public Camera offscreenCam;
+        [NonSerialized] public Mesh scaffoldMesh;
 
-        public bool gpuGSChunksValid;
-
-        public bool IsValid()
-        {
-            return splatData != null &&
-                   splatCount > 0 &&
-                   splatData.formatVersion == SplatData.kCurrentVersion &&
-                   splatData.posData != null &&
-                   splatData.otherData != null &&
-                   splatData.shData != null &&
-                   splatData.colorData != null;
+        public bool AllValid() {
+            return SplatDataValid() && SplatBuffersValid() && MeshValid();
         }
 
-        public void ValidateFields()
+        public bool SplatDataValid()
         {
-            if (splatData == null)
-                Debug.LogWarning("splatData is not assigned.");
-            if (splatCount <= 0)
-                Debug.LogWarning($"splatCount is invalid: {splatCount}");
-            if (splatData != null && splatData.formatVersion != SplatData.kCurrentVersion)
-                Debug.LogWarning($"splatData.formatVersion is invalid: {splatData.formatVersion} (expected {SplatData.kCurrentVersion})");
-            if (splatData != null && splatData.posData == null)
-                Debug.LogWarning("splatData.posData is not assigned.");
-            if (splatData != null && splatData.otherData == null)
-                Debug.LogWarning("splatData.otherData is not assigned.");
-            if (splatData != null && splatData.shData == null)
-                Debug.LogWarning("splatData.shData is not assigned.");
-            if (splatData != null && splatData.colorData == null)
-                Debug.LogWarning("splatData.colorData is not assigned.");
+            return gsSplatData != null &&
+                   gsSplatCount > 0 &&
+                   gsSplatData.formatVersion == SplatData.kCurrentVersion &&
+                   gsSplatData.posData != null &&
+                   gsSplatData.otherData != null &&
+                   gsSplatData.shData != null &&
+                   gsSplatData.colorData != null &&
+                   gsPosData != null;
+        }
 
-            if (gpuGSPosData == null)
-                Debug.LogWarning("gpuGSPosData is not assigned.");
-            if (gpuGSOtherData == null)
-                Debug.LogWarning("gpuGSOtherData is not assigned.");
-            if (gpuGSSHData == null)
-                Debug.LogWarning("gpuGSSHData is not assigned.");
-            if (gpuGSChunks == null)
-                Debug.LogWarning("gpuGSChunks is not assigned.");
-            if (gpuGSColorData == null)
-                Debug.LogWarning("gpuGSColorData is not assigned.");
-            if (gpuMeshBaseVertex == null)
-                Debug.LogWarning("gpuMeshBaseVertex is not assigned.");
-            if (gpuMeshModVertex == null)
-                Debug.LogWarning("gpuMeshModVertex is not assigned.");
-            if (gpuMeshIndices == null)
-                Debug.LogWarning("gpuMeshIndices is not assigned.");
-            if (indexCount <= 0)
-                Debug.LogWarning($"indexCount is invalid: {indexCount}");
-            if (vertexCount <= 0)
-                Debug.LogWarning($"vertexCount is invalid: {vertexCount}");
-            if (gpuForwardLinks == null)
-                Debug.LogWarning("gpuForwardLinks is not assigned.");
-            // if (gpuBackwardLinks == null)
-                // Debug.LogWarning("gpuBackwardLinks is not assigned.");
-            if (offscreenMeshTarget == null)
-                Debug.LogWarning("offscreenMeshTarget is not assigned.");
-            if (offscreenRenderCamera == null)
-                Debug.LogWarning("offscreenRenderCamera is not assigned.");
-            if (!gpuGSChunksValid)
-                Debug.LogWarning("gpuGSChunksValid is false.");
+        public bool SplatBuffersValid()
+        {
+            return gsPosData != null && 
+                   gsOtherData != null && 
+                   gsSHData != null && 
+                   gsChunks != null;
+        }
+
+        public bool MeshValid()
+        {
+            return scaffoldMesh != null &&
+                   scaffoldBaseVertex != null &&
+                   scaffoldModVertex != null &&
+                   scaffoldIndices != null;
         }
     }
 }

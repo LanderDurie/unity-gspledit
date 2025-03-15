@@ -27,48 +27,6 @@ namespace UnityEngine.GsplEdit
             Recreate();
         }
 
-        // private void CreateFalloffResources()
-        // {
-        //     // Create the falloff material if not already created
-        //     if (m_FalloffMaterial == null)
-        //     {
-        //         // Try to find existing shader first
-        //         Shader falloffShader = Shader.Find("Hidden/MeshFalloff");
-                
-        //         // If shader doesn't exist, try to create it at runtime (Editor only)
-        //         if (falloffShader == null)
-        //         {
-        //             #if UNITY_EDITOR
-        //             // Try to create the shader asset in the project
-        //             falloffShader = CreateFalloffShaderAsset();
-        //             #endif
-                    
-        //             // If we still don't have a shader, use a simple fallback
-        //             if (falloffShader == null)
-        //             {
-        //                 // Use a simple blit shader as fallback
-        //                 falloffShader = Shader.Find("Hidden/Internal-Colored");
-                        
-        //                 if (falloffShader == null)
-        //                 {
-        //                     // Last resort - use a standard shader that we know exists
-        //                     falloffShader = Shader.Find("Standard");
-                            
-        //                     // Log warning only if we couldn't find any shader
-        //                     if (falloffShader == null)
-        //                     {
-        //                         Debug.LogWarning("Could not find any shader for falloff effect. Edge falloff will be disabled.");
-        //                         return;
-        //                     }
-        //                 }
-        //             }
-        //         }
-                
-        //         // Now we should have some kind of shader to use
-        //         m_FalloffMaterial = new Material(falloffShader);
-        //     }
-        // }
-
         private void Recreate() 
         {
             if (SceneView.lastActiveSceneView == null)
@@ -78,11 +36,11 @@ namespace UnityEngine.GsplEdit
             // CreateFalloffResources();
 
             // Create or recreate temporary render texture for post-processing
-            if (m_Context.offscreenMeshTarget != null)
+            if (m_Context.offscreenBuffer != null)
             {
                 if (m_TempRenderTexture == null || 
-                    m_TempRenderTexture.width != m_Context.offscreenMeshTarget.width || 
-                    m_TempRenderTexture.height != m_Context.offscreenMeshTarget.height)
+                    m_TempRenderTexture.width != m_Context.offscreenBuffer.width || 
+                    m_TempRenderTexture.height != m_Context.offscreenBuffer.height)
                 {
                     if (m_TempRenderTexture != null)
                     {
@@ -92,8 +50,8 @@ namespace UnityEngine.GsplEdit
                     
                     // In the Recreate() method, modify the RenderTexture creation:
                     m_TempRenderTexture = new RenderTexture(
-                        m_Context.offscreenMeshTarget.width,
-                        m_Context.offscreenMeshTarget.height,
+                        m_Context.offscreenBuffer.width,
+                        m_Context.offscreenBuffer.height,
                         0,
                         RenderTextureFormat.ARGB32); // Ensure alpha channel support
                     m_TempRenderTexture.antiAliasing = 1;
@@ -112,7 +70,7 @@ namespace UnityEngine.GsplEdit
                 if (planeRenderer.sharedMaterial == null)
                     planeRenderer.sharedMaterial = new Material(Shader.Find("Standard"));
                 
-                planeRenderer.sharedMaterial.mainTexture = m_Context.offscreenMeshTarget;
+                planeRenderer.sharedMaterial.mainTexture = m_Context.offscreenBuffer;
             }
         }
 
@@ -138,48 +96,46 @@ namespace UnityEngine.GsplEdit
             }
         }
 
-        private void SyncWithSceneViewCamera() 
+        private void SyncWithSceneViewCamera(Camera cam) 
         {
             SceneView sceneView = SceneView.lastActiveSceneView;
-            if (sceneView == null || m_Context.offscreenRenderCamera == null)
+            if (sceneView == null || m_Context.offscreenCam == null)
                 return;
 
-            Camera sceneCamera = sceneView.camera;
-            if (sceneCamera == null)
+            if (cam == null)
                 return;
 
             // Sync the offscreen camera with the Scene View camera
-            m_Context.offscreenRenderCamera.transform.SetPositionAndRotation(
-                sceneCamera.transform.position,
-                sceneCamera.transform.rotation
+            m_Context.offscreenCam.transform.SetPositionAndRotation(
+                cam.transform.position,
+                cam.transform.rotation
             );
 
-            m_Context.offscreenRenderCamera.fieldOfView = sceneCamera.fieldOfView;
-            m_Context.offscreenRenderCamera.orthographic = sceneCamera.orthographic;
-            m_Context.offscreenRenderCamera.orthographicSize = sceneCamera.orthographicSize;
-            m_Context.offscreenRenderCamera.nearClipPlane = sceneCamera.nearClipPlane;
-            m_Context.offscreenRenderCamera.farClipPlane = sceneCamera.farClipPlane;
-            m_Context.offscreenRenderCamera.allowMSAA = false;
+            m_Context.offscreenCam.fieldOfView = cam.fieldOfView;
+            m_Context.offscreenCam.orthographic = cam.orthographic;
+            m_Context.offscreenCam.orthographicSize = cam.orthographicSize;
+            m_Context.offscreenCam.nearClipPlane = cam.nearClipPlane;
+            m_Context.offscreenCam.farClipPlane = cam.farClipPlane;
         }
 
-        public void Render(Renderer[] renderers) 
+        public void Render(Renderer[] renderers, Camera cam) 
         {
-            if (m_Context.offscreenRenderCamera == null || m_Context.offscreenMeshTarget == null) 
+            if (m_Context.offscreenCam == null || m_Context.offscreenBuffer == null) 
             {
                 Recreate();
                 
                 // If still null after recreate, skip rendering
-                if (m_Context.offscreenRenderCamera == null || m_Context.offscreenMeshTarget == null)
+                if (m_Context.offscreenCam == null || m_Context.offscreenBuffer == null)
                     return;
             }
 
-            SyncWithSceneViewCamera();
+            SyncWithSceneViewCamera(cam);
             RenderOffscreenTexture(renderers);
         }
 
         private void RenderOffscreenTexture(Renderer[] renderers) 
         {
-            if (m_Context.offscreenRenderCamera == null || m_Context.offscreenMeshTarget == null) 
+            if (m_Context.offscreenCam == null || m_Context.offscreenBuffer == null) 
             {
                 Debug.LogWarning("Cannot render offscreen texture: camera or render target is null");
                 return;
@@ -187,8 +143,8 @@ namespace UnityEngine.GsplEdit
 
             // Check if temp render texture exists and has the correct size
             if (m_TempRenderTexture == null || 
-                m_TempRenderTexture.width != m_Context.offscreenMeshTarget.width || 
-                m_TempRenderTexture.height != m_Context.offscreenMeshTarget.height)
+                m_TempRenderTexture.width != m_Context.offscreenBuffer.width || 
+                m_TempRenderTexture.height != m_Context.offscreenBuffer.height)
             {
                 Recreate();
                 
@@ -204,21 +160,21 @@ namespace UnityEngine.GsplEdit
             // Clear both render textures before use
             RenderTexture.active = m_TempRenderTexture;
             GL.Clear(true, true, new Color(0, 0, 0, 0));
-            RenderTexture.active = m_Context.offscreenMeshTarget;
+            RenderTexture.active = m_Context.offscreenBuffer;
             GL.Clear(true, true, new Color(0, 0, 0, 0));
             RenderTexture.active = null;
             
             // Set camera background color to fully transparent
-            Color originalBgColor = m_Context.offscreenRenderCamera.backgroundColor;
-            m_Context.offscreenRenderCamera.backgroundColor = new Color(0, 0, 0, 0);
-            m_Context.offscreenRenderCamera.clearFlags = CameraClearFlags.SolidColor;
+            Color originalBgColor = m_Context.offscreenCam.backgroundColor;
+            m_Context.offscreenCam.backgroundColor = new Color(0, 0, 0, 0);
+            m_Context.offscreenCam.clearFlags = CameraClearFlags.SolidColor;
 
             // Save original camera settings
-            int originalCullingMask = m_Context.offscreenRenderCamera.cullingMask;
-            RenderTexture originalTarget = m_Context.offscreenRenderCamera.targetTexture;
+            int originalCullingMask = m_Context.offscreenCam.cullingMask;
+            RenderTexture originalTarget = m_Context.offscreenCam.targetTexture;
             
             // Set the render target to our temporary texture first
-            m_Context.offscreenRenderCamera.targetTexture = m_TempRenderTexture;
+            m_Context.offscreenCam.targetTexture = m_TempRenderTexture;
             
             // Create a replacement shader for shadow-only rendering
             Shader replacementShader = null;
@@ -247,10 +203,10 @@ namespace UnityEngine.GsplEdit
                     }
                     
                     // Set the camera to see everything
-                    m_Context.offscreenRenderCamera.cullingMask = -1;
+                    m_Context.offscreenCam.cullingMask = -1;
                     DrawSurface();
                     // Render the scene
-                    m_Context.offscreenRenderCamera.Render();
+                    m_Context.offscreenCam.Render();
                     
                     // Restore all shadow modes
                     foreach (var kvp in originalShadowModes)
@@ -264,21 +220,21 @@ namespace UnityEngine.GsplEdit
                 else
                 {
                     // If we have the replacement shader, use it
-                    m_Context.offscreenRenderCamera.cullingMask = -1;
-                    m_Context.offscreenRenderCamera.RenderWithShader(replacementShader, replacementTag);
+                    m_Context.offscreenCam.cullingMask = -1;
+                    m_Context.offscreenCam.RenderWithShader(replacementShader, replacementTag);
                 }
             }
             else 
             {
                 // When not receiving shadows, only render our surface layer
-                m_Context.offscreenRenderCamera.cullingMask = 1 << SURFACE_LAYER;
-                m_Context.offscreenRenderCamera.Render();
+                m_Context.offscreenCam.cullingMask = 1 << SURFACE_LAYER;
+                m_Context.offscreenCam.Render();
             }
             
             // Restore camera settings
-            m_Context.offscreenRenderCamera.cullingMask = originalCullingMask;
-            m_Context.offscreenRenderCamera.targetTexture = originalTarget;
-            m_Context.offscreenRenderCamera.backgroundColor = originalBgColor;
+            m_Context.offscreenCam.cullingMask = originalCullingMask;
+            m_Context.offscreenCam.targetTexture = originalTarget;
+            m_Context.offscreenCam.backgroundColor = originalBgColor;
             
             // Apply falloff post-processing effect
             ApplyFalloffEffect();
@@ -286,7 +242,7 @@ namespace UnityEngine.GsplEdit
             // Update the debug plane texture
             if (m_DebugPlane != null && m_DebugPlane.TryGetComponent(out Renderer planeRenderer)) 
             {
-                planeRenderer.sharedMaterial.mainTexture = m_Context.offscreenMeshTarget;
+                planeRenderer.sharedMaterial.mainTexture = m_Context.offscreenBuffer;
             }
         }
 
@@ -294,10 +250,10 @@ namespace UnityEngine.GsplEdit
         private void RenderWithoutPostProcess(Renderer[] renderers)
         {
             // Save original camera settings
-            int originalCullingMask = m_Context.offscreenRenderCamera.cullingMask;
+            int originalCullingMask = m_Context.offscreenCam.cullingMask;
             
             // Set the render target directly to the final texture
-            m_Context.offscreenRenderCamera.targetTexture = m_Context.offscreenMeshTarget;
+            m_Context.offscreenCam.targetTexture = m_Context.offscreenBuffer;
             
             if (m_ReceiveShadows)
             {
@@ -315,10 +271,10 @@ namespace UnityEngine.GsplEdit
                 }
                 
                 // Set the camera to see everything
-                m_Context.offscreenRenderCamera.cullingMask = -1;
+                m_Context.offscreenCam.cullingMask = -1;
                 DrawSurface();
                 // Render the scene
-                m_Context.offscreenRenderCamera.Render();
+                m_Context.offscreenCam.Render();
                 
                 // Restore all shadow modes
                 foreach (var kvp in originalShadowModes)
@@ -332,34 +288,34 @@ namespace UnityEngine.GsplEdit
             else 
             {
                 // When not receiving shadows, only render our surface layer
-                m_Context.offscreenRenderCamera.cullingMask = 1 << SURFACE_LAYER;
-                m_Context.offscreenRenderCamera.Render();
+                m_Context.offscreenCam.cullingMask = 1 << SURFACE_LAYER;
+                m_Context.offscreenCam.Render();
             }
             
             // Restore camera settings
-            m_Context.offscreenRenderCamera.cullingMask = originalCullingMask;
+            m_Context.offscreenCam.cullingMask = originalCullingMask;
             
             // Update the debug plane texture
             if (m_DebugPlane != null && m_DebugPlane.TryGetComponent(out Renderer planeRenderer)) 
             {
-                planeRenderer.sharedMaterial.mainTexture = m_Context.offscreenMeshTarget;
+                planeRenderer.sharedMaterial.mainTexture = m_Context.offscreenBuffer;
             }
         }
 
 private void ApplyFalloffEffect()
 {
     // Skip if falloff material or textures are missing
-    if (m_FalloffMaterial == null || m_TempRenderTexture == null || m_Context.offscreenMeshTarget == null)
+    if (m_FalloffMaterial == null || m_TempRenderTexture == null || m_Context.offscreenBuffer == null)
     {
         // Fallback to direct copy without edge falloff
-        if (m_TempRenderTexture != null && m_Context.offscreenMeshTarget != null)
+        if (m_TempRenderTexture != null && m_Context.offscreenBuffer != null)
         {
             // Clear destination first
-            RenderTexture.active = m_Context.offscreenMeshTarget;
+            RenderTexture.active = m_Context.offscreenBuffer;
             GL.Clear(true, true, new Color(0, 0, 0, 0));
             RenderTexture.active = null;
             
-            Graphics.Blit(m_TempRenderTexture, m_Context.offscreenMeshTarget);
+            Graphics.Blit(m_TempRenderTexture, m_Context.offscreenBuffer);
         }
         return;
     }
@@ -367,12 +323,12 @@ private void ApplyFalloffEffect()
     try
     {
         // Clear the destination texture
-        RenderTexture.active = m_Context.offscreenMeshTarget;
+        RenderTexture.active = m_Context.offscreenBuffer;
         GL.Clear(true, true, new Color(0, 0, 0, 0));
         RenderTexture.active = null;
         
         // Render with the falloff shader to the final target
-        Graphics.Blit(m_TempRenderTexture, m_Context.offscreenMeshTarget, m_FalloffMaterial);
+        Graphics.Blit(m_TempRenderTexture, m_Context.offscreenBuffer, m_FalloffMaterial);
         
         // Important: release active render texture
         RenderTexture.active = null;
@@ -383,11 +339,11 @@ private void ApplyFalloffEffect()
         Debug.LogWarning("Error applying falloff effect: " + e.Message);
         
         // Clear the destination texture
-        RenderTexture.active = m_Context.offscreenMeshTarget;
+        RenderTexture.active = m_Context.offscreenBuffer;
         GL.Clear(true, true, new Color(0, 0, 0, 0));
         RenderTexture.active = null;
         
-        Graphics.Blit(m_TempRenderTexture, m_Context.offscreenMeshTarget);
+        Graphics.Blit(m_TempRenderTexture, m_Context.offscreenBuffer);
         RenderTexture.active = null;
     }
 }
@@ -404,77 +360,12 @@ private void ApplyFalloffEffect()
                 m_GlobalTransform.localToWorldMatrix,
                 m_SurfaceMaterial,
                 layer: 0,
-                camera: m_Context.offscreenRenderCamera,
+                camera: m_Context.offscreenCam,
                 submeshIndex: 0,
                 null,
                 castShadows: false,
                 receiveShadows: m_ReceiveShadows
             );
         }
-        
-//         // Create a shadows-only shader if it doesn't exist
-//         private Shader CreateShadowsOnlyShader()
-//         {
-//             const string shaderCode = @"
-// Shader ""Custom/ShadowsOnly"" {
-//     SubShader {
-//         Tags { ""RenderType""=""Opaque"" }
-//         Pass {
-//             ColorMask 0
-//         }
-//     }
-    
-//     // Special case for our surface mesh
-//     SubShader {
-//         Tags { ""RenderType""=""Surface"" }
-//         Pass {
-//             // Normal rendering for surface
-//         }
-//     }
-// }
-// ";
-//             // In a real implementation, you would create the shader asset
-//             // For now, we'll rely on the manual shadow mode approach
-//             return null;
-//         }
-
-        // #if UNITY_EDITOR
-        // // Create falloff shader asset in the project
-        // private Shader CreateFalloffShaderAsset()
-        // {
-        //     try
-        //     {
-        //         // Check if shader already exists in project
-        //         string[] assets = AssetDatabase.FindAssets("t:Shader MeshFalloff");
-        //         if (assets != null && assets.Length > 0)
-        //         {
-        //             string assetPath = AssetDatabase.GUIDToAssetPath(assets[0]);
-        //             return AssetDatabase.LoadAssetAtPath<Shader>(assetPath);
-        //         }
-                
-        //         // Create a new shader asset
-        //         string shaderPath = "Assets/Shaders/MeshFalloff.shader";
-                
-        //         // Make sure the directory exists
-        //         string directory = System.IO.Path.GetDirectoryName(shaderPath);
-        //         if (!System.IO.Directory.Exists(directory))
-        //         {
-        //             System.IO.Directory.CreateDirectory(directory);
-        //         }
-                
-        //         // Write the shader to disk
-        //         System.IO.File.WriteAllText(shaderPath, FALLOFF_SHADER);
-        //         AssetDatabase.Refresh();
-                
-        //         // Load and return the created shader
-        //         return AssetDatabase.LoadAssetAtPath<Shader>(shaderPath);
-        //     }
-        //     catch (System.Exception e)
-        //     {
-        //         Debug.LogError("Failed to create falloff shader asset: " + e.Message);
-        //         return null;
-        //     }
-        // }
-        // #endif
     }
 }

@@ -1,92 +1,109 @@
-Shader "Custom/ShadowCastShader"
-{
-    Properties
-    {
-        // No properties needed for this shader
-    }
-    SubShader
-    {
+Shader "Hidden/GsplEdit/ShadowCaster" {
+    Properties {}
+    SubShader {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" }
         LOD 200
-
         // Render the object as fully transparent
-        Pass
-        {
+        Pass {
             Name "ForwardBase"
             Tags { "LightMode" = "ForwardBase" }
-
-            Blend SrcAlpha OneMinusSrcAlpha // Enable transparency
-            ZWrite Off // Disable depth writing
-            Cull Back  // Render back faces
-
+            Blend SrcAlpha OneMinusSrcAlpha
+            ZWrite Off
+            Cull Back
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-
-            struct appdata
-            {
+            #include "UnityCG.cginc"
+            
+            ByteAddressBuffer _VertexDeletedBits;
+            
+            struct appdata {
                 float4 vertex : POSITION;
+                uint vid : SV_VertexID;
             };
-
-            struct v2f
-            {
+            
+            struct v2f {
                 float4 pos : SV_POSITION;
+                float isDeleted : TEXCOORD0;
             };
-
-            v2f vert(appdata v)
-            {
+            
+            // Helper function to check if a vertex is deleted
+            bool IsVertexDeleted(uint vertexId) {
+                uint wordIndex = vertexId >> 5;      // Divide by 32
+                uint bitPosition = vertexId & 31;    // Modulo 32
+                uint word = _VertexDeletedBits.Load(wordIndex * 4);
+                return ((word >> bitPosition) & 1) != 0;
+            }
+            
+            v2f vert(appdata v) {
                 v2f o;
                 o.pos = UnityObjectToClipPos(v.vertex);
+                o.isDeleted = IsVertexDeleted(v.vid) ? 1.0 : 0.0;
                 return o;
             }
-
-            fixed4 frag(v2f i) : SV_Target
-            {
-                return fixed4(0, 0, 0, 0); // Fully transparent
+            
+            fixed4 frag(v2f i) : SV_Target {
+                // Discard fragment if the vertex is deleted
+                clip(i.isDeleted > 0.5 ? -1 : 1);
+                return fixed4(0, 0, 0, 0);
             }
             ENDCG
         }
-
+        
         // Shadow casting pass
-        Pass
-        {
+        Pass {
             Name "ShadowCaster"
             Tags { "LightMode" = "ShadowCaster" }
-
             ZWrite On
             ZTest LEqual
             Cull Back
-
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             #pragma multi_compile_shadowcaster
-            #include "UnityCG.cginc" // Include Unity's CG library
-
-            struct appdata
-            {
+            #include "UnityCG.cginc"
+            
+            ByteAddressBuffer _VertexDeletedBits;
+            
+            struct appdata {
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
+                uint vid : SV_VertexID;
             };
-
-            struct v2f
-            {
-                V2F_SHADOW_CASTER; // Use Unity's shadow-caster struct
+            
+            struct v2f {
+                V2F_SHADOW_CASTER;
+                float isDeleted : TEXCOORD1;
             };
-
-            v2f vert(appdata v)
-            {
+            
+            // Helper function to check if a vertex is deleted
+            bool IsVertexDeleted(uint vertexId) {
+                uint wordIndex = vertexId >> 5;      // Divide by 32
+                uint bitPosition = vertexId & 31;    // Modulo 32
+                uint word = _VertexDeletedBits.Load(wordIndex * 4);
+                return ((word >> bitPosition) & 1) != 0;
+            }
+            
+            v2f vert(appdata v) {
                 v2f o;
-                TRANSFER_SHADOW_CASTER_NORMALOFFSET(o) // Transfer shadow data
+                
+                // Check if vertex is deleted
+                o.isDeleted = IsVertexDeleted(v.vid) ? 1.0 : 0.0;
+                
+                // Standard shadow caster setup
+                TRANSFER_SHADOW_CASTER_NORMALOFFSET(o)
                 return o;
             }
-
-            fixed4 frag(v2f i) : SV_Target
-            {
-                SHADOW_CASTER_FRAGMENT(i) // Output shadow depth
+            
+            fixed4 frag(v2f i) : SV_Target {
+                // Discard fragment if the vertex is deleted
+                clip(i.isDeleted > 0.5 ? -1 : 1);
+                
+                // Standard shadow caster output
+                SHADOW_CASTER_FRAGMENT(i)
             }
             ENDCG
         }
     }
-    FallBack "Diffuse" // Fallback shader
+    FallBack "Diffuse"
 }

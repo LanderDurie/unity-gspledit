@@ -3,10 +3,8 @@ using UnityEngine;
 using System.Collections.Generic;
 using UnityEngine.GsplEdit;
 
-namespace UnityEditor.GsplEdit
-{
-    public class SelectionGroupBox : Editor
-    {
+namespace UnityEditor.GsplEdit {
+    public class SelectionGroupBox : Editor {
         private List<ModifierBox> m_Modifiers = new List<ModifierBox>();
         private ReorderableList m_ReorderableList;
         private Vector2 m_ScrollPosition;
@@ -34,8 +32,7 @@ namespace UnityEditor.GsplEdit
 
             m_ReorderableList.elementHeight = 24f;
 
-            m_ReorderableList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
-            {
+            m_ReorderableList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) => {
                 // Ensure index is valid before accessing
                 if (index < 0 || index >= m_Modifiers.Count)
                     return;
@@ -43,8 +40,7 @@ namespace UnityEditor.GsplEdit
                 var element = m_Modifiers[index];
                 
                 // Highlight selected item
-                if (index == m_SelectedIndex)
-                {
+                if (index == m_SelectedIndex) {
                     EditorGUI.DrawRect(rect, new Color(0.3f, 0.5f, 0.8f, 0.2f));
                 }
 
@@ -64,15 +60,12 @@ namespace UnityEditor.GsplEdit
                 // Remove button
                 if (GUI.Button(
                     new Rect(rect.x + rect.width - 18 - 4, rect.y + 4, 18, 18),
-                    "x"))
-                {
-                    if (index >= 0 && index < m_Modifiers.Count)
-                    {
+                    "x")) {
+                    if (index >= 0 && index < m_Modifiers.Count) {
                         m_Modifiers.RemoveAt(index);
                         group.m_Modifiers.RemoveAt(index);
                         // Reset selected index if it no longer exists
-                        if (m_SelectedIndex >= m_Modifiers.Count)
-                        {
+                        if (m_SelectedIndex >= m_Modifiers.Count) {
                             m_SelectedIndex = -1;
                         }
                     }
@@ -80,8 +73,7 @@ namespace UnityEditor.GsplEdit
             };
 
             // Reorder handle callback
-            m_ReorderableList.drawElementBackgroundCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
-            {
+            m_ReorderableList.drawElementBackgroundCallback = (Rect rect, int index, bool isActive, bool isFocused) => {
                 if (index < 0 || index >= m_Modifiers.Count)
                     return;
 
@@ -90,20 +82,15 @@ namespace UnityEditor.GsplEdit
             };
 
             // Track selected index
-            m_ReorderableList.onSelectCallback = (ReorderableList list) =>
-            {
+            m_ReorderableList.onSelectCallback = (ReorderableList list) => {
                 m_SelectedIndex = list.index;
             };
         }
 
-        public void Draw(DynamicSplat gs, SelectionGroup group)
-        {
-            gs.GetModifierSystem().ShowModifierDropdown((modifier) =>
-            {
+        public void Draw(DynamicSplat gs, SelectionGroup group) {
+            gs.GetModifierSystem().ShowModifierDropdown((modifier) => {
                 // Handle the selected modifier
                 Debug.Log($"Selected Modifier: {modifier.GetType()}");
-                // Add the modifier to your list or group
-                // ModifierBox newModifier = CreateInstance<ModifierBox>();
 
                 m_Modifiers.Add(CreateInstance<ModifierBox>());
                 group.Insert(modifier);
@@ -128,12 +115,9 @@ namespace UnityEditor.GsplEdit
             EditorGUILayout.EndScrollView();
 
                         // Display selected item name
-            if (m_SelectedIndex >= 0 && m_SelectedIndex < m_Modifiers.Count)
-            {
+            if (m_SelectedIndex >= 0 && m_SelectedIndex < m_Modifiers.Count) {
                 m_Modifiers[m_SelectedIndex].Draw(group.m_Modifiers[m_SelectedIndex]);
-            }
-            else
-            {
+            } else {
                 EditorGUILayout.LabelField("No Modifier Selected");
             }
         }

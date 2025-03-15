@@ -169,7 +169,7 @@ half4 shadowMix(half4 base, half4 mod) {
     float gamma = 2.2; // Standard gamma correction factor
 
     // Compute shadow value
-    half3 shadowVal = (1 - mod.rgb);
+    half3 shadowVal = (1 - mod.rgb) * 0.85;
 
     // Apply gamma correction to shadowVal
     shadowVal = pow(max(shadowVal, 0.0001), gamma);

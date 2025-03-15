@@ -89,7 +89,7 @@ namespace UnityEditor.GsplEdit {
                 return;
             }
 
-            Material scaffoldMaterial = gs.m_ScaffoldMaterial;
+            Material scaffoldMaterial = mesh.m_ScaffoldMaterial;
 
             // Ensure the vertexMaterial is assigned
             if (scaffoldMaterial == null) {
@@ -142,7 +142,6 @@ namespace UnityEditor.GsplEdit {
             scaffoldMaterial.SetFloat("_WireframeAliasing", wireframeAlias);
 
             // Wireframe Enabled
-            
             mesh.m_DrawScaffoldMesh = EditorGUILayout.Toggle("Wireframe Enabled", mesh.m_DrawScaffoldMesh);
             
             if (GUI.changed) {
@@ -158,12 +157,13 @@ namespace UnityEditor.GsplEdit {
                 return;
             }
 
-            Material surfaceMaterial = gs.m_SurfaceMaterial;
+            Material surfaceMaterial = mesh.m_SurfaceMaterial;
 
             // Shadow Toggles
-            mesh.m_CastShadows = EditorGUILayout.Toggle(new GUIContent("Cast Shadows", "Enable shadow casting"), mesh.m_CastShadows);
-            mesh.m_ReceiveShadows = EditorGUILayout.Toggle(new GUIContent("Receive Shadows", "Enable shadow receiving"), mesh.m_ReceiveShadows);
-            
+            mesh.m_CastShadows = EditorGUILayout.Toggle(new GUIContent("Cast Shadows"), mesh.m_CastShadows);
+            mesh.m_ReceiveShadows = EditorGUILayout.Toggle(new GUIContent("Receive Shadows"), mesh.m_ReceiveShadows);
+            mesh.m_ReceiveLighting = EditorGUILayout.Toggle(new GUIContent("Receive Lighting"), mesh.m_ReceiveLighting);
+
             if (GUI.changed) {
                 EditorUtility.SetDirty(gs);
             }   

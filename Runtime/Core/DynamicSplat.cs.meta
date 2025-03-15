@@ -4,12 +4,16 @@ MonoImporter:
   externalObjects: {}
   serializedVersion: 2
   defaultReferences:
-  - m_ScaffoldMaterial: {fileID: 2100000, guid: 72588216a90fb5d46b56d31b91efffb1, type: 2}
-  - m_SurfaceMaterial: {fileID: 2100000, guid: 3e5ef55075ed20d46a960d2e91c806b7, type: 2}
-  - m_ShadowCasterMaterial: {fileID: 2100000, guid: 9f78a298f510c7d4ba967ac4f0f0c4ca, type: 2}
-  - m_PostProcessMaterial: {fileID: 2100000, guid: d4f890401b40b4b47891561d8f3a2e2f, type: 2}
+  - m_ScaffoldShader: {fileID: 4800000, guid: b7bb854da791a97438c2390b16dec1c7, type: 3}
+  - m_SurfaceShader: {fileID: 4800000, guid: b9ec81e6c0946f945aa57ebc183ef8c2, type: 3}
+  - m_ShadowCasterShader: {fileID: 4800000, guid: c76b01c605f5b974a8efe56632968e9e, type: 3}
   - m_CSEditMesh: {fileID: 7200000, guid: 41ef2e764e8820d4db5ced649b3d4d01, type: 3}
-  - m_DebugPlane: {instanceID: 0}
+  - m_ShaderSplats: {fileID: 4800000, guid: ed800126ae8844a67aad1974ddddd59c, type: 3}
+  - m_ShaderComposite: {fileID: 4800000, guid: 7e184af7d01193a408eb916d8acafff9, type: 3}
+  - m_ShaderDebugPoints: {fileID: 4800000, guid: b44409fc67214394f8f47e4e2648425e, type: 3}
+  - m_ShaderDebugBoxes: {fileID: 4800000, guid: 4006f2680fd7c8b4cbcb881454c782be, type: 3}
+  - m_CSSplatUtilities: {fileID: 7200000, guid: ec84f78b836bd4f96a105d6b804f08bd, type: 3}
+  - m_SplatData: {instanceID: 0}
   executionOrder: 0
   icon: {instanceID: 0}
   userData: 
