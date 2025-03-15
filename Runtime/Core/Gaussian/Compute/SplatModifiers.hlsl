@@ -62,31 +62,42 @@ bool IsVertexDeleted(int vertexId) {
 }
 
 bool CanIgnoreModifiers(SplatLink currentSplat) {
-    bool ignore = true;
+    // bool ignore = true;
+    // [unroll]
+    // for (int i = 0; i < 8; i++) {
+    //     // Check if valid triangle
+    //     int triangleId = currentSplat.triangleIds[i];
+    //     float triangleWeight = currentSplat.triangleWeights[i];
+    //     if (triangleId == -1 || triangleWeight <= 0) break; // Weights are sorted -> stop on first invalid
+
+    //     TriangleVerts tv;
+    //     Triangle t = _MeshIndices[triangleId];
+    //     tv.v0 = _VertexModPos[t.v0] - _VertexBasePos[t.v0];
+    //     tv.v1 = _VertexModPos[t.v1] - _VertexBasePos[t.v1];
+    //     tv.v2 = _VertexModPos[t.v2] - _VertexBasePos[t.v2];
+
+    //     if (length(tv.v0) > 0.00001 ||
+    //         length(tv.v1) > 0.00001 ||
+    //         length(tv.v2) > 0.00001) {
+    //         ignore = false;
+    //     }
+    // }
+    // return ignore;
+    bool anyLinks = false;
     [unroll]
     for (int i = 0; i < 8; i++) {
         // Check if valid triangle
         int triangleId = currentSplat.triangleIds[i];
         float triangleWeight = currentSplat.triangleWeights[i];
         if (triangleId == -1 || triangleWeight <= 0) break; // Weights are sorted -> stop on first invalid
-
-        TriangleVerts tv;
-        Triangle t = _MeshIndices[triangleId];
-        tv.v0 = _VertexModPos[t.v0] - _VertexBasePos[t.v0];
-        tv.v1 = _VertexModPos[t.v1] - _VertexBasePos[t.v1];
-        tv.v2 = _VertexModPos[t.v2] - _VertexBasePos[t.v2];
-
-        if (length(tv.v0) > 0.00001 ||
-            length(tv.v1) > 0.00001 ||
-            length(tv.v2) > 0.00001) {
-            ignore = false;
-        }
+        anyLinks = true;
     }
-    return ignore;
+    return !anyLinks;
 }
 
 bool ShouldRemoveSplat(SplatLink currentSplat, float threshold = 0.5) {
     float totalWeight = 0;
+    bool anyLinks = false;
     [unroll]
     for (int i = 0; i < 8; i++) {
         // Check if valid triangle
@@ -94,12 +105,13 @@ bool ShouldRemoveSplat(SplatLink currentSplat, float threshold = 0.5) {
         float triangleWeight = currentSplat.triangleWeights[i];
         if (triangleId == -1 || triangleWeight <= 0) break; // Weights are sorted -> stop on first invalid
 
+        anyLinks = true;
         Triangle t = _MeshIndices[triangleId];
         if (IsVertexDeleted(t.v0) || IsVertexDeleted(t.v1) || IsVertexDeleted(t.v2)) continue;
         totalWeight += triangleWeight;
 
     }
-    return totalWeight < threshold;
+    return anyLinks && totalWeight < threshold;
 }
 
 

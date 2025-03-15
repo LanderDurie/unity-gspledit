@@ -208,7 +208,15 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     SplatData splat = LoadSplatData(idx);
     SplatViewData view = (SplatViewData)0;
 
-    ModSplat modSplat = calcModSplat(idx, splat);
+    bool ignoreModifiers = CanIgnoreModifiers(currentSplat);
+
+    ModSplat modSplat;
+    modSplat.pos = splat.pos;
+    modSplat.rot = splat.rot;
+    modSplat.scale = splat.scale;
+    if (!ignoreModifiers) {
+        modSplat = calcModSplat(idx, splat);
+    }
     
     float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(modSplat.pos ,1)).xyz;
     float4 centerClipPos = mul(_MatrixVP, float4(centerWorldPos, 1));
@@ -236,7 +244,9 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
         col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
         col.a = min(splat.opacity * opacityScale, 65000);
 
-        col = shadowMix(col, modSplat.color);
+        if (!ignoreModifiers) {
+            col = shadowMix(col, modSplat.color);
+        }
 
         view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
         view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);
