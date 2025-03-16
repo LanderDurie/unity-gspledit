@@ -15,7 +15,16 @@ namespace UnityEngine.GsplEdit {
                 m_SelectedVerticesBuffer = new ComputeBuffer(selectionBufferSize, sizeof(uint));
                 m_SelectedVerticesBuffer.SetData(new uint[selectionBufferSize]);
             }
+        }
 
+        public VertexSelectionGroup(ref SharedComputeContext context, uint[] selectedBits) {
+            m_Context = context;
+            m_SelectedBits = selectedBits;
+            int selectionBufferSize = (m_Context.scaffoldData.vertexCount + 31) / 32;
+            if (selectionBufferSize > 0) {
+                m_SelectedVerticesBuffer = new ComputeBuffer(selectionBufferSize, sizeof(uint));
+                m_SelectedVerticesBuffer.SetData(selectedBits);
+            }
         }
 
         public VertexSelectionGroup(ref SharedComputeContext context, uint[] selectedBits, uint count, Vector3 centerPos, ComputeBuffer selectedBuffer) {

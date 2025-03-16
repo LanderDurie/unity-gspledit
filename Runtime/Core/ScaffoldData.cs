@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Specialized;
+using System.Collections.Generic;
 
 namespace UnityEngine.GsplEdit {
     [Serializable]
@@ -11,6 +11,8 @@ namespace UnityEngine.GsplEdit {
         public int[] indices;
         public uint[] deletedBits;
         public ForwardLink[] forwardLinks;
+        public List<SelectionGroup> groups;
+        public List<Modifier> modifiers;
 
         public ScaffoldData() {
             indexCount = 1;
@@ -20,6 +22,8 @@ namespace UnityEngine.GsplEdit {
             deletedBits = new uint[] { 0 };
             indices = new int[] { 0 };
             forwardLinks = new ForwardLink[] { new ForwardLink() };
+            groups = new();
+            modifiers = new();
         }
     }
 }

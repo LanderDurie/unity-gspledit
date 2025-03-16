@@ -8,27 +8,46 @@ namespace UnityEditor.GsplEdit {
         private List<ModifierBox> m_Modifiers = new List<ModifierBox>();
         private ReorderableList m_ReorderableList;
         private Vector2 m_ScrollPosition;
-        private int m_SelectedIndex = -1;            
+        private int m_SelectedIndex = -1;
+        private SelectionGroup m_Group;
 
         public void Init(SelectionGroup group) {
+            m_Group = group;
 
             if (group == null) {
-                m_Modifiers = null;
+                m_Modifiers = new List<ModifierBox>();
                 m_ScrollPosition = new Vector2(0, 0);
                 m_SelectedIndex = -1;
                 return;
             }
             
-            m_Modifiers = new List<ModifierBox>();
+            RefreshModifiers();
+            InitializeList(group);
+        }
 
-            foreach (Modifier m in group.m_Modifiers) {
-                m_Modifiers.Add(CreateInstance<ModifierBox>());
-                m_Modifiers[m_Modifiers.Count - 1].Init(group.m_Modifiers[m_Modifiers.Count - 1]);
+        private void RefreshModifiers() {
+            // Clear existing modifiers
+            foreach (var modifier in m_Modifiers) {
+                if (modifier != null) {
+                    ScriptableObject.DestroyImmediate(modifier);
+                }
             }
+            m_Modifiers.Clear();
 
+            // Create new modifiers based on SelectionGroup
+            if (m_Group != null) {
+                for (int i = 0; i < m_Group.m_Modifiers.Count; i++) {
+                    ModifierBox modifierBox = CreateInstance<ModifierBox>();
+                    modifierBox.Init(m_Group.m_Modifiers[i]);
+                    m_Modifiers.Add(modifierBox);
+                }
+            }
+        }
+
+        private void InitializeList(SelectionGroup group) {
             // Initialize ReorderableList
-            m_ReorderableList = new ReorderableList(m_Modifiers, typeof(Modifier),
-                true, false, false, false);
+            m_ReorderableList = new ReorderableList(m_Modifiers, typeof(ModifierBox),
+                true, false, true, true);
 
             m_ReorderableList.elementHeight = 24f;
 
@@ -45,25 +64,36 @@ namespace UnityEditor.GsplEdit {
                 }
 
                 // Name field with reduced width and height
-                group.m_Modifiers[index].m_Name = EditorGUI.TextField(
+                EditorGUI.BeginChangeCheck();
+                string newName = EditorGUI.TextField(
                     new Rect(rect.x + 40, rect.y + 4, rect.width - 100, 18),
-                    group.m_Modifiers[index].m_Name,
+                    group.m_Modifiers[index].m_Meta.name,
                     EditorStyles.textField
                 );
+                if (EditorGUI.EndChangeCheck()) {
+                    group.m_Modifiers[index].m_Meta.name = newName;
+                }
 
-                // Endabled toggle
-                group.m_Modifiers[index].m_Enabled = EditorGUI.Toggle(
+                // Enabled toggle
+                EditorGUI.BeginChangeCheck();
+                bool newEnabled = EditorGUI.Toggle(
                     new Rect(rect.x + rect.width - 40 - 4, rect.y + 4, 18, 18), 
-                    group.m_Modifiers[index].m_Enabled
+                    group.m_Modifiers[index].m_Meta.enabled
                 );
+                if (EditorGUI.EndChangeCheck()) {
+                    group.m_Modifiers[index].m_Meta.enabled = newEnabled;
+                }
 
                 // Remove button
                 if (GUI.Button(
                     new Rect(rect.x + rect.width - 18 - 4, rect.y + 4, 18, 18),
                     "x")) {
                     if (index >= 0 && index < m_Modifiers.Count) {
-                        m_Modifiers.RemoveAt(index);
                         group.m_Modifiers.RemoveAt(index);
+                        
+                        // Refresh the UI
+                        RefreshModifiers();
+                        
                         // Reset selected index if it no longer exists
                         if (m_SelectedIndex >= m_Modifiers.Count) {
                             m_SelectedIndex = -1;
@@ -85,19 +115,69 @@ namespace UnityEditor.GsplEdit {
             m_ReorderableList.onSelectCallback = (ReorderableList list) => {
                 m_SelectedIndex = list.index;
             };
+
+            // Reorder Callback
+            m_ReorderableList.onReorderCallbackWithDetails = (ReorderableList list, int oldIndex, int newIndex) => {
+                if (oldIndex != newIndex) {
+                    group.Reorder((uint)oldIndex, (uint)newIndex);
+                }
+
+                // Refresh the UI
+                RefreshModifiers();
+            };
+
+            // Add callback
+            m_ReorderableList.onAddCallback = (ReorderableList list) => {
+                ModifierHolder mh = group.AddModifier();
+                RefreshModifiers();
+                m_SelectedIndex = m_Modifiers.Count - 1;
+            };
+
+            // Remove callback
+            m_ReorderableList.onRemoveCallback = (ReorderableList list) => {
+                if (list.index >= 0 && list.index < m_Modifiers.Count) {
+                    group.m_Modifiers.RemoveAt(list.index);
+                    RefreshModifiers();
+                    if (m_SelectedIndex >= m_Modifiers.Count) {
+                        m_SelectedIndex = -1;
+                    }
+                }
+            };
         }
 
         public void Draw(DynamicSplat gs, SelectionGroup group) {
-            gs.GetModifierSystem().ShowModifierDropdown((modifier) => {
-                // Handle the selected modifier
-                Debug.Log($"Selected Modifier: {modifier.GetType()}");
+            // Check if SelectionGroup has changed
+            if (group != m_Group) {
+                m_Group = group;
+                RefreshModifiers();
+                InitializeList(group);
+            }
+            
+            // Also check if the SelectionGroup has a different count of modifiers
+            if (m_Group != null && m_Modifiers.Count != m_Group.m_Modifiers.Count) {
+                RefreshModifiers();
+                InitializeList(group);
+            }
 
-                m_Modifiers.Add(CreateInstance<ModifierBox>());
-                group.Insert(modifier);
-                m_Modifiers[m_Modifiers.Count - 1].Init(group.m_Modifiers[m_Modifiers.Count - 1]);
+                        GUILayout.Space(10); // Top spacing
+
+            // First row: Full-width buttons
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Enable All", GUILayout.ExpandWidth(true))) {
+                group.EnableAllModifiers();
+            }
+            if (GUILayout.Button("Disable All", GUILayout.ExpandWidth(true))) {
+                group.DisableAllModifiers();
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(5); // Spacing between rows
+
+            if (GUILayout.Button("Add Modifier")) {
+                ModifierHolder mh = group.AddModifier();
+                RefreshModifiers();
                 m_SelectedIndex = m_Modifiers.Count - 1;
-
-            }, group);
+            }
             
             // Scroll view for ReorderableList with forced scrollbar
             m_ScrollPosition = EditorGUILayout.BeginScrollView(m_ScrollPosition,
@@ -114,7 +194,7 @@ namespace UnityEditor.GsplEdit {
 
             EditorGUILayout.EndScrollView();
 
-                        // Display selected item name
+            // Display selected item name
             if (m_SelectedIndex >= 0 && m_SelectedIndex < m_Modifiers.Count) {
                 m_Modifiers[m_SelectedIndex].Draw(group.m_Modifiers[m_SelectedIndex]);
             } else {

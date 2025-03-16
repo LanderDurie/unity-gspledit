@@ -13,7 +13,10 @@ MonoImporter:
   - m_ShaderDebugPoints: {fileID: 4800000, guid: b44409fc67214394f8f47e4e2648425e, type: 3}
   - m_ShaderDebugBoxes: {fileID: 4800000, guid: 4006f2680fd7c8b4cbcb881454c782be, type: 3}
   - m_CSSplatUtilities: {fileID: 7200000, guid: ec84f78b836bd4f96a105d6b804f08bd, type: 3}
+  - m_CSBufferOps: {fileID: 7200000, guid: 02507fee1f7d63c40b1ffe1b3841f70f, type: 3}
   - m_SplatData: {instanceID: 0}
+  - m_ScaffoldData: {instanceID: 0}
+  - m_ModifierData: {instanceID: 0}
   executionOrder: 0
   icon: {instanceID: 0}
   userData: 

@@ -17,10 +17,12 @@ namespace UnityEngine.GsplEdit {
         [HideInInspector, SerializeField] public Shader m_ShaderDebugPoints;
         [HideInInspector, SerializeField] public Shader m_ShaderDebugBoxes;
         [HideInInspector, SerializeField] public ComputeShader m_CSSplatUtilities;
+        [HideInInspector, SerializeField] public ComputeShader m_CSBufferOps;
 
         // Serialized CPU data (Keep persistence when switching between editor and run mode)
         [HideInInspector, SerializeField] private SplatData m_SplatData;
         [HideInInspector, SerializeField] private ScaffoldData m_ScaffoldData;
+        [HideInInspector, SerializeField] private ModifierData m_ModifierData;
 
         private SharedComputeContext m_Context;
         private EditableMesh m_EditableMesh;
@@ -32,22 +34,27 @@ namespace UnityEngine.GsplEdit {
 
         public void OnEnable() {
             m_Context = new();
-            m_ModifierSystem = new(ref m_Context);
 
 #if UNITY_EDITOR
-            if (!Application.isPlaying) {
-                m_MeshGenerator = new(ref m_Context);
-                m_LinkGenerator = new(ref m_Context);
-            }
+            m_MeshGenerator = new(ref m_Context);
+            m_LinkGenerator = new(ref m_Context);
 #endif
             if (m_ScaffoldData == null) {
                 m_ScaffoldData = ScriptableObject.CreateInstance<ScaffoldData>();
             }
 
+            if (m_ModifierData == null) {
+                m_ModifierData = ScriptableObject.CreateInstance<ModifierData>();
+            }
+
             if (m_SplatData != null) {
                 m_Context.gsSplatData = m_SplatData;
             }
+
             m_Context.scaffoldData = m_ScaffoldData;
+            m_Context.modifierData = m_ModifierData;
+
+            m_ModifierSystem = new(ref m_Context, m_CSBufferOps);
 
             CreateBuffers();
 
@@ -200,11 +207,15 @@ namespace UnityEngine.GsplEdit {
             m_SplatData = data; // Update serialized CPU data
             m_Context.gsSplatData = data; // Update context
             CreateBuffers();
+            // Recreate modifier system
+            m_ModifierSystem.Destroy();
+            m_ModifierSystem = new(ref m_Context, m_CSBufferOps);
         }
 
         public void Destroy() {
             m_GSRenderer?.Destroy();
             m_EditableMesh?.Destroy();
+            m_ModifierSystem?.Destroy();
             m_EditableMesh = null;
             m_GSRenderer = null;
             DestroyBuffers();
@@ -216,10 +227,6 @@ namespace UnityEngine.GsplEdit {
 
         public GSRenderer GetSplatRenderer() {
             return m_GSRenderer;
-        }
-
-        public void SetVertexGroup(VertexSelectionGroup group) {
-            m_EditableMesh.m_SelectionGroup = group.Clone();
         }
 
         public EditableMesh GetMesh() {
@@ -294,10 +301,11 @@ namespace UnityEngine.GsplEdit {
 
 #if UNITY_EDITOR
                 // Sync GPU Buffer modifiers to CPU every 100 frames to avoid delay
-                if (Time.frameCount % 100 == 0 && m_Context.scaffoldModVertex != null) {
+                if (m_Context.scaffoldModVertex != null) {
                     m_ScaffoldData.modVertices = new Vector3[m_Context.scaffoldModVertex.count];
                     m_Context.scaffoldModVertex.GetData(m_ScaffoldData.modVertices);
                 }
+                m_ModifierData = m_Context.modifierData;
 #endif
             }
         }

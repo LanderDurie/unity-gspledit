@@ -6,6 +6,7 @@ namespace UnityEngine.GsplEdit {
         // Serializable fields
         public SplatData gsSplatData;
         public ScaffoldData scaffoldData;
+        public ModifierData modifierData;
         public int gsSplatCount;
         public bool gsChunksValid;
 

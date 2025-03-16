@@ -128,10 +128,15 @@ namespace UnityEngine.GsplEdit {
                 DeselectAll();
                 m_Context.scaffoldData.modVertices = m_Context.scaffoldData.baseVertices;
                 m_Context.scaffoldModVertex.SetData(m_Context.scaffoldData.modVertices);
-
                 m_Context.scaffoldData.deletedBits = new uint[(m_Context.scaffoldData.vertexCount + 31) / 32];
                 m_Context.scaffoldDeletedBits.SetData(m_Context.scaffoldData.deletedBits);
+                m_Context.scaffoldMesh.vertices = m_Context.scaffoldData.modVertices;
             }
+        }
+
+        public void SetVertexGroup(VertexSelectionGroup group) {
+            m_SelectionGroup?.Destroy();
+            m_SelectionGroup = group.Clone();
         }
 
         public void EditUpdateSelection(Vector2 rectMin, Vector2 rectMax, Camera cam, bool subtract) {
@@ -348,7 +353,7 @@ namespace UnityEngine.GsplEdit {
                 return;
 
             // Apply Modifier System
-            m_ModifierSystem.RunAll();
+            m_ModifierSystem.Run();
 
             if (m_DrawScaffoldMesh) {
                 DrawScaffold(cam);

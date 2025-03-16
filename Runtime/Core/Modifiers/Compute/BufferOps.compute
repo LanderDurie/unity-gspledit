@@ -1,0 +1,36 @@
+#pragma kernel AddBuffers
+#pragma kernel ResetBuffers
+#pragma kernel VertexMask
+
+RWStructuredBuffer<float3> _TargetBuffer;
+RWStructuredBuffer<float3> _ModifierBuffer;
+
+[numthreads(64,1,1)]
+void AddBuffers(uint3 id : SV_DispatchThreadID) {
+    uint index = id.x;
+    if (index < uint(_TargetBuffer.Length)) {
+        _TargetBuffer[index] += _ModifierBuffer[index];
+    }
+}
+
+[numthreads(64,1,1)]
+void ResetBuffers(uint3 id : SV_DispatchThreadID) {
+    uint index = id.x;
+    if (index < uint(_TargetBuffer.Length)) {
+        _TargetBuffer[index] -= _ModifierBuffer[index];
+        _ModifierBuffer[index] = float3(0,0,0);
+    }
+}
+
+RWByteAddressBuffer _VertexMask;
+
+[numthreads(64,1,1)]
+void VertexMask(uint3 id : SV_DispatchThreadID) {
+    uint index = id.x;
+    uint wordIndex = index / 32;
+    uint bitPosition = index & 31;
+    uint word = _VertexMask.Load(wordIndex * 4);
+    if (!((word >> bitPosition) & 1)) {
+        _ModifierBuffer[index] = float3(0,0,0);
+    }
+}
