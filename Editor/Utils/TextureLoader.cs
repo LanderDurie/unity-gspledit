@@ -1,24 +1,18 @@
 using UnityEngine;
 
-namespace UnityEditor.GsplEdit.Utils
-{
-    public static class TextureLoader
-    {
-        public static Texture2D Load(string iconName)
-        {
-            const string iconFolder = "gspledit/Content/Icons/";
-            string[] possiblePaths =
-            {
+namespace UnityEditor.GsplEdit.Utils {
+    public static class TextureLoader {
+        public static Texture2D Load(string iconName)  {
+            const string iconFolder = "unity-gspledit/Content/Icons/";
+            string[] possiblePaths = {
                 $"Assets/{iconFolder}{iconName}",
                 $"Packages/{iconFolder}{iconName}",
-                $"{Application.dataPath}/../{iconFolder}{iconName}"
+                $"{Application.dataPath}/{iconFolder}{iconName}"
             };
 
-            foreach (string path in possiblePaths)
-            {
+            foreach (string path in possiblePaths) {
                 Texture2D icon = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-                if (icon != null)
-                {
+                if (icon != null) {
                     return icon;
                 }
             }
@@ -27,13 +21,10 @@ namespace UnityEditor.GsplEdit.Utils
             return null;
         }
 
-        public static Texture2D CreateFallbackTexture(Color color)
-        {
+        public static Texture2D CreateFallbackTexture(Color color) {
             Texture2D fallbackTexture = new(64, 64);
-            for (int x = 0; x < fallbackTexture.width; x++)
-            {
-                for (int y = 0; y < fallbackTexture.height; y++)
-                {
+            for (int x = 0; x < fallbackTexture.width; x++) {
+                for (int y = 0; y < fallbackTexture.height; y++) {
                     fallbackTexture.SetPixel(x, y, color);
                 }
             }

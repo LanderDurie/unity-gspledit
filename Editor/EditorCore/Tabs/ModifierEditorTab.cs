@@ -7,37 +7,55 @@ namespace UnityEditor.GsplEdit
 {
     public class ModifierEditorTab : Tab
     {
-        private static List<SelectionGroupBox> m_SelectionGroups = new List<SelectionGroupBox>();
-        private static  ReorderableList m_ReorderableList;
-        private static Vector2 m_ScrollPosition;
+        private List<SelectionGroupBox> m_SelectionGroups = new List<SelectionGroupBox>();
+        private ReorderableList m_ReorderableList;
+        private Vector2 m_ScrollPosition;
         private int m_SelectedIndex = -1;
+        private ModifierSystem m_ModifierSystem;
+        private DynamicSplat m_Splat;
 
         public override void Init(DynamicSplat gs) {
-
+            m_Splat = gs;
             if (gs == null) {
-                m_SelectionGroups = null;
+                m_SelectionGroups = new List<SelectionGroupBox>();
                 m_ScrollPosition = new Vector2(0, 0);
                 m_SelectedIndex = -1;
+                m_ModifierSystem = null;
                 return;
             }
 
-            ModifierSystem ms = gs.GetModifierSystem();
+            m_ModifierSystem = gs.GetModifierSystem();
+            RefreshSelectionGroups();
+            InitializeList(gs);
+        }
 
-            m_SelectionGroups = new List<SelectionGroupBox>();
-
-            foreach (SelectionGroup group in ms.m_SelectionGroups) {
-                m_SelectionGroups.Add(CreateInstance<SelectionGroupBox>());
-                m_SelectionGroups[m_SelectionGroups.Count-1].Init(ms.m_SelectionGroups[m_SelectionGroups.Count-1]);
+        private void RefreshSelectionGroups() {
+            // Clear existing groups
+            foreach (var group in m_SelectionGroups) {
+                if (group != null) {
+                    ScriptableObject.DestroyImmediate(group);
+                }
             }
+            m_SelectionGroups.Clear();
 
+            // Create new groups based on ModifierSystem
+            if (m_ModifierSystem != null) {
+                for (int i = 0; i < m_ModifierSystem.m_SelectionGroups.Count; i++) {
+                    SelectionGroupBox groupBox = CreateInstance<SelectionGroupBox>();
+                    groupBox.Init(m_ModifierSystem.m_SelectionGroups[i]);
+                    m_SelectionGroups.Add(groupBox);
+                }
+            }
+        }
+
+        private void InitializeList(DynamicSplat gs) {
             // Initialize ReorderableList
             m_ReorderableList = new ReorderableList(m_SelectionGroups, typeof(SelectionGroupBox),
-                true, false, false, false);
+                true, false, true, true);
 
             m_ReorderableList.elementHeight = 24f;
 
-            m_ReorderableList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
-            {
+            m_ReorderableList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) => {
                 // Ensure index is valid before accessing
                 if (index < 0 || index >= m_SelectionGroups.Count)
                     return;
@@ -45,38 +63,45 @@ namespace UnityEditor.GsplEdit
                 var element = m_SelectionGroups[index];
                 
                 // Highlight selected item
-                if (index == m_SelectedIndex)
-                {
+                if (index == m_SelectedIndex) {
                     EditorGUI.DrawRect(rect, new Color(0.3f, 0.5f, 0.8f, 0.2f));
                 }
 
                 // Name field with reduced width and height
-                ms.m_SelectionGroups[index].m_Name = EditorGUI.TextField(
+                EditorGUI.BeginChangeCheck();
+                string newName = EditorGUI.TextField(
                     new Rect(rect.x + 40, rect.y + 4, rect.width - 100, 18),
-                    ms.m_SelectionGroups[index].m_Name,
+                    m_ModifierSystem.m_SelectionGroups[index].GetName(),
                     EditorStyles.textField
                 );
-
+                if (EditorGUI.EndChangeCheck()) {
+                    m_ModifierSystem.m_SelectionGroups[index].SetName(newName);
+                }
                 
-                // Endabled toggle
-                ms.m_SelectionGroups[index].m_Enabled = EditorGUI.Toggle(
+                // Enabled toggle
+                EditorGUI.BeginChangeCheck();
+                bool newEnabled = EditorGUI.Toggle(
                     new Rect(rect.x + rect.width - 40 - 4, rect.y + 4, 18, 18), 
-                    ms.m_SelectionGroups[index].m_Enabled
+                    m_ModifierSystem.m_SelectionGroups[index].IsEnabled()
                 );
-
+                if (EditorGUI.EndChangeCheck()) {
+                    m_ModifierSystem.m_SelectionGroups[index].SetEnabled(newEnabled);
+                }
 
                 // Remove button
                 if (GUI.Button(
                     new Rect(rect.x + rect.width - 18 - 4, rect.y + 4, 18, 18),
                     "x"))
                 {
-                    if (index >= 0 && index < m_SelectionGroups.Count)
-                    {
-                        m_SelectionGroups.RemoveAt(index);
-                        ms.m_SelectionGroups.RemoveAt(index);
+                    if (index >= 0 && index < m_SelectionGroups.Count) {
+                        // Remove using ModifierSystem's method
+                        m_ModifierSystem.Remove((uint)index);
+                        
+                        // Refresh the UI
+                        RefreshSelectionGroups();
+                        
                         // Reset selected index if it no longer exists
-                        if (m_SelectedIndex >= m_SelectionGroups.Count)
-                        {
+                        if (m_SelectedIndex >= m_SelectionGroups.Count) {
                             m_SelectedIndex = -1;
                         }
                     }
@@ -84,8 +109,7 @@ namespace UnityEditor.GsplEdit
             };
 
             // Reorder handle callback
-            m_ReorderableList.drawElementBackgroundCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
-            {
+            m_ReorderableList.drawElementBackgroundCallback = (Rect rect, int index, bool isActive, bool isFocused) => {
                 if (index < 0 || index >= m_SelectionGroups.Count)
                     return;
 
@@ -94,10 +118,39 @@ namespace UnityEditor.GsplEdit
             };
 
             // Track selected index
-            m_ReorderableList.onSelectCallback = (ReorderableList list) =>
-            {
+            m_ReorderableList.onSelectCallback = (ReorderableList list) => {
                 m_SelectedIndex = list.index;
-                gs.SetVertexGroup(ms.m_SelectionGroups[m_SelectedIndex].m_Selection);
+                if (m_SelectedIndex >= 0 && m_SelectedIndex < m_ModifierSystem.m_SelectionGroups.Count) {
+                    m_Splat.GetMesh().SetVertexGroup(m_ModifierSystem.m_SelectionGroups[m_SelectedIndex].m_Selection);
+                }
+            };
+
+            // Reorder Callback
+            m_ReorderableList.onReorderCallbackWithDetails = (ReorderableList list, int oldIndex, int newIndex) => {
+                if (oldIndex != newIndex) {
+                    gs.GetModifierSystem().Reorder((uint)oldIndex, (uint)newIndex);
+                }
+
+                // Refresh the UI
+                RefreshSelectionGroups();
+            };
+
+            // Add callback
+            m_ReorderableList.onAddCallback = (ReorderableList list) => {
+                SelectionGroup newGroup = m_ModifierSystem.Insert();
+                RefreshSelectionGroups();
+                m_SelectedIndex = m_SelectionGroups.Count - 1;
+            };
+
+            // Remove callback
+            m_ReorderableList.onRemoveCallback = (ReorderableList list) => {
+                if (list.index >= 0 && list.index < m_SelectionGroups.Count) {
+                    m_ModifierSystem.Remove((uint)list.index);
+                    RefreshSelectionGroups();
+                    if (m_SelectedIndex >= m_SelectionGroups.Count) {
+                        m_SelectedIndex = -1;
+                    }
+                }
             };
         }
 
@@ -105,22 +158,56 @@ namespace UnityEditor.GsplEdit
         {
             GUILayout.Label("Modifiers", EditorStyles.boldLabel);
 
-            ModifierSystem ms = gs.GetModifierSystem();
-
-            if (m_ReorderableList == null || ms == null || m_SelectionGroups == null)
+            if (gs == null) {
+                EditorGUILayout.HelpBox("No DynamicSplat selected", MessageType.Warning);
                 return;
+            }
 
-            // if (GUILayout.Button("Run All"))
-            // {
-            //     ms.RunAll();
-            // }
+            if (gs.GetMesh() == null) {
+                EditorGUILayout.HelpBox("No mesh has been created.", MessageType.Warning);
+                return;
+            }
 
-            // Add new modifier button
-            if (GUILayout.Button("Add Group"))
-            {
-                m_SelectionGroups.Add(CreateInstance<SelectionGroupBox>());
-                ms.Insert();
-                m_SelectionGroups[m_SelectionGroups.Count - 1].Init(ms.m_SelectionGroups[m_SelectionGroups.Count - 1]);
+            ModifierSystem ms = gs.GetModifierSystem();
+            
+            // Check if ModifierSystem has changed
+            if (ms != m_ModifierSystem) {
+                m_ModifierSystem = ms;
+                RefreshSelectionGroups();
+                InitializeList(gs);
+            }
+            
+            // Also check if the ModifierSystem has a different count of groups
+            if (m_ModifierSystem != null && m_SelectionGroups.Count != m_ModifierSystem.m_SelectionGroups.Count) {
+                RefreshSelectionGroups();
+                InitializeList(gs);
+            }
+
+            if (m_ReorderableList == null || ms == null) {
+                EditorGUILayout.HelpBox("Missing ModifierSystem", MessageType.Warning);
+                return;
+            }
+
+            GUILayout.Space(10); // Top spacing
+
+            // First row: Full-width buttons
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Bake Snapshot", GUILayout.ExpandWidth(true))) {
+                m_ModifierSystem.BakeSnapshot();
+            }
+            if (GUILayout.Button("Enable All", GUILayout.ExpandWidth(true))) {
+                m_ModifierSystem.EnableAllGroups();
+            }
+            if (GUILayout.Button("Disable All", GUILayout.ExpandWidth(true))) {
+                m_ModifierSystem.DisableAllGroups();
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(5); // Spacing between rows
+
+            if (GUILayout.Button("Add Group", GUILayout.ExpandWidth(true))) {
+                m_ModifierSystem.Insert();
+                RefreshSelectionGroups();
                 m_SelectedIndex = m_SelectionGroups.Count - 1;
             }
 
@@ -140,12 +227,9 @@ namespace UnityEditor.GsplEdit
             EditorGUILayout.EndScrollView();
 
             // Display selected item name
-            if (m_SelectedIndex >= 0 && m_SelectedIndex < m_SelectionGroups.Count)
-            {
+            if (m_SelectedIndex >= 0 && m_SelectedIndex < m_SelectionGroups.Count) {
                 m_SelectionGroups[m_SelectedIndex].Draw(gs, ms.m_SelectionGroups[m_SelectedIndex]);
-            }
-            else
-            {
+            } else {
                 EditorGUILayout.LabelField("No Group Selected");
             }
         }

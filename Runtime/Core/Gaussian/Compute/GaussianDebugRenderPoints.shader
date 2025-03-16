@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-Shader "Gaussian Splatting/Debug/Render Points"
+Shader "Hidden/GsplEdit/RenderPoints"
 {
     SubShader
     {

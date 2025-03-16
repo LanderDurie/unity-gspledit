@@ -1,38 +1,21 @@
 #pragma kernel OpacityContributions
 #include "../../../../Gaussian/Compute/GaussianSplatting.hlsl"
+#include "../../../Compute/LinkUtilities.hlsl"
 
-struct VertexProperties {
-    float3 pos;
-    float3 normal;
-    uint colorIds[4];
-    float3 posMod;
-    float4 rotMod;
-    float3 scaleMod;
-    uint colorModIds[4];
+struct Triangle {
+    int v0;
+    int v1;
+    int v2;
 };
 
-struct TriangleProperties {
-    int vertexId1;
-    int vertexId2;
-    int vertexId3;
-};
+RWStructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<Triangle> _MeshIndices;
+uint _IndexCount;
 
-struct SplatLinks {
-    int triangleIds[8];
-    float triangleWeights[8];
-    float triangleX[8];
-    float triangleY[8];
-};
-
-RWStructuredBuffer<VertexProperties> _VertexProps;
-RWStructuredBuffer<TriangleProperties> _TriangleProps;
-RWStructuredBuffer<SplatLinks> _SplatLinkBuffer;
 uint _SplatCount;
-uint _VertexCount;
-uint _TriangleCount;
-float _GlobalSigma;
+float _StartBlend;
+float _StopBlend;
 static const float MAX_DISTANCE = 1e30f;
-static const int MAX_LINKS = 8;
 
 // Helper function to convert a 3x3 matrix to a 4x4 matrix
 float4x4 Convert3x3To4x4(float3x3 mat3x3) {
@@ -80,7 +63,7 @@ float3x3 inverse3x3(float3x3 m) {
     return inv;
 }
 
-// Compute dynamic covariance based on distance
+// Compute dynamic covariance based on distance with start/stop blend parameters
 float3x3 dynamicCovariance(float3 splatPos, float3 splatScale, float4 splatRot, float3 p) {
     // Extract scale from splat data
     float3 axesLengths = splatScale;
@@ -115,9 +98,26 @@ float3x3 dynamicCovariance(float3 splatPos, float3 splatScale, float4 splatRot, 
     // Compute distance for blend factor
     float distance = length(p - splatPos);
     
-    // Calculate blend factor (more circular as distance increases)
-    float meanScale = (axesLengths.x + axesLengths.y + axesLengths.z) / 3.0f;
-    float blendFactor = 1.0f - exp(-pow(distance, 2) / (4.0f * pow(2.0f * meanScale, 2)));
+    // Calculate blend factor based on _StartBlend and _StopBlend parameters
+    float blendFactor = 0.0f;
+    
+    if (distance <= _StartBlend) {
+        // Before start distance: no blending (use original covariance)
+        blendFactor = 0.0f;
+    }
+    else if (distance >= _StopBlend) {
+        // After stop distance: full blending (fully isotropic)
+        blendFactor = 1.0f;
+    }
+    else {
+        // Between start and stop: smooth linear interpolation
+        // Map distance from [_StartBlend, _StopBlend] to [0, 1]
+        blendFactor = (distance - _StartBlend) / (_StopBlend - _StartBlend);
+        
+        // Optional: Apply easing function for smoother transition
+        // Simple smoothstep function: 3x^2 - 2x^3
+        blendFactor = blendFactor * blendFactor * (3.0f - 2.0f * blendFactor);
+    }
     
     // Find eigenvalues and eigenvectors - In HLSL we'll use a simplified approximation
     // In practice, for production, you would want to implement a full eigendecomposition
@@ -126,7 +126,7 @@ float3x3 dynamicCovariance(float3 splatPos, float3 splatScale, float4 splatRot, 
     
     // Blended covariance matrix (more isotropic as distance increases)
     float3x3 Cov_mod = Cov_init;
-    if (blendFactor > 0.01f) {
+    if (blendFactor > 0.001f) {
         // Make covariance more isotropic by scaling it toward a sphere
         float sphereFactor = 2.0f * maxEigval;
         Cov_mod[0][0] = lerp(Cov_init[0][0], sphereFactor, blendFactor);
@@ -202,18 +202,19 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
 
     SplatData splat = LoadSplatData(splatIndex);
     
-    float minDistances[MAX_LINKS] = { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, 
+    float minDistances[LINK_COUNT] = { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, 
                                     MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE };
-    int minIndices[MAX_LINKS] = { -1, -1, -1, -1, -1, -1, -1, -1 };
-    float3 closestPoints[MAX_LINKS];
+    int minIndices[LINK_COUNT] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+    float3 closestPoints[LINK_COUNT];
     
     // First pass: find closest triangles
     [loop]
-    for (uint i = 0; i < _TriangleCount; i++) {
+    for (uint i = 0; i < _IndexCount; i++) {
         // Get triangle vertices
-        float3 p1 = _VertexProps[_TriangleProps[i].vertexId1].pos;
-        float3 p2 = _VertexProps[_TriangleProps[i].vertexId2].pos;
-        float3 p3 = _VertexProps[_TriangleProps[i].vertexId3].pos;
+        Triangle t = _MeshIndices[i];
+        float3 p1 = _VertexBasePos[t.v0];
+        float3 p2 = _VertexBasePos[t.v1];
+        float3 p3 = _VertexBasePos[t.v2];
         
         // Find closest point on triangle and distance
         float3 distInfo = dist(p1, p2, p3, splat.pos);
@@ -224,10 +225,10 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
         float3 closestPoint = u * p1 + distInfo.y * p2 + distInfo.z * p3;
 
         // Insert the new distance and index into the sorted list
-        for (int j = 0; j < MAX_LINKS; j++) {
+        for (uint j = 0; j < LINK_COUNT; j++) {
             if (d < minDistances[j]) {
                 // Shift existing values down
-                for (int k = MAX_LINKS - 1; k > j; k--) {
+                for (uint k = LINK_COUNT - 1; k > j; k--) {
                     minDistances[k] = minDistances[k - 1];
                     minIndices[k] = minIndices[k - 1];
                     closestPoints[k] = closestPoints[k - 1];
@@ -244,11 +245,11 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
     }
 
     // Apply Mahalanobis distance weighting
-    float mahalanobisWeights[MAX_LINKS];
+    float mahalanobisWeights[LINK_COUNT];
     float totalWeight = 0.0f;
     
     [unroll]
-    for (int j = 0; j < MAX_LINKS; j++) {
+    for (uint j = 0; j < LINK_COUNT; j++) {
         if (minIndices[j] >= 0) {
             // Compute dynamic covariance matrix for this point
             float3x3 covMatrix = dynamicCovariance(splat.pos, splat.scale, splat.rot, closestPoints[j]);
@@ -267,23 +268,23 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
     
     // Normalize weights if we have any valid weights
     if (totalWeight > 0.0f) {
-        for (int j = 0; j < MAX_LINKS; j++) {
+        for (uint j = 0; j < LINK_COUNT; j++) {
             mahalanobisWeights[j] /= totalWeight;
         }
     }
 
     // Store results
-    SplatLinks splatLinks;
+    SplatLink splatLinks;
     float threshold = 0.00001f;
 
     [unroll]
-    for (int j = 0; j < MAX_LINKS; j++) {
-        float weight = mahalanobisWeights[j];
-        splatLinks.triangleIds[j] = (weight > threshold) ? minIndices[j] : -1;
-        splatLinks.triangleWeights[j] = (weight > threshold) ? weight : 0;
-        splatLinks.triangleX[j] = 0;
-        splatLinks.triangleY[j] = 0;
+    for (uint k = 0; k < LINK_COUNT; k++) {
+        float weight = mahalanobisWeights[k];
+        splatLinks.triangleIds[k] = (weight > threshold) ? minIndices[k] : -1;
+        splatLinks.triangleWeights[k] = (weight > threshold) ? weight : 0;
+        splatLinks.triangleX[k] = 0;
+        splatLinks.triangleY[k] = 0;
     }
 
-    _SplatLinkBuffer[splatIndex] = splatLinks;
+    SetSplatLink(splatIndex, splatLinks);
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-Shader "Hidden/Gaussian Splatting/Composite"
+Shader "Hidden/GsplEdit/Composite"
 {
     SubShader
     {

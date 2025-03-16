@@ -8,13 +8,10 @@ using UnityEngine.Rendering;
 using Unity.Mathematics;
 
 
-namespace UnityEngine.GsplEdit
-{
-
-    public class GSRenderer : ScriptableObject
-    {
-        public enum RenderMode
-        {
+namespace UnityEngine.GsplEdit {
+    [ExecuteInEditMode]
+    public class GSRenderer : ScriptableObject {
+        public enum RenderMode {
             Splats,
             DebugPoints,
             DebugPointIndices,
@@ -67,8 +64,7 @@ namespace UnityEngine.GsplEdit
 
         static readonly ProfilerMarker s_ProfSort = new(ProfilerCategory.Render, "GaussianSplat.Sort", MarkerFlags.SampleGPU);
 
-        internal static class Props
-        {
+        internal static class Props {
             public static readonly int SplatPos = Shader.PropertyToID("_SplatPos");
             public static readonly int SplatOther = Shader.PropertyToID("_SplatOther");
             public static readonly int SplatSH = Shader.PropertyToID("_SplatSH");
@@ -118,8 +114,7 @@ namespace UnityEngine.GsplEdit
         [field: NonSerialized] public uint editCutSplats { get; private set; }
         [field: NonSerialized] public Bounds editSelectedBounds { get; private set; }
 
-        enum KernelIndices
-        {
+        enum KernelIndices {
             SetIndices,
             CalcDistances,
             CalcViewData,
@@ -145,16 +140,31 @@ namespace UnityEngine.GsplEdit
         public bool m_IsActiveAndEnabled;
 
 
-        public static GSRenderer Create(Transform transform, bool isActiveAndEnabled, ref SharedComputeContext context)
-        {
+        public static GSRenderer Create(
+            Transform transform, 
+            bool isActiveAndEnabled, 
+            ref SharedComputeContext context,
+            Shader shaderSplats,
+            Shader shaderComposite,
+            Shader shaderDebugPoints,
+            Shader shaderDebugBoxes,
+            ComputeShader csSplatUtilities
+        ) {
+
             GSRenderer gsr = CreateInstance<GSRenderer>();
             gsr.m_SharedContext = context;
             gsr.m_Transform = transform;
             gsr.m_IsActiveAndEnabled = isActiveAndEnabled;
+            gsr.m_ShaderSplats = shaderSplats;
+            gsr.m_ShaderComposite = shaderComposite;
+            gsr.m_ShaderDebugBoxes = shaderDebugBoxes;
+            gsr.m_ShaderDebugPoints = shaderDebugPoints;
+            gsr.m_CSSplatUtilities = csSplatUtilities;
 
             gsr.m_FrameCounter = 0;
-            if (gsr.m_ShaderSplats == null || gsr.m_ShaderComposite == null || gsr.m_ShaderDebugPoints == null || gsr.m_ShaderDebugBoxes == null || gsr.m_CSSplatUtilities == null)
+            if (gsr.m_ShaderSplats == null || gsr.m_ShaderComposite == null || gsr.m_ShaderDebugPoints == null || gsr.m_ShaderDebugBoxes == null || gsr.m_CSSplatUtilities == null) {
                 return null;
+            }
             if (!SystemInfo.supportsComputeShaders)
                 return null;
 
@@ -164,55 +174,50 @@ namespace UnityEngine.GsplEdit
             gsr.m_MatDebugBoxes = new Material(gsr.m_ShaderDebugBoxes) { name = "GaussianDebugBoxes" };
 
             gsr.m_Sorter = new GpuSorting(gsr.m_CSSplatUtilities);
-            GSRenderSystem.instance.RegisterSplat(gsr);
+            GSRenderSystem.instance.RegisterSplat(gsr, ref context);
 
             gsr.CreateResourcesForAsset();
 
             return gsr;
         }
 
-        public bool HasValidRenderSetup()
-        {
-            return m_SharedContext.gpuGSPosData != null && m_SharedContext.gpuGSOtherData != null && m_SharedContext.gpuGSChunks != null;
+        public bool HasValidRenderSetup() {
+            return m_SharedContext.gsPosData != null && m_SharedContext.gsOtherData != null && m_SharedContext.gsChunks != null;
         }
 
 
-        public void CreateResourcesForAsset()
-        {
-
-            if (!m_SharedContext.IsValid())
+        public void CreateResourcesForAsset() {
+            if (!m_SharedContext.SplatDataValid()) {
                 return;
+            }
 
-            if (m_SharedContext.splatData.chunkData != null && m_SharedContext.splatData.chunkData.dataSize != 0)
-            {
-                m_SharedContext.gpuGSChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                    (int)(m_SharedContext.splatData.chunkData.dataSize / UnsafeUtility.SizeOf<SplatData.ChunkInfo>()),
+            if (m_SharedContext.gsSplatData.chunkData != null && m_SharedContext.gsSplatData.chunkData.dataSize != 0) {
+                m_SharedContext.gsChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                    (int)(m_SharedContext.gsSplatData.chunkData.dataSize / UnsafeUtility.SizeOf<SplatData.ChunkInfo>()),
                     UnsafeUtility.SizeOf<SplatData.ChunkInfo>())
                 { name = "GaussianChunkData" };
-                m_SharedContext.gpuGSChunks.SetData(m_SharedContext.splatData.chunkData.GetData<SplatData.ChunkInfo>());
-                m_SharedContext.gpuGSChunksValid = true;
-            }
-            else
-            {
+                m_SharedContext.gsChunks.SetData(m_SharedContext.gsSplatData.chunkData.GetData<SplatData.ChunkInfo>());
+                m_SharedContext.gsChunksValid = true;
+
+            } else {
                 // just a dummy chunk buffer
-                m_SharedContext.gpuGSChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
+                m_SharedContext.gsChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
                     UnsafeUtility.SizeOf<SplatData.ChunkInfo>())
                 { name = "GaussianChunkData" };
-                m_SharedContext.gpuGSChunksValid = false;
+                m_SharedContext.gsChunksValid = false;
             }
 
-            var (texWidth, texHeight) = SplatData.CalcTextureSize(m_SharedContext.splatData.splatCount);
-            var texFormat = SplatData.ColorFormatToGraphics(m_SharedContext.splatData.colorFormat);
+            var (texWidth, texHeight) = SplatData.CalcTextureSize(m_SharedContext.gsSplatData.splatCount);
+            var texFormat = SplatData.ColorFormatToGraphics(m_SharedContext.gsSplatData.colorFormat);
             var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
-            tex.SetPixelData(m_SharedContext.splatData.colorData.GetData<byte>(), 0);
+            tex.SetPixelData(m_SharedContext.gsSplatData.colorData.GetData<byte>(), 0);
             tex.Apply(false, true);
-            m_SharedContext.gpuGSColorData = tex;
+            m_SharedContext.gsColorData = tex;
 
-            m_GpuView = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SharedContext.splatData.splatCount, kGpuViewDataSize);
+            m_GpuView = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SharedContext.gsSplatData.splatCount, kGpuViewDataSize);
             m_GpuIndexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Index, 36, 2);
             // cube indices, most often we use only the first quad
-            m_GpuIndexBuffer.SetData(new ushort[]
-            {
+            m_GpuIndexBuffer.SetData(new ushort[] {
                 0, 1, 2, 1, 3, 2,
                 4, 6, 5, 5, 6, 7,
                 0, 2, 4, 4, 2, 6,
@@ -221,13 +226,14 @@ namespace UnityEngine.GsplEdit
                 2, 3, 6, 3, 7, 6
             });
 
-            InitSortBuffers(m_SharedContext.splatData.splatCount);
+            InitSortBuffers(m_SharedContext.gsSplatData.splatCount);
         }
 
-        void InitSortBuffers(int count)
-        {
+        void InitSortBuffers(int count) {
             m_GpuSortDistances?.Dispose();
             m_GpuSortKeys?.Dispose();
+            
+            // Add this line to dispose of existing resources
             m_SorterArgs.resources.Dispose();
 
             m_GpuSortDistances = new GraphicsBuffer(GraphicsBuffer.Target.Structured, count, 4) { name = "GaussianSplatSortDistances" };
@@ -243,77 +249,69 @@ namespace UnityEngine.GsplEdit
             m_SorterArgs.inputValues = m_GpuSortKeys;
             m_SorterArgs.count = (uint)count;
 
-            if (m_Sorter.Valid)
-            {
+            if (m_Sorter.Valid) {
                 m_SorterArgs.resources = GpuSorting.SupportResources.Load((uint)count);
             }
         }
 
-
-        void SetAssetDataOnCS(CommandBuffer cmb, KernelIndices kernel)
-        {
+        void SetAssetDataOnCS(CommandBuffer cmb, KernelIndices kernel) {
             ComputeShader cs = m_CSSplatUtilities;
             int kernelIndex = (int)kernel;
-            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatPos, m_SharedContext.gpuGSPosData);
-            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatChunks, m_SharedContext.gpuGSChunks);
-            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatOther, m_SharedContext.gpuGSOtherData);
-            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatSH, m_SharedContext.gpuGSSHData);
-            cmb.SetComputeTextureParam(cs, kernelIndex, Props.SplatColor, m_SharedContext.gpuGSColorData);
-            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatSelectedBits, m_GpuEditSelected ?? m_SharedContext.gpuGSPosData);
-            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatDeletedBits, m_GpuEditDeleted ?? m_SharedContext.gpuGSPosData);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatPos, m_SharedContext.gsPosData);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatChunks, m_SharedContext.gsChunks);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatOther, m_SharedContext.gsOtherData);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatSH, m_SharedContext.gsSHData);
+            cmb.SetComputeTextureParam(cs, kernelIndex, Props.SplatColor, m_SharedContext.gsColorData);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatSelectedBits, m_GpuEditSelected ?? m_SharedContext.gsPosData);
+            cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatDeletedBits, m_GpuEditDeleted ?? m_SharedContext.gsPosData);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatViewData, m_GpuView);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.OrderBuffer, m_GpuSortKeys);
-            cmb.SetComputeBufferParam(cs, kernelIndex, "_VertexProps", m_SharedContext.gpuMeshVerts);
-            cmb.SetComputeBufferParam(cs, kernelIndex, "_SplatLinks", m_SharedContext.gpuForwardLinks);
-            cmb.SetComputeBufferParam(cs, kernelIndex, "_TriangleProps", m_SharedContext.gpuMeshTriangles);
-
-            // cmb.SetComputeIntParam(cs, "_ColorsPerChannel", m_SharedContext.m_ColorsPerChannel);
-
+            cmb.SetComputeBufferParam(cs, kernelIndex, "_VertexBasePos", m_SharedContext.scaffoldBaseVertex);
+            cmb.SetComputeBufferParam(cs, kernelIndex, "_VertexModPos", m_SharedContext.scaffoldModVertex);
+            cmb.SetComputeBufferParam(cs, kernelIndex, "_VertexDeletedBits", m_SharedContext.scaffoldDeletedBits);
+            cmb.SetComputeBufferParam(cs, kernelIndex, "_MeshIndices", m_SharedContext.scaffoldIndices);
+            cmb.SetComputeBufferParam(cs, kernelIndex, "_SplatLinks", m_SharedContext.forwardLinks);
+            cmb.SetComputeTextureParam(cs, kernelIndex, "_OffscreenMeshTexture", m_SharedContext.offscreenBuffer);
 
             cmb.SetComputeIntParam(cs, Props.SplatBitsValid, m_GpuEditSelected != null && m_GpuEditDeleted != null ? 1 : 0);
-            uint format = (uint)m_SharedContext.splatData.posFormat | ((uint)m_SharedContext.splatData.scaleFormat << 8) | ((uint)m_SharedContext.splatData.shFormat << 16);
+            uint format = (uint)m_SharedContext.gsSplatData.posFormat | ((uint)m_SharedContext.gsSplatData.scaleFormat << 8) | ((uint)m_SharedContext.gsSplatData.shFormat << 16);
             cmb.SetComputeIntParam(cs, Props.SplatFormat, (int)format);
-            cmb.SetComputeIntParam(cs, Props.SplatCount, m_SharedContext.splatCount);
-            cmb.SetComputeIntParam(cs, Props.SplatChunkCount, m_SharedContext.gpuGSChunksValid ? m_SharedContext.gpuGSChunks.count : 0);
+            cmb.SetComputeIntParam(cs, Props.SplatCount, m_SharedContext.gsSplatCount);
+            cmb.SetComputeIntParam(cs, Props.SplatChunkCount, m_SharedContext.gsChunksValid ? m_SharedContext.gsChunks.count : 0);
 
             UpdateCutoutsBuffer();
             cmb.SetComputeIntParam(cs, Props.SplatCutoutsCount, m_Cutouts?.Length ?? 0);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatCutouts, m_GpuEditCutouts);
         }
 
-        internal void SetAssetDataOnMaterial(MaterialPropertyBlock mat)
-        {
-            mat.SetBuffer(Props.SplatPos, m_SharedContext.gpuGSPosData);
-            mat.SetBuffer(Props.SplatOther, m_SharedContext.gpuGSOtherData);
-            mat.SetBuffer(Props.SplatSH, m_SharedContext.gpuGSSHData);
-            mat.SetTexture(Props.SplatColor, m_SharedContext.gpuGSColorData);
-            mat.SetBuffer(Props.SplatSelectedBits, m_GpuEditSelected ?? m_SharedContext.gpuGSPosData);
-            mat.SetBuffer(Props.SplatDeletedBits, m_GpuEditDeleted ?? m_SharedContext.gpuGSPosData);
+        internal void SetAssetDataOnMaterial(MaterialPropertyBlock mat) {
+            mat.SetBuffer(Props.SplatPos, m_SharedContext.gsPosData);
+            mat.SetBuffer(Props.SplatOther, m_SharedContext.gsOtherData);
+            mat.SetBuffer(Props.SplatSH, m_SharedContext.gsSHData);
+            mat.SetTexture(Props.SplatColor, m_SharedContext.gsColorData);
+            mat.SetBuffer(Props.SplatSelectedBits, m_GpuEditSelected ?? m_SharedContext.gsPosData);
+            mat.SetBuffer(Props.SplatDeletedBits, m_GpuEditDeleted ?? m_SharedContext.gsPosData);
             mat.SetInt(Props.SplatBitsValid, m_GpuEditSelected != null && m_GpuEditDeleted != null ? 1 : 0);
-            uint format = (uint)m_SharedContext.splatData.posFormat | ((uint)m_SharedContext.splatData.scaleFormat << 8) | ((uint)m_SharedContext.splatData.shFormat << 16);
+            uint format = (uint)m_SharedContext.gsSplatData.posFormat | ((uint)m_SharedContext.gsSplatData.scaleFormat << 8) | ((uint)m_SharedContext.gsSplatData.shFormat << 16);
             mat.SetInteger(Props.SplatFormat, (int)format);
-            mat.SetInteger(Props.SplatCount, m_SharedContext.splatCount);
-            mat.SetInteger(Props.SplatChunkCount, m_SharedContext.gpuGSChunksValid ? m_SharedContext.gpuGSChunks.count : 0);
+            mat.SetInteger(Props.SplatCount, m_SharedContext.gsSplatCount);
+            mat.SetInteger(Props.SplatChunkCount, m_SharedContext.gsChunksValid ? m_SharedContext.gsChunks.count : 0);
         }
 
-        static void DisposeBuffer(ref GraphicsBuffer buf)
-        {
+        static void DisposeBuffer(ref GraphicsBuffer buf) {
             buf?.Dispose();
             buf = null;
         }
 
-        void DisposeResourcesForAsset()
-        {
-            if (m_SharedContext != null && m_SharedContext.gpuGSColorData != null)
-            {
-                DestroyImmediate(m_SharedContext.gpuGSColorData);
+        void DisposeResourcesForAsset() {
+            if (m_SharedContext != null && m_SharedContext.gsColorData != null) {
+                DestroyImmediate(m_SharedContext.gsColorData);
             }
 
             DisposeBuffer(ref m_GpuView);
             DisposeBuffer(ref m_GpuIndexBuffer);
-            if (m_SharedContext != null && m_SharedContext.gpuGSChunks != null)
-            {
-                DisposeBuffer(ref m_SharedContext.gpuGSChunks);
+            if (m_SharedContext != null && m_SharedContext.gsChunks != null) {
+                DisposeBuffer(ref m_SharedContext.gsChunks);
             }
             DisposeBuffer(ref m_GpuSortDistances);
             DisposeBuffer(ref m_GpuSortKeys);
@@ -328,7 +326,6 @@ namespace UnityEngine.GsplEdit
 
             m_SorterArgs.resources.Dispose();
 
-
             editSelectedSplats = 0;
             editDeletedSplats = 0;
             editCutSplats = 0;
@@ -336,8 +333,7 @@ namespace UnityEngine.GsplEdit
             editSelectedBounds = default;
         }
 
-        public void Destroy()
-        {
+        public void Destroy() {
             GSRenderSystem.instance.UnregisterSplat(this);
 
             DisposeResourcesForAsset();
@@ -347,8 +343,7 @@ namespace UnityEngine.GsplEdit
             DestroyImmediate(m_MatDebugBoxes);
         }
 
-        internal void CalcViewData(CommandBuffer cmb, Camera cam, Matrix4x4 matrix)
-        {
+        internal void CalcViewData(CommandBuffer cmb, Camera cam, Matrix4x4 matrix) {
             if (cam.cameraType == CameraType.Preview)
                 return;
 
@@ -379,8 +374,7 @@ namespace UnityEngine.GsplEdit
             cmb.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcViewData, (m_GpuView.count + (int)gsX - 1) / (int)gsX, 1, 1);
         }
 
-        internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix)
-        {
+        internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix) {
             if (cam.cameraType == CameraType.Preview)
                 return;
 
@@ -393,18 +387,22 @@ namespace UnityEngine.GsplEdit
             cmd.BeginSample(s_ProfSort);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortDistances, m_GpuSortDistances);
             cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatSortKeys, m_GpuSortKeys);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatChunks, m_SharedContext.gpuGSChunks);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatPos, m_SharedContext.gpuGSPosData);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatOther, m_SharedContext.gpuGSOtherData);
-            cmd.SetComputeTextureParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatColor, m_SharedContext.gpuGSColorData);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_VertexProps", m_SharedContext.gpuMeshVerts);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_SplatLinks", m_SharedContext.gpuForwardLinks);
-            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_TriangleProps", m_SharedContext.gpuMeshTriangles);
-            // cmd.SetComputeIntParam(m_CSSplatUtilities, "_ColorsPerChannel", 0);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, (int)m_SharedContext.splatData.posFormat);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatChunks, m_SharedContext.gsChunks);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatPos, m_SharedContext.gsPosData);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatOther, m_SharedContext.gsOtherData);
+            cmd.SetComputeTextureParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, Props.SplatColor, m_SharedContext.gsColorData);
+
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_VertexBasePos", m_SharedContext.scaffoldBaseVertex);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_VertexModPos", m_SharedContext.scaffoldModVertex);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_VertexDeletedBits", m_SharedContext.scaffoldDeletedBits);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_MeshIndices", m_SharedContext.scaffoldIndices);
+            cmd.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_SplatLinks", m_SharedContext.forwardLinks);
+            cmd.SetComputeTextureParam(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, "_OffscreenMeshTexture", m_SharedContext.offscreenBuffer);
+
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatFormat, (int)m_SharedContext.gsSplatData.posFormat);
             cmd.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixMV, worldToCamMatrix * matrix);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, m_SharedContext.splatCount);
-            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatChunkCount, m_SharedContext.gpuGSChunksValid ? m_SharedContext.gpuGSChunks.count : 0);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, m_SharedContext.gsSplatCount);
+            cmd.SetComputeIntParam(m_CSSplatUtilities, Props.SplatChunkCount, m_SharedContext.gsChunksValid ? m_SharedContext.gsChunks.count : 0);
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.CalcDistances, out uint gsX, out _, out _);
             cmd.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcDistances, (m_GpuSortDistances.count + (int)gsX - 1) / (int)gsX, 1, 1);
 
@@ -413,33 +411,30 @@ namespace UnityEngine.GsplEdit
             cmd.EndSample(s_ProfSort);
         }
 
-        public void Update()
-        {
-            if (m_SharedContext == null || !m_SharedContext.IsValid())
+        public void Update() {
+            if (m_SharedContext == null || !m_SharedContext.AllValid())
                 return;
 
-            var curHash = m_SharedContext.splatData ? m_SharedContext.splatData.dataHash : new Hash128();
-            if (m_PrevAsset != m_SharedContext.splatData || m_PrevHash != curHash)
-            {
-                m_PrevAsset = m_SharedContext.splatData;
+            var curHash = m_SharedContext.gsSplatData ? m_SharedContext.gsSplatData.dataHash : new Hash128();
+            if (m_PrevAsset != m_SharedContext.gsSplatData || m_PrevHash != curHash) {
+                m_PrevAsset = m_SharedContext.gsSplatData;
                 m_PrevHash = curHash;
                 DisposeResourcesForAsset();
                 CreateResourcesForAsset();
             }
         }
 
-        public void ActivateCamera(int index)
-        {
+        public void ActivateCamera(int index) {
             Camera mainCam = Camera.main;
             if (!mainCam)
                 return;
-            if (!m_SharedContext.splatData || m_SharedContext.splatData.cameras == null)
+            if (!m_SharedContext.gsSplatData || m_SharedContext.gsSplatData.cameras == null)
                 return;
 
             var selfTr = m_Transform;
             var camTr = mainCam.transform;
             var prevParent = camTr.parent;
-            var cam = m_SharedContext.splatData.cameras[index];
+            var cam = m_SharedContext.gsSplatData.cameras[index];
             camTr.parent = selfTr;
             camTr.localPosition = cam.pos;
             camTr.localRotation = Quaternion.LookRotation(cam.axisZ, cam.axisY);
@@ -450,16 +445,14 @@ namespace UnityEngine.GsplEdit
 #endif
         }
 
-        void ClearGraphicsBuffer(GraphicsBuffer buf)
-        {
+        void ClearGraphicsBuffer(GraphicsBuffer buf) {
             m_CSSplatUtilities.SetBuffer((int)KernelIndices.ClearBuffer, Props.DstBuffer, buf);
             m_CSSplatUtilities.SetInt(Props.BufferSize, buf.count);
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.ClearBuffer, out uint gsX, out _, out _);
             m_CSSplatUtilities.Dispatch((int)KernelIndices.ClearBuffer, (int)((buf.count + gsX - 1) / gsX), 1, 1);
         }
 
-        void UnionGraphicsBuffers(GraphicsBuffer dst, GraphicsBuffer src)
-        {
+        void UnionGraphicsBuffers(GraphicsBuffer dst, GraphicsBuffer src) {
             m_CSSplatUtilities.SetBuffer((int)KernelIndices.OrBuffers, Props.SrcBuffer, src);
             m_CSSplatUtilities.SetBuffer((int)KernelIndices.OrBuffers, Props.DstBuffer, dst);
             m_CSSplatUtilities.SetInt(Props.BufferSize, dst.count);
@@ -467,17 +460,14 @@ namespace UnityEngine.GsplEdit
             m_CSSplatUtilities.Dispatch((int)KernelIndices.OrBuffers, (int)((dst.count + gsX - 1) / gsX), 1, 1);
         }
 
-        static float SortableUintToFloat(uint v)
-        {
+        static float SortableUintToFloat(uint v) {
             uint mask = ((v >> 31) - 1) | 0x80000000u;
             return math.asfloat(v ^ mask);
         }
 
 
-        public void UpdateEditCountsAndBounds()
-        {
-            if (m_GpuEditSelected == null)
-            {
+        public void UpdateEditCountsAndBounds() {
+            if (m_GpuEditSelected == null) {
                 editSelectedSplats = 0;
                 editDeletedSplats = 0;
                 editCutSplats = 0;
@@ -511,23 +501,19 @@ namespace UnityEngine.GsplEdit
             editSelectedBounds = bounds;
         }
 
-        void UpdateCutoutsBuffer()
-        {
+        void UpdateCutoutsBuffer() {
             int bufferSize = m_Cutouts?.Length ?? 0;
             if (bufferSize == 0)
                 bufferSize = 1;
-            if (m_GpuEditCutouts == null || m_GpuEditCutouts.count != bufferSize)
-            {
+            if (m_GpuEditCutouts == null || m_GpuEditCutouts.count != bufferSize) {
                 m_GpuEditCutouts?.Dispose();
                 m_GpuEditCutouts = new GraphicsBuffer(GraphicsBuffer.Target.Structured, bufferSize, UnsafeUtility.SizeOf<GSCutout.ShaderData>()) { name = "GSCutouts" };
             }
 
             NativeArray<GSCutout.ShaderData> data = new(bufferSize, Allocator.Temp);
-            if (m_Cutouts != null)
-            {
+            if (m_Cutouts != null) {
                 var matrix = m_Transform.localToWorldMatrix;
-                for (var i = 0; i < m_Cutouts.Length; ++i)
-                {
+                for (var i = 0; i < m_Cutouts.Length; ++i) {
                     data[i] = GSCutout.GetShaderData(m_Cutouts[i], matrix);
                 }
             }
@@ -536,16 +522,14 @@ namespace UnityEngine.GsplEdit
             data.Dispose();
         }
 
-        bool EnsureEditingBuffers()
-        {
-            if (!m_SharedContext.IsValid() || !HasValidRenderSetup())
+        bool EnsureEditingBuffers() {
+            if (!m_SharedContext.AllValid() || !HasValidRenderSetup())
                 return false;
 
-            if (m_GpuEditSelected == null)
-            {
+            if (m_GpuEditSelected == null) {
                 var target = GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource |
                              GraphicsBuffer.Target.CopyDestination;
-                var size = (m_SharedContext.splatData.splatCount + 31) / 32;
+                var size = (m_SharedContext.gsSplatData.splatCount + 31) / 32;
                 m_GpuEditSelected = new GraphicsBuffer(target, size, 4) { name = "GaussianSplatSelected" };
                 m_GpuEditSelectedMouseDown = new GraphicsBuffer(target, size, 4) { name = "GaussianSplatSelectedInit" };
                 m_GpuEditDeleted = new GraphicsBuffer(target, size, 4) { name = "GaussianSplatDeleted" };
@@ -557,31 +541,26 @@ namespace UnityEngine.GsplEdit
             return m_GpuEditSelected != null;
         }
 
-        public void EditStoreSelectionMouseDown()
-        {
+        public void EditStoreSelectionMouseDown() {
             if (!EnsureEditingBuffers()) return;
             Graphics.CopyBuffer(m_GpuEditSelected, m_GpuEditSelectedMouseDown);
         }
 
-        public void EditStorePosMouseDown()
-        {
-            if (m_GpuEditPosMouseDown == null)
-            {
-                m_GpuEditPosMouseDown = new GraphicsBuffer(m_SharedContext.gpuGSPosData.target | GraphicsBuffer.Target.CopyDestination, m_SharedContext.gpuGSPosData.count, m_SharedContext.gpuGSPosData.stride) { name = "GaussianSplatEditPosMouseDown" };
+        public void EditStorePosMouseDown() {
+            if (m_GpuEditPosMouseDown == null) {
+                m_GpuEditPosMouseDown = new GraphicsBuffer(m_SharedContext.gsPosData.target | GraphicsBuffer.Target.CopyDestination, m_SharedContext.gsPosData.count, m_SharedContext.gsPosData.stride) { name = "GaussianSplatEditPosMouseDown" };
             }
-            Graphics.CopyBuffer(m_SharedContext.gpuGSPosData, m_GpuEditPosMouseDown);
-        }
-        public void EditStoreOtherMouseDown()
-        {
-            if (m_GpuEditOtherMouseDown == null)
-            {
-                m_GpuEditOtherMouseDown = new GraphicsBuffer(m_SharedContext.gpuGSOtherData.target | GraphicsBuffer.Target.CopyDestination, m_SharedContext.gpuGSOtherData.count, m_SharedContext.gpuGSOtherData.stride) { name = "GaussianSplatEditOtherMouseDown" };
-            }
-            Graphics.CopyBuffer(m_SharedContext.gpuGSOtherData, m_GpuEditOtherMouseDown);
+            Graphics.CopyBuffer(m_SharedContext.gsPosData, m_GpuEditPosMouseDown);
         }
 
-        public void EditUpdateSelection(Vector2 rectMin, Vector2 rectMax, Camera cam, bool subtract)
-        {
+        public void EditStoreOtherMouseDown() {
+            if (m_GpuEditOtherMouseDown == null) {
+                m_GpuEditOtherMouseDown = new GraphicsBuffer(m_SharedContext.gsOtherData.target | GraphicsBuffer.Target.CopyDestination, m_SharedContext.gsOtherData.count, m_SharedContext.gsOtherData.stride) { name = "GaussianSplatEditOtherMouseDown" };
+            }
+            Graphics.CopyBuffer(m_SharedContext.gsOtherData, m_GpuEditOtherMouseDown);
+        }
+
+        public void EditUpdateSelection(Vector2 rectMin, Vector2 rectMax, Camera cam, bool subtract) {
             if (!EnsureEditingBuffers()) return;
 
             Graphics.CopyBuffer(m_GpuEditSelectedMouseDown, m_GpuEditSelected);
@@ -610,12 +589,11 @@ namespace UnityEngine.GsplEdit
             cmb.SetComputeVectorParam(m_CSSplatUtilities, "_SelectionRect", new Vector4(rectMin.x, rectMax.y, rectMax.x, rectMin.y));
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SelectionMode, subtract ? 0 : 1);
 
-            DispatchUtilsAndExecute(cmb, KernelIndices.SelectionUpdate, m_SharedContext.splatCount);
+            DispatchUtilsAndExecute(cmb, KernelIndices.SelectionUpdate, m_SharedContext.gsSplatCount);
             UpdateEditCountsAndBounds();
         }
 
-        public void EditTranslateSelection(Vector3 localSpacePosDelta)
-        {
+        public void EditTranslateSelection(Vector3 localSpacePosDelta) {
             if (!EnsureEditingBuffers()) return;
 
             using var cmb = new CommandBuffer { name = "SplatTranslateSelection" };
@@ -623,13 +601,12 @@ namespace UnityEngine.GsplEdit
 
             cmb.SetComputeVectorParam(m_CSSplatUtilities, Props.SelectionDelta, localSpacePosDelta);
 
-            DispatchUtilsAndExecute(cmb, KernelIndices.TranslateSelection, m_SharedContext.splatCount);
+            DispatchUtilsAndExecute(cmb, KernelIndices.TranslateSelection, m_SharedContext.gsSplatCount);
             UpdateEditCountsAndBounds();
             editModified = true;
         }
 
-        public void EditRotateSelection(Vector3 localSpaceCenter, Matrix4x4 localToWorld, Matrix4x4 worldToLocal, Quaternion rotation)
-        {
+        public void EditRotateSelection(Vector3 localSpaceCenter, Matrix4x4 localToWorld, Matrix4x4 worldToLocal, Quaternion rotation) {
             if (!EnsureEditingBuffers()) return;
             if (m_GpuEditPosMouseDown == null || m_GpuEditOtherMouseDown == null) return; // should have captured initial state
 
@@ -643,14 +620,13 @@ namespace UnityEngine.GsplEdit
             cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixWorldToObject, worldToLocal);
             cmb.SetComputeVectorParam(m_CSSplatUtilities, Props.SelectionDeltaRot, new Vector4(rotation.x, rotation.y, rotation.z, rotation.w));
 
-            DispatchUtilsAndExecute(cmb, KernelIndices.RotateSelection, m_SharedContext.splatCount);
+            DispatchUtilsAndExecute(cmb, KernelIndices.RotateSelection, m_SharedContext.gsSplatCount);
             UpdateEditCountsAndBounds();
             editModified = true;
         }
 
 
-        public void EditScaleSelection(Vector3 localSpaceCenter, Matrix4x4 localToWorld, Matrix4x4 worldToLocal, Vector3 scale)
-        {
+        public void EditScaleSelection(Vector3 localSpaceCenter, Matrix4x4 localToWorld, Matrix4x4 worldToLocal, Vector3 scale) {
             if (!EnsureEditingBuffers()) return;
             if (m_GpuEditPosMouseDown == null) return; // should have captured initial state
 
@@ -663,13 +639,12 @@ namespace UnityEngine.GsplEdit
             cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixWorldToObject, worldToLocal);
             cmb.SetComputeVectorParam(m_CSSplatUtilities, Props.SelectionDelta, scale);
 
-            DispatchUtilsAndExecute(cmb, KernelIndices.ScaleSelection, m_SharedContext.splatCount);
+            DispatchUtilsAndExecute(cmb, KernelIndices.ScaleSelection, m_SharedContext.gsSplatCount);
             UpdateEditCountsAndBounds();
             editModified = true;
         }
 
-        public void EditDeleteSelected()
-        {
+        public void EditDeleteSelected() {
             if (!EnsureEditingBuffers()) return;
             UnionGraphicsBuffers(m_GpuEditDeleted, m_GpuEditSelected);
             EditDeselectAll();
@@ -678,8 +653,7 @@ namespace UnityEngine.GsplEdit
                 editModified = true;
         }
 
-        public void EditSelectAll()
-        {
+        public void EditSelectAll() {
             if (!EnsureEditingBuffers()) return;
             using var cmb = new CommandBuffer { name = "SplatSelectAll" };
             SetAssetDataOnCS(cmb, KernelIndices.SelectAll);
@@ -689,15 +663,13 @@ namespace UnityEngine.GsplEdit
             UpdateEditCountsAndBounds();
         }
 
-        public void EditDeselectAll()
-        {
+        public void EditDeselectAll() {
             if (!EnsureEditingBuffers()) return;
             ClearGraphicsBuffer(m_GpuEditSelected);
             UpdateEditCountsAndBounds();
         }
 
-        public void EditInvertSelection()
-        {
+        public void EditInvertSelection() {
             if (!EnsureEditingBuffers()) return;
 
             using var cmb = new CommandBuffer { name = "SplatInvertSelection" };
@@ -708,8 +680,7 @@ namespace UnityEngine.GsplEdit
             UpdateEditCountsAndBounds();
         }
 
-        public bool EditExportData(GraphicsBuffer dstData, bool bakeTransform)
-        {
+        public bool EditExportData(GraphicsBuffer dstData, bool bakeTransform) {
             if (!EnsureEditingBuffers()) return false;
 
             int flags = 0;
@@ -727,28 +698,25 @@ namespace UnityEngine.GsplEdit
             cmb.SetComputeVectorParam(m_CSSplatUtilities, "_ExportTransformScale", bakeScale);
             cmb.SetComputeMatrixParam(m_CSSplatUtilities, Props.MatrixObjectToWorld, tr.localToWorldMatrix);
             cmb.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.ExportData, "_ExportBuffer", dstData);
-            DispatchUtilsAndExecute(cmb, KernelIndices.ExportData, m_SharedContext.splatCount);
+            DispatchUtilsAndExecute(cmb, KernelIndices.ExportData, m_SharedContext.gsSplatCount);
             return true;
         }
 
-        public void EditSetSplatCount(int newSplatCount)
-        {
-            if (newSplatCount <= 0 || newSplatCount > SplatData.kMaxSplats)
-            {
+        public void EditSetSplatCount(int newSplatCount) {
+            if (newSplatCount <= 0 || newSplatCount > SplatData.kMaxSplats) {
                 Debug.LogError($"Invalid new splat count: {newSplatCount}");
                 return;
             }
-            if (m_SharedContext.splatData.chunkData != null)
-            {
+            if (m_SharedContext.gsSplatData.chunkData != null) {
                 Debug.LogError("Only splats with VeryHigh quality can be resized");
                 return;
             }
-            if (newSplatCount == m_SharedContext.splatCount)
+            if (newSplatCount == m_SharedContext.gsSplatCount)
                 return;
 
-            int posStride = (int)(m_SharedContext.splatData.posData.dataSize / m_SharedContext.splatData.splatCount);
-            int otherStride = (int)(m_SharedContext.splatData.otherData.dataSize / m_SharedContext.splatData.splatCount);
-            int shStride = (int)(m_SharedContext.splatData.shData.dataSize / m_SharedContext.splatData.splatCount);
+            int posStride = (int)(m_SharedContext.gsSplatData.posData.dataSize / m_SharedContext.gsSplatData.splatCount);
+            int otherStride = (int)(m_SharedContext.gsSplatData.otherData.dataSize / m_SharedContext.gsSplatData.splatCount);
+            int shStride = (int)(m_SharedContext.gsSplatData.shData.dataSize / m_SharedContext.gsSplatData.splatCount);
 
             // create new GPU buffers
             var newPosData = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, newSplatCount * posStride / 4, 4) { name = "GaussianPosData" };
@@ -757,7 +725,7 @@ namespace UnityEngine.GsplEdit
 
             // new texture is a RenderTexture so we can write to it from a compute shader
             var (texWidth, texHeight) = SplatData.CalcTextureSize(newSplatCount);
-            var texFormat = SplatData.ColorFormatToGraphics(m_SharedContext.splatData.colorFormat);
+            var texFormat = SplatData.ColorFormatToGraphics(m_SharedContext.gsSplatData.colorFormat);
             var newColorData = new RenderTexture(texWidth, texHeight, texFormat, GraphicsFormat.None) { name = "GaussianColorData", enableRandomWrite = true };
             newColorData.Create();
 
@@ -775,23 +743,23 @@ namespace UnityEngine.GsplEdit
             InitSortBuffers(newSplatCount);
 
             // copy existing data over into new buffers
-            EditCopySplats(m_Transform, newPosData, newOtherData, newSHData, newColorData, newEditDeleted, newSplatCount, 0, 0, m_SharedContext.splatCount);
+            EditCopySplats(m_Transform, newPosData, newOtherData, newSHData, newColorData, newEditDeleted, newSplatCount, 0, 0, m_SharedContext.gsSplatCount);
 
             // use the new buffers and the new splat count
-            m_SharedContext.gpuGSPosData.Dispose();
-            m_SharedContext.gpuGSOtherData.Dispose();
-            m_SharedContext.gpuGSSHData.Dispose();
-            // DestroyImmediate(m_SharedContext.gpuGSColorData);
+            m_SharedContext.gsPosData.Dispose();
+            m_SharedContext.gsOtherData.Dispose();
+            m_SharedContext.gsSHData.Dispose();
+            // DestroyImmediate(m_SharedContext.gsColorData);
             m_GpuView.Dispose();
 
             m_GpuEditSelected?.Dispose();
             m_GpuEditSelectedMouseDown?.Dispose();
             m_GpuEditDeleted?.Dispose();
 
-            m_SharedContext.gpuGSPosData = newPosData;
-            m_SharedContext.gpuGSOtherData = newOtherData;
-            m_SharedContext.gpuGSSHData = newSHData;
-            m_SharedContext.gpuGSColorData = newColorData;
+            m_SharedContext.gsPosData = newPosData;
+            m_SharedContext.gsOtherData = newOtherData;
+            m_SharedContext.gsSHData = newSHData;
+            m_SharedContext.gsColorData = newColorData;
             m_GpuView = newGpuView;
             m_GpuEditSelected = newEditSelected;
             m_GpuEditSelectedMouseDown = newEditSelectedMouseDown;
@@ -800,16 +768,15 @@ namespace UnityEngine.GsplEdit
             DisposeBuffer(ref m_GpuEditPosMouseDown);
             DisposeBuffer(ref m_GpuEditOtherMouseDown);
 
-            m_SharedContext.splatCount = newSplatCount;
+            m_SharedContext.gsSplatCount = newSplatCount;
             editModified = true;
         }
 
-        public void EditCopySplatsInto(GSRenderer dst, int copySrcStartIndex, int copyDstStartIndex, int copyCount)
-        {
+        public void EditCopySplatsInto(GSRenderer dst, int copySrcStartIndex, int copyDstStartIndex, int copyCount) {
             EditCopySplats(
                 dst.m_Transform,
-                m_SharedContext.gpuGSPosData, m_SharedContext.gpuGSOtherData, m_SharedContext.gpuGSSHData, m_SharedContext.gpuGSColorData, dst.m_GpuEditDeleted,
-                m_SharedContext.splatCount,
+                m_SharedContext.gsPosData, m_SharedContext.gsOtherData, m_SharedContext.gsSHData, m_SharedContext.gsColorData, dst.m_GpuEditDeleted,
+                m_SharedContext.gsSplatCount,
                 copySrcStartIndex, copyDstStartIndex, copyCount);
             dst.editModified = true;
         }
@@ -819,8 +786,7 @@ namespace UnityEngine.GsplEdit
             GraphicsBuffer dstPos, GraphicsBuffer dstOther, GraphicsBuffer dstSH, Texture dstColor,
             GraphicsBuffer dstEditDeleted,
             int dstSize,
-            int copySrcStartIndex, int copyDstStartIndex, int copyCount)
-        {
+            int copySrcStartIndex, int copyDstStartIndex, int copyCount) {
             if (!EnsureEditingBuffers()) return;
 
             Matrix4x4 copyMatrix = dstTransform.worldToLocalMatrix * m_Transform.localToWorldMatrix;
@@ -849,8 +815,7 @@ namespace UnityEngine.GsplEdit
         }
 
 
-        void DispatchUtilsAndExecute(CommandBuffer cmb, KernelIndices kernel, int count)
-        {
+        void DispatchUtilsAndExecute(CommandBuffer cmb, KernelIndices kernel, int count) {
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)kernel, out uint gsX, out _, out _);
             cmb.DispatchCompute(m_CSSplatUtilities, (int)kernel, (int)((count + gsX - 1) / gsX), 1, 1);
             Graphics.ExecuteCommandBuffer(cmb);

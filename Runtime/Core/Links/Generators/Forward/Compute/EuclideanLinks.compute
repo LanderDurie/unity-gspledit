@@ -1,38 +1,20 @@
 #pragma kernel OpacityContributions
 #include "../../../../Gaussian/Compute/GaussianSplatting.hlsl"
+#include "../../../Compute/LinkUtilities.hlsl"
 
-struct VertexProperties {
-    float3 pos;
-    float3 normal;
-    uint colorIds[4];
-    float3 posMod;
-    float4 rotMod;
-    float3 scaleMod;
-    uint colorModIds[4];
+struct Triangle {
+    int v0;
+    int v1;
+    int v2;
 };
 
-struct TriangleProperties {
-    int vertexId1;
-    int vertexId2;
-    int vertexId3;
-};
+RWStructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<Triangle> _MeshIndices;
+uint _IndexCount;
 
-struct SplatLinks {
-    int triangleIds[8];
-    float triangleWeights[8];
-    float triangleX[8];
-    float triangleY[8];
-};
-
-RWStructuredBuffer<VertexProperties> _VertexProps;
-RWStructuredBuffer<TriangleProperties> _TriangleProps;
-RWStructuredBuffer<SplatLinks> _SplatLinkBuffer;
 uint _SplatCount;
-uint _VertexCount;
-uint _TriangleCount;
 float _GlobalSigma;
 static const float MAX_DISTANCE = 1e30f;
-static const int MAX_LINKS = 8;
 
 // Helper function to convert a 3x3 matrix to a 4x4 matrix
 float4x4 Convert3x3To4x4(float3x3 mat3x3) {
@@ -101,32 +83,42 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
 
     SplatData splat = LoadSplatData(splatIndex);
 
-    float minDistances[MAX_LINKS] = { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, 
+    float minDistances[LINK_COUNT] = { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, 
                                       MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE };
-    int minIndices[MAX_LINKS] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+    int minIndices[LINK_COUNT] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+    float baryV[LINK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    float baryW[LINK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
     // First pass: find closest triangles
     [loop]
-    for (uint i = 0; i < _TriangleCount; i++) {
-        float3 center = (
-            _VertexProps[_TriangleProps[i].vertexId1].pos + 
-            _VertexProps[_TriangleProps[i].vertexId2].pos +
-            _VertexProps[_TriangleProps[i].vertexId3].pos) / 3.0;
+    for (uint i = 0; i < _IndexCount; i++) {
+        Triangle t = _MeshIndices[i];
+        float3 p1 = _VertexBasePos[t.v0];
+        float3 p2 = _VertexBasePos[t.v1];
+        float3 p3 = _VertexBasePos[t.v2];
 
-        float d = length(center - splat.pos);
+        // Calculate distance and barycentric coordinates
+        float3 distAndBary = dist(p1, p2, p3, splat.pos);
+        float d = distAndBary.x;
+        float v = distAndBary.y;  // Second barycentric coordinate
+        float w = distAndBary.z;  // Third barycentric coordinate
 
-        // Insert the new distance and index into the sorted list
-        for (int j = 0; j < MAX_LINKS; j++) {
+        // Insert the new distance, index, and barycentric coordinates into the sorted list
+        for (uint j = 0; j < LINK_COUNT; j++) {
             if (d < minDistances[j]) {
                 // Shift existing values down
-                for (int k = MAX_LINKS - 1; k > j; k--) {
+                for (uint k = LINK_COUNT - 1; k > j; k--) {
                     minDistances[k] = minDistances[k - 1];
                     minIndices[k] = minIndices[k - 1];
+                    baryV[k] = baryV[k - 1];
+                    baryW[k] = baryW[k - 1];
                 }
 
-                // Insert the new triangle
+                // Insert the new triangle and its barycentric coordinates
                 minDistances[j] = d;
                 minIndices[j] = i;
+                baryV[j] = v;
+                baryW[j] = w;
 
                 break;
             }
@@ -134,24 +126,25 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
     }
 
     float totalDist = 0.0;
-    for (int i = 0; i < MAX_LINKS; i++) {
-        totalDist += minDistances[i];
+    for (uint j = 0; j < LINK_COUNT; j++) {
+        totalDist += minDistances[j];
     }
 
     // Calculate weights and store results
-    SplatLinks splatLinks;
+    SplatLink splatLinks;
     float sigmaSquared = _GlobalSigma * _GlobalSigma;
     float threshold = 0.00001;
 
     [unroll]
-    for (int j = 0; j < MAX_LINKS; j++) {
-        float weight = 1 - (minDistances[j] / totalDist);
-        splatLinks.triangleIds[j] = (weight > threshold) ? minIndices[j] : -1;
-        splatLinks.triangleWeights[j] = (weight > threshold) ? weight : 0;
+    for (uint k = 0; k < LINK_COUNT; k++) {
+        float weight = 1 - (minDistances[k] / totalDist);
+        splatLinks.triangleIds[k] = (weight > threshold) ? minIndices[k] : -1;
+        splatLinks.triangleWeights[k] = (weight > threshold) ? weight : 0;
 
-        splatLinks.triangleX[j] = 0;
-        splatLinks.triangleY[j] = 0;
+        // Store the barycentric coordinates
+        splatLinks.triangleX[k] = (weight > threshold) ? baryV[k] : 0;
+        splatLinks.triangleY[k] = (weight > threshold) ? baryW[k] : 0;
     }
 
-    _SplatLinkBuffer[splatIndex] = splatLinks;
+    SetSplatLink(splatIndex, splatLinks);
 }

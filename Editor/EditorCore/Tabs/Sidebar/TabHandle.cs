@@ -1,10 +1,7 @@
 using UnityEngine;
-using UnityEditor;
 
-namespace UnityEditor.GsplEdit
-{
-    public class TabHandle : Editor
-    {
+namespace UnityEditor.GsplEdit {
+    public class TabHandle : Editor {
         private Texture2D m_EnableIcon;
         private Texture2D m_DisableIcon;
         private uint m_TabIndex;
@@ -14,8 +11,7 @@ namespace UnityEditor.GsplEdit
         private Rect m_ButtonRect;
         private bool m_Hover = false;
 
-        public static TabHandle Create(uint index, Texture2D enabledIcon, Texture2D disabledIcon)
-        {
+        public static TabHandle Create(uint index, Texture2D enabledIcon, Texture2D disabledIcon) {
             TabHandle instance = CreateInstance<TabHandle>();
             instance.m_TabIndex = index;
             instance.m_EnableIcon = enabledIcon;
@@ -25,27 +21,23 @@ namespace UnityEditor.GsplEdit
             return instance;
         }
 
-        private void InitializeStyles()
-        {
+        private void InitializeStyles() {
             // Default style: Transparent background
-            m_DefaultStyle = new GUIStyle()
-            {
+            m_DefaultStyle = new GUIStyle() {
                 normal = { background = CreateSolidColorTexture(new Color(0, 0, 0, 0)) },
                 border = new RectOffset(4, 4, 4, 4),
                 padding = new RectOffset(2, 2, 2, 2)
             };
 
             // Hover style: Light gray background
-            m_HoverStyle = new GUIStyle()
-            {
+            m_HoverStyle = new GUIStyle() {
                 normal = { background = CreateSolidColorTexture(new Color(0, 0, 0, 0.3f)) },
                 border = new RectOffset(4, 4, 4, 4),
                 padding = new RectOffset(2, 2, 2, 2)
             };
 
             // Active style (clicked): Darker gray background
-            m_ActiveStyle = new GUIStyle()
-            {
+            m_ActiveStyle = new GUIStyle() {
                 normal = { background = CreateSolidColorTexture(new Color(0, 0, 0, 0.7f)) },
                 border = new RectOffset(4, 4, 4, 4),
                 padding = new RectOffset(2, 2, 2, 2)
@@ -53,21 +45,18 @@ namespace UnityEditor.GsplEdit
         }
 
         // Utility method to create a texture of a single color
-        private Texture2D CreateSolidColorTexture(Color color)
-        {
+        private Texture2D CreateSolidColorTexture(Color color) {
             Texture2D texture = new Texture2D(1, 1);
             texture.SetPixel(0, 0, color);
             texture.Apply();
             return texture;
         }
 
-        public uint Draw(uint selectedIndex)
-        {
+        public uint Draw(uint selectedIndex) {
             bool isSelected = selectedIndex == m_TabIndex;
             Texture2D icon = isSelected ? m_EnableIcon : m_DisableIcon;
 
-            if (icon == null)
-            {
+            if (icon == null) {
                 Debug.LogError($"Icon for tab {m_TabIndex} is null!");
                 return selectedIndex;
             }
@@ -75,34 +64,26 @@ namespace UnityEditor.GsplEdit
             bool isHovered = m_ButtonRect.Contains(Event.current.mousePosition);
             bool isPressed = Event.current.type == EventType.MouseDown && isHovered;
 
-            if (isPressed)
-            {
+            if (isPressed) {
                 selectedIndex = m_TabIndex;
                 EditorWindow.focusedWindow?.Repaint();
             }
 
-            if (isHovered != m_Hover)
-            {
+            if (isHovered != m_Hover) {
                 m_Hover = isHovered;
                 EditorWindow.focusedWindow?.Repaint();
             }
 
-            if (isSelected)
-            {
+            if (isSelected) {
                 GUI.Box(m_ButtonRect, new GUIContent(icon), m_ActiveStyle);
-            }
-            else if (isHovered)
-            {
+            } else if (isHovered) {
                 GUI.Box(m_ButtonRect, new GUIContent(icon), m_HoverStyle);
-            }
-            else
-            {
+            } else {
                 GUI.Box(m_ButtonRect, new GUIContent(icon), m_DefaultStyle);
             }
 
             // Repaint the window to ensure it reflects the UI changes
-            if (Event.current.type == EventType.Repaint)
-            {
+            if (Event.current.type == EventType.Repaint) {
                 EditorWindow.focusedWindow?.Repaint();
             }
 

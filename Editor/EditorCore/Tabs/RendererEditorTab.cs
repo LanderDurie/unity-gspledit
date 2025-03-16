@@ -1,22 +1,30 @@
 using UnityEngine;
 using UnityEngine.GsplEdit;
 
-namespace UnityEditor.GsplEdit
-{
-    public class RendererEditorTab : Tab
-    {
-        public override void Init(DynamicSplat gs)
-        {
-        }
+namespace UnityEditor.GsplEdit {
+    public class RendererEditorTab : Tab {
+        public override void Init(DynamicSplat gs) {}
 
-        public override void Draw(DynamicSplat gs)
-        {
+        public override void Draw(DynamicSplat gs) {
             GUILayout.Label("Splat Render Settings", EditorStyles.boldLabel);
             GUILayout.Space(10);
+            DrawSplatSettins(gs);
+
+            DrawUtils.Separator();
+            GUILayout.Label("Scaffold Render Settings", EditorStyles.boldLabel);
+            GUILayout.Space(10);
+            DrawScaffoldSettings(gs);  
+            
+            DrawUtils.Separator();
+            GUILayout.Label("Surface Render Settings", EditorStyles.boldLabel);
+            GUILayout.Space(10);
+            DrawSurfaceSettings(gs);
+        }
+
+        private void DrawSplatSettins(DynamicSplat gs) {
             // Retrieve the GSRenderer instance
             GSRenderer gsr = gs.GetSplatRenderer();
-            if (gsr == null)
-            {
+            if (gsr == null) {
                 EditorGUILayout.HelpBox("GSRenderer is not assigned.", MessageType.Warning);
                 return;
             }
@@ -68,15 +76,12 @@ namespace UnityEditor.GsplEdit
             );
 
             // Mark as dirty if changes were made
-            if (GUI.changed)
-            {
-                EditorUtility.SetDirty(gsr);
+            if (GUI.changed) {
+                EditorUtility.SetDirty(gs);
             }
+        }
 
-            DrawUtils.Separator();
-            GUILayout.Label("Wireframe Render Settings", EditorStyles.boldLabel);
-            GUILayout.Space(10);
-
+        private void DrawScaffoldSettings(DynamicSplat gs) {
             EditableMesh mesh = gs.GetMesh();
 
             if (mesh == null) {
@@ -84,111 +89,84 @@ namespace UnityEditor.GsplEdit
                 return;
             }
 
-            Material vertexMaterial = mesh.m_SelectedVertexMaterial;
-            Material wireframeMaterial = mesh.m_WireframeMaterial;
-            Material fillMaterial = mesh.m_FillMaterial;
+            Material scaffoldMaterial = mesh.m_ScaffoldMaterial;
 
             // Ensure the vertexMaterial is assigned
-            if (vertexMaterial == null)
-            {
-                EditorGUILayout.HelpBox("Vertex material is not assigned.", MessageType.Warning);
-                return;
-            }
-
-            if (vertexMaterial == null)
-            {
-                EditorGUILayout.HelpBox("Wireframe material is not assigned.", MessageType.Warning);
+            if (scaffoldMaterial == null) {
+                EditorGUILayout.HelpBox("Scaffold material is not assigned.", MessageType.Warning);
                 return;
             }
 
             // Point Size
-            float pointSize = vertexMaterial.GetFloat("_PointSize");
+            float pointSize = scaffoldMaterial.GetFloat("_PointSize");
             pointSize = EditorGUILayout.Slider(
                 new GUIContent("Point Size", "Adjust the size of point rendering"),
                 pointSize,
                 0.01f,
                 5.0f
             );
-            vertexMaterial.SetFloat("_PointSize", pointSize);
+            scaffoldMaterial.SetFloat("_PointSize", pointSize);
 
             // Default Color
-            Color defaultColor = vertexMaterial.GetColor("_DefaultColor");
+            Color defaultColor = scaffoldMaterial.GetColor("_DefaultColor");
             defaultColor = EditorGUILayout.ColorField(
                 new GUIContent("Default Color", "The default vertex color"),
                 defaultColor
             );
-            vertexMaterial.SetColor("_DefaultColor", defaultColor);
+            scaffoldMaterial.SetColor("_DefaultColor", defaultColor);
 
             // Selected Color
-            Color selectedColor = vertexMaterial.GetColor("_SelectedColor");
+            Color selectedColor = scaffoldMaterial.GetColor("_SelectedColor");
             selectedColor = EditorGUILayout.ColorField(
                 new GUIContent("Selected Color", "The color for selected vertices"),
                 selectedColor
             );
-            vertexMaterial.SetColor("_SelectedColor", selectedColor);
+            scaffoldMaterial.SetColor("_SelectedColor", selectedColor);
 
             // Wireframe Selected Color
-            Color wireframeColor = wireframeMaterial.GetColor("_WireframeColour");
+            Color wireframeColor = scaffoldMaterial.GetColor("_WireframeColour");
             wireframeColor = EditorGUILayout.ColorField(
                 new GUIContent("Wireframe Color", "The color for wireframe"),
                 wireframeColor
             );
-            wireframeMaterial.SetColor("_WireframeColour", wireframeColor);
+            scaffoldMaterial.SetColor("_WireframeColour", wireframeColor);
 
             // Wireframe Alias
-            float wireframeAlias = wireframeMaterial.GetFloat("_WireframeAliasing");
+            float wireframeAlias = scaffoldMaterial.GetFloat("_WireframeAliasing");
             wireframeAlias = EditorGUILayout.Slider(
-                new GUIContent("Wireframe alias", ""),
+                new GUIContent("Wireframe Alias", ""),
                 wireframeAlias,
                 0.01f,
-                2.0f
+                10.0f
             );
-            wireframeMaterial.SetFloat("_WireframeAliasing", wireframeAlias);
+            scaffoldMaterial.SetFloat("_WireframeAliasing", wireframeAlias);
 
             // Wireframe Enabled
-            float wireframeEnabledFloat = wireframeMaterial.GetFloat("_Enable");
-            bool wireframeEnabled = wireframeEnabledFloat > 0.5f;
-            bool newWireframeEnabled = EditorGUILayout.Toggle("Wireframe Enabled", wireframeEnabled);
-            if (newWireframeEnabled != wireframeEnabled)
-            {
-                wireframeMaterial.SetFloat("_Enable", newWireframeEnabled ? 1.0f : 0.0f);
-                vertexMaterial.SetFloat("_Enable", newWireframeEnabled ? 1.0f : 0.0f);
-                EditorUtility.SetDirty(wireframeMaterial);
-                EditorUtility.SetDirty(vertexMaterial);
+            mesh.m_DrawScaffoldMesh = EditorGUILayout.Toggle("Wireframe Enabled", mesh.m_DrawScaffoldMesh);
+            
+            if (GUI.changed) {
+                EditorUtility.SetDirty(gs);
+            }        
+        }
+
+        private void DrawSurfaceSettings(DynamicSplat gs) {
+            EditableMesh mesh = gs.GetMesh();
+
+            if (mesh == null) {
+                EditorGUILayout.HelpBox("No mesh has been created.", MessageType.Warning);
+                return;
             }
 
-            DrawUtils.Separator();
-            GUILayout.Label("Mesh Render Settings", EditorStyles.boldLabel);
-            GUILayout.Space(10);
-
-            // Mesh Selected Color
-            Color meshColor = fillMaterial.GetColor("_Color");
-            meshColor = EditorGUILayout.ColorField(
-                new GUIContent("Mesh Color", "The color of the Mesh"),
-                meshColor
-            );
-            fillMaterial.SetColor("_Color", meshColor);
+            Material surfaceMaterial = mesh.m_SurfaceMaterial;
 
             // Shadow Toggles
-            mesh.m_CastShadow = EditorGUILayout.Toggle(new GUIContent("Cast Shadows", "Enable shadow casting"), mesh.m_CastShadow);
-            bool receiveShadows = fillMaterial.GetFloat("_ReceiveShadows") > 0.5f;
+            mesh.m_CastShadows = EditorGUILayout.Toggle(new GUIContent("Cast Shadows"), mesh.m_CastShadows);
+            mesh.m_ReceiveShadows = EditorGUILayout.Toggle(new GUIContent("Receive Shadows"), mesh.m_ReceiveShadows);
+            mesh.m_ReceiveLighting = EditorGUILayout.Toggle(new GUIContent("Receive Lighting"), mesh.m_ReceiveLighting);
 
-            receiveShadows = EditorGUILayout.Toggle(new GUIContent("Receive Shadows", "Enable shadow reception"), receiveShadows);
-
-            fillMaterial.SetFloat("_CastShadows", mesh.m_CastShadow ? 1f : 0f);
-            fillMaterial.SetFloat("_ReceiveShadows", receiveShadows ? 1f : 0f);
-
-            // // Enable Shader Keywords
-            // if (castShadows) 
-            //     fillMaterial.EnableKeyword("_CAST_SHADOWS");
-            // else 
-            //     fillMaterial.DisableKeyword("_CAST_SHADOWS");
-
-            // if (receiveShadows) 
-            //     fillMaterial.EnableKeyword("_RECEIVE_SHADOWS");
-            // else 
-            //     fillMaterial.DisableKeyword("_RECEIVE_SHADOWS");
-
+            if (GUI.changed) {
+                EditorUtility.SetDirty(gs);
+            }   
         }
     }
 }

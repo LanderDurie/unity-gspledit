@@ -52,7 +52,7 @@ namespace UnityEditor.GsplEdit
             {
                 Tab.Create<ObjectEditorTab>(),
                 Tab.Create<ModifierEditorTab>(),
-                Tab.Create<MaterialEditorTab>()
+                // Tab.Create<MaterialEditorTab>()
             };
 
             return instance;

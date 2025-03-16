@@ -1,140 +1,152 @@
-using System;
 using System.Collections.Generic;
-using UnityEditor;
+using System.Linq;
 
-namespace UnityEngine.GsplEdit
-{
-    public class ModifierSystem
-    {
+namespace UnityEngine.GsplEdit {
+    public class ModifierSystem {
         public List<SelectionGroup> m_SelectionGroups;
-        private EditableMesh m_Mesh;
         private SharedComputeContext m_Context;
-        public enum Type
-        {
-            Deform,
-            Rigging,
-            Texture
-        }
-        public static Dictionary<Type, Func<SharedComputeContext, VertexSelectionGroup, Modifier>> m_Generators = new Dictionary<Type, Func<SharedComputeContext, VertexSelectionGroup, Modifier>>
-        {
-            { Type.Deform, (context, selectionGroup) => new DeformModifier(ref context, ref selectionGroup) },
-            { Type.Rigging, (context, selectionGroup) => new RiggingModifier(ref context, ref selectionGroup) },
-            // Add other modifiers here
-        };
+        private EditableMesh m_Mesh;
+        private GraphicsBuffer m_ModifierBuffer;
+        private ComputeShader m_CSBufferOps;
 
-        private static readonly Dictionary<Type, string> m_ModifierDisplayNames = new Dictionary<Type, string>
-        {
-            { Type.Deform, "Deformation" },
-            { Type.Rigging, "Rigging" }
-        };
-        private static string[] m_ModifierNames;
-        private static Type[] m_ModifierTypes;
-
-        public ModifierSystem(ref SharedComputeContext context)
-        {
+        public ModifierSystem(ref SharedComputeContext context, ComputeShader csBufferOps) {
             m_Context = context;
-            m_SelectionGroups = new List<SelectionGroup>();
-            
-            m_ModifierNames = new string[m_Generators.Count];
-            m_ModifierTypes = new Type[m_Generators.Count];
-            int index = 0;
-            foreach (var kvp in m_Generators)
-            {
-                m_ModifierNames[index] = m_ModifierDisplayNames[kvp.Key];
-                m_ModifierTypes[index] = kvp.Key; // Store the type
-                index++;
+            m_CSBufferOps = csBufferOps;
+            m_SelectionGroups = new List<SelectionGroup>(new SelectionGroup[context.modifierData.groups.Count]);
+
+            // Initialize Groups in the correct order
+            for (int i = 0; i < context.modifierData.groups.Count; i++) {
+                int index = context.modifierData.groups[i].order;
+                m_SelectionGroups[index] = new SelectionGroup(ref m_Context, context.modifierData.groups[i], csBufferOps);
             }
         }
 
-        public void SetMesh(ref EditableMesh mesh) {
+        public ModifierSystem(ref SharedComputeContext context, ref EditableMesh mesh, ComputeShader csBufferOps) {
             m_Mesh = mesh;
+            m_Context = context;
+            m_CSBufferOps = csBufferOps;
+            m_SelectionGroups = new List<SelectionGroup>(new SelectionGroup[context.modifierData.groups.Count]);
+
+            // Initialize Groups in the correct order
+            for (int i = 0; i < context.modifierData.groups.Count; i++) {
+                int index = context.modifierData.groups[i].order;
+                m_SelectionGroups[index] = new SelectionGroup(ref m_Context, context.modifierData.groups[i], csBufferOps);
+            }
         }
 
-        public void Insert()
-        {
-            m_SelectionGroups.Add(new SelectionGroup(ref m_Context, ref m_Mesh));
+        unsafe public void SetMesh(ref EditableMesh mesh) {
+            m_Mesh = mesh;
+            m_ModifierBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.scaffoldData.vertexCount, sizeof(Vector3)) { name = "ModifierVertices" };;
         }
 
-        public void Remove(uint id)
-        {
-            if (id >= m_SelectionGroups.Count)
-            {
+        public void Destroy() {
+            foreach (SelectionGroup group in m_SelectionGroups) {
+                group?.Destroy();
+            }
+            m_ModifierBuffer?.Dispose();
+            m_ModifierBuffer = null;
+        }
+
+        public SelectionGroup Insert() {
+            GroupMeta gm = new();
+            gm.enabled = true;
+            gm.name = "New Group";
+            gm.selection = m_Mesh.m_SelectionGroup.m_SelectedBits;
+            gm.order = m_SelectionGroups.Count;
+            m_Context.modifierData.groups.Add(gm);
+
+            m_SelectionGroups.Add(
+                new SelectionGroup(
+                    ref m_Context, 
+                    gm,
+                    m_CSBufferOps
+                )
+            );
+
+            return m_SelectionGroups.Last();
+        }
+
+        public void Remove(uint id) {
+            if (id >= m_SelectionGroups.Count) {
                 Debug.LogWarning($"Invalid Id: {id}. No modifier at this position.");
                 return;
             }
 
             m_SelectionGroups.RemoveAt((int)id);
+            m_Context.modifierData.groups.RemoveAt((int)id);
+
+            // Update order values
+            for (int i = 0; i < m_Context.modifierData.groups.Count; i++) {
+                m_SelectionGroups[i].SetOrder(i);
+            }
         }
 
-        public void Reorder(uint fromId, uint toId)
-        {
-            if (fromId >= m_SelectionGroups.Count || toId >= m_SelectionGroups.Count)
-            {
+        public void Reorder(uint fromId, uint toId) {
+            if (fromId >= m_SelectionGroups.Count || toId >= m_SelectionGroups.Count) {
                 Debug.LogWarning($"Invalid Id(s). FromId: {fromId}, ToId: {toId}. Out of range.");
                 return;
             }
 
-            SelectionGroup modifier = m_SelectionGroups[(int)fromId];
+            SelectionGroup sg = m_SelectionGroups[(int)fromId];
             m_SelectionGroups.RemoveAt((int)fromId);
 
-            if (toId > fromId) // Adjust for the shift caused by the removal
-                toId--;
+            m_SelectionGroups.Insert((int)toId, sg);
 
-            m_SelectionGroups.Insert((int)toId, modifier);
-        }
-
-        public void RunAll(bool runStatic = true)
-        {
-            // Copy base data
-            ResetBuffer();
-            for (int i = 0; i < m_SelectionGroups.Count; i++) {
-                if (m_SelectionGroups[i].m_Enabled) {
-                    m_SelectionGroups[i].RunAll(runStatic);
-                }
+            for (int i = 0; i < m_Context.modifierData.groups.Count; i++) {
+                m_SelectionGroups[i].SetOrder(i);
             }
         }
 
-        public void RunGroup(int groupId)
-        {
-            ResetBuffer();
-            m_SelectionGroups[groupId].RunAll();
-        }
+        public void Run() {
 
-        public void RunModifier(int groupId, int modId)
-        {
-            ResetBuffer();
-            m_SelectionGroups[groupId].RunModifier(modId);
-        }
-
-        private void ResetBuffer() {
-            Graphics.CopyBuffer(m_Mesh.m_VertexBuffer, m_Context.gpuMeshVerts);
-        }
-
-        public void ShowModifierDropdown(Action<Modifier> onModifierSelected, SelectionGroup selectionGroup)
-        {
-            // Calculate the width of the dropdown button
-            float buttonWidth = GUI.skin.button.CalcSize(new GUIContent("Add Modifier")).x;
-
-            // Custom dropdown implementation
-            if (EditorGUILayout.DropdownButton(new GUIContent("Add Modifier"), FocusType.Passive))
+            if (m_Context.scaffoldMesh == null || 
+            m_Context.scaffoldBaseVertex == null || 
+            m_Context.scaffoldModVertex == null || 
+            m_ModifierBuffer == null ||
+            m_CSBufferOps == null)
+                return;
+                
+            ModifierUtils.ResetBuffers(m_CSBufferOps, m_Context.scaffoldModVertex, m_ModifierBuffer);
+            
+            // Only process enabled selection groups
+            for (int i = 0; i < m_SelectionGroups.Count; i++)
             {
-                // Create a GenericMenu to display the modifier options
-                GenericMenu menu = new GenericMenu();
-
-                // Add modifier options to the menu
-                for (int i = 0; i < m_ModifierNames.Length; i++)
+                if (m_SelectionGroups[i].IsEnabled())
                 {
-                    int index = i; // Capture the index for the closure
-                    menu.AddItem(new GUIContent(m_ModifierNames[index]), false, () =>
-                    {
-                        // Create the selected modifier and invoke the callback
-                        Modifier modifier = m_Generators[m_ModifierTypes[index]](m_Context, selectionGroup.m_Selection);
-                        onModifierSelected?.Invoke(modifier);
-                    });
+                    m_SelectionGroups[i].Run(ref m_ModifierBuffer);
                 }
+            }
+            
+            ModifierUtils.ApplyModifiedBuffer(m_CSBufferOps, m_Context.scaffoldModVertex, m_ModifierBuffer);
+            SyncContext();
+        }
 
-                // Show the dropdown menu with the same width as the button
-                menu.DropDown(new Rect(Event.current.mousePosition.x, Event.current.mousePosition.y, buttonWidth, 0));
+        private void SyncContext() {
+            Vector3[] tempBuffer = new Vector3[m_Context.scaffoldModVertex.count];
+            m_Context.scaffoldModVertex.GetData(tempBuffer);
+            m_Context.scaffoldMesh.vertices = tempBuffer;
+            m_Context.scaffoldMesh.RecalculateNormals();
+            m_Context.scaffoldMesh.RecalculateBounds();
+        }
+
+        public void BakeSnapshot() {
+            // TODO
+            // Vector3[] tempBuffer = new Vector3[m_Context.scaffoldModVertex.count];
+            // m_Context.scaffoldModVertex.GetData(tempBuffer);
+            // m_Context.scaffoldBaseVertex.SetData(tempBuffer);
+            // m_Context.scaffoldData.baseVertices = m_Context.scaffoldData.modVertices;
+            // DisableAllGroups();
+        }
+
+        public void EnableAllGroups() {
+            for (int i = 0; i < m_SelectionGroups.Count; i++) {
+                m_SelectionGroups[i].SetEnabled(true);
+            }
+        }
+
+        public void DisableAllGroups() {
+            for (int i = 0; i < m_SelectionGroups.Count; i++) {
+                m_SelectionGroups[i].SetEnabled(false);
             }
         }
     }

@@ -1,0 +1,61 @@
+// RiggingCompute.compute
+#pragma kernel ApplyRigWeights
+
+// Vertex structure matching the C# side
+struct VertexProperties {
+    float3 pos;
+    float3 normal;
+    uint colorIds[4];
+    float3 posMod;  // This is the key field we need to modify
+    float4 rotMod;
+    float3 scaleMod;
+    uint colorModIds[4];
+};
+
+// Bone weight structure
+struct BoneWeight {
+    int boneIndex0;
+    float weight0;
+    int boneIndex1;
+    float weight1;
+    int boneIndex2;
+    float weight2;
+    int boneIndex3;
+    float weight3;
+};
+
+// Buffers
+RWStructuredBuffer<VertexProperties> vertexBuffer;
+StructuredBuffer<uint> _VertexSelectedBits;
+StructuredBuffer<BoneWeight> _RigWeights;
+
+// Bone transforms
+float4x4 _BoneTransforms[128]; // Maximum of 128 bones
+int _BoneCount;
+
+// Helper function to check if vertex is selected
+bool isSelected(uint idx) {
+    uint wordIndex = idx >> 5;  // Divide by 32 to get word index
+    uint bitPosition = idx & 31; // Get position within the 32-bit word (0-31)
+    uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
+    // Extract the specific bit for this vertex
+    uint isBitSet = (selectionWord >> bitPosition) & 1;
+    return isBitSet;
+}
+
+
+[numthreads(256,1,1)]
+void ApplyRigWeights(uint3 id : SV_DispatchThreadID) {
+    // Ensure we don't go out of bounds
+    if (id >= vertexBuffer.Length)
+    return;
+        
+    // Check if vertex is selected
+    if (!isSelected(id))
+        return;
+    
+    VertexProperties vertex = vertexBuffer[id];
+
+
+    vertexBuffer[id] = vertex;
+}

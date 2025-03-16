@@ -1,40 +1,63 @@
-using System.Linq;
+using System;
 
-namespace UnityEngine.GsplEdit
-{
+namespace UnityEngine.GsplEdit {
+    [Serializable]
+    public class SharedComputeContext {
+        // Serializable fields
+        public SplatData gsSplatData;
+        public ScaffoldData scaffoldData;
+        public ModifierData modifierData;
+        public int gsSplatCount;
+        public bool gsChunksValid;
 
-    public class SharedComputeContext
-    {
-        public SplatData splatData;
-        public GraphicsBuffer gpuGSPosData;
-        public GraphicsBuffer gpuGSOtherData;
-        public GraphicsBuffer gpuGSSHData;
-        public GraphicsBuffer gpuGSChunks;
-        public Texture gpuGSColorData;
+        // Non-serialized fields
+        [NonSerialized] public GraphicsBuffer gsPosData;
+        [NonSerialized] public GraphicsBuffer gsOtherData;
+        [NonSerialized] public GraphicsBuffer gsSHData;
+        [NonSerialized] public GraphicsBuffer gsChunks;
+        [NonSerialized] public Texture2D splatColorMap;
+        [NonSerialized] public Texture2D splatNormalMap;
+        [NonSerialized] public Texture gsColorData;
+        [NonSerialized] public GraphicsBuffer scaffoldBaseVertex;
+        [NonSerialized] public GraphicsBuffer scaffoldModVertex;
+        [NonSerialized] public GraphicsBuffer scaffoldIndices;
+        [NonSerialized] public ComputeBuffer scaffoldDeletedBits;
 
-        public GraphicsBuffer gpuMeshVerts; // Store vertices after applying the modifier system
-        public ComputeBuffer gpuMeshEdges;
-        public ComputeBuffer gpuMeshTriangles;
-        public ComputeBuffer gpuForwardLinks; // Links from splats to vertices
-        public ComputeBuffer gpuBackwardLinks; // Links from vertices to splats
+        [NonSerialized] public ComputeBuffer forwardLinks;
+        [NonSerialized] public RenderTexture offscreenBuffer;
+        [NonSerialized] public Camera offscreenCam;
+        [NonSerialized] public Mesh scaffoldMesh;
 
-        public int vertexCount;
-        public int edgeCount;
-        public int triangleCount;
-        public int splatCount;
-
-        public bool gpuGSChunksValid;
-
-        public bool IsValid()
-        {
-            return splatData != null &&
-                    splatCount > 0 &&
-                    splatData.formatVersion == SplatData.kCurrentVersion &&
-                    splatData.posData != null &&
-                    splatData.otherData != null &&
-                    splatData.shData != null &&
-                    splatData.colorData != null;
+        public bool AllValid() {
+            return SplatDataValid() && SplatBuffersValid() && MeshValid();
         }
 
+        public bool SplatDataValid()
+        {
+            return gsSplatData != null &&
+                   gsSplatCount > 0 &&
+                   gsSplatData.formatVersion == SplatData.kCurrentVersion &&
+                   gsSplatData.posData != null &&
+                   gsSplatData.otherData != null &&
+                   gsSplatData.shData != null &&
+                   gsSplatData.colorData != null &&
+                   gsPosData != null;
+        }
+
+        public bool SplatBuffersValid()
+        {
+            return gsPosData != null && 
+                   gsOtherData != null && 
+                   gsSHData != null && 
+                   gsChunks != null;
+        }
+
+        public bool MeshValid()
+        {
+            return scaffoldMesh != null &&
+                   scaffoldBaseVertex != null &&
+                   scaffoldModVertex != null &&
+                   scaffoldIndices != null;
+        }
     }
 }
