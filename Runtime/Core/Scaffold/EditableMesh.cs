@@ -319,7 +319,9 @@ namespace UnityEngine.GsplEdit {
                 layer: 0,
                 camera: cam,
                 submeshIndex: 0,
-                null
+                null,
+                castShadows: ShadowCastingMode.Off,
+                receiveShadows: false
             );
         }
 

@@ -1,61 +1,83 @@
-// RiggingCompute.compute
-#pragma kernel ApplyRigWeights
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CopyVertices
+#pragma kernel ApplyRigging
 
-// Vertex structure matching the C# side
-struct VertexProperties {
-    float3 pos;
-    float3 normal;
-    uint colorIds[4];
-    float3 posMod;  // This is the key field we need to modify
-    float4 rotMod;
-    float3 scaleMod;
-    uint colorModIds[4];
-};
+// Buffer definitions
+RWStructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<float3> _VertexModPos;
 
-// Bone weight structure
-struct BoneWeight {
-    int boneIndex0;
-    float weight0;
-    int boneIndex1;
-    float weight1;
-    int boneIndex2;
-    float weight2;
-    int boneIndex3;
-    float weight3;
-};
-
-// Buffers
-RWStructuredBuffer<VertexProperties> vertexBuffer;
-StructuredBuffer<uint> _VertexSelectedBits;
-StructuredBuffer<BoneWeight> _RigWeights;
-
-// Bone transforms
-float4x4 _BoneTransforms[128]; // Maximum of 128 bones
+// For rigging
 int _BoneCount;
+StructuredBuffer<float4x4> _BoneMatrices;
 
-// Helper function to check if vertex is selected
-bool isSelected(uint idx) {
-    uint wordIndex = idx >> 5;  // Divide by 32 to get word index
-    uint bitPosition = idx & 31; // Get position within the 32-bit word (0-31)
-    uint selectionWord = _VertexSelectedBits.Load(wordIndex * 4);
-    // Extract the specific bit for this vertex
-    uint isBitSet = (selectionWord >> bitPosition) & 1;
-    return isBitSet;
+struct VertexBoneData
+{
+    float4 weights;
+    float4 indices; // Using float4 for indices and casting to int in the shader
+};
+
+StructuredBuffer<VertexBoneData> _BoneWeights;
+
+// Simple kernel to copy vertices when no rigging is applied
+[numthreads(256, 1, 1)]
+void CopyVertices(uint3 id : SV_DispatchThreadID)
+{
+    uint vertexId = id.x;
+    if (vertexId >= (uint)_VertexBasePos.Length)
+        return;
+        
+    _VertexModPos[vertexId] = _VertexBasePos[vertexId];
 }
 
-
-[numthreads(256,1,1)]
-void ApplyRigWeights(uint3 id : SV_DispatchThreadID) {
-    // Ensure we don't go out of bounds
-    if (id >= vertexBuffer.Length)
-    return;
-        
-    // Check if vertex is selected
-    if (!isSelected(id))
+// Main kernel to apply skinning
+[numthreads(256, 1, 1)]
+void ApplyRigging(uint3 id : SV_DispatchThreadID)
+{
+    uint vertexId = id.x;
+    if (vertexId >= (uint)_VertexBasePos.Length)
         return;
     
-    VertexProperties vertex = vertexBuffer[id];
-
-
-    vertexBuffer[id] = vertex;
+    // Get base vertex position
+    float3 basePos = _VertexBasePos[vertexId];
+    float3 skinnedPos = float3(0, 0, 0);
+    
+    // Get bone data for this vertex
+    VertexBoneData boneData = _BoneWeights[vertexId];
+    float4 weights = boneData.weights;
+    int4 indices = int4(boneData.indices); // Cast to int4
+    
+    // Validate bone indices
+    bool hasValidWeights = false;
+    
+    // Calculate the skinned position
+    if (weights.x > 0 && indices.x >= 0 && indices.x < _BoneCount)
+    {
+        float4 transformedPos = mul(_BoneMatrices[indices.x], float4(basePos, 1.0));
+        skinnedPos += transformedPos.xyz * weights.x;
+        hasValidWeights = true;
+    }
+    
+    if (weights.y > 0 && indices.y >= 0 && indices.y < _BoneCount)
+    {
+        float4 transformedPos = mul(_BoneMatrices[indices.y], float4(basePos, 1.0));
+        skinnedPos += transformedPos.xyz * weights.y;
+        hasValidWeights = true;
+    }
+    
+    if (weights.z > 0 && indices.z >= 0 && indices.z < _BoneCount)
+    {
+        float4 transformedPos = mul(_BoneMatrices[indices.z], float4(basePos, 1.0));
+        skinnedPos += transformedPos.xyz * weights.z;
+        hasValidWeights = true;
+    }
+    
+    if (weights.w > 0 && indices.w >= 0 && indices.w < _BoneCount)
+    {
+        float4 transformedPos = mul(_BoneMatrices[indices.w], float4(basePos, 1.0));
+        skinnedPos += transformedPos.xyz * weights.w;
+        hasValidWeights = true;
+    }
+    
+    // If we have valid weights, use the skinned position; otherwise, use the base position
+    _VertexModPos[vertexId] = hasValidWeights ? skinnedPos : basePos;
 }

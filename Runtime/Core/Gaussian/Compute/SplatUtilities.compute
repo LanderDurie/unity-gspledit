@@ -30,7 +30,7 @@
 
 #include "DeviceRadixSort.hlsl"
 #include "GaussianSplatting.hlsl"
-#include "ColorMixer.hlsl"
+#include "ColorUtils.hlsl"
 #include "SplatModifiers.hlsl"
 
 
@@ -245,7 +245,8 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
         col.a = min(splat.opacity * opacityScale, 65000);
 
         if (!ignoreModifiers) {
-            col = shadowMix(col, modSplat.color);
+            // col = CustomColorMix(col, modSplat.color);
+            col.rgb *= modSplat.color.rgb;
         }
 
         view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);

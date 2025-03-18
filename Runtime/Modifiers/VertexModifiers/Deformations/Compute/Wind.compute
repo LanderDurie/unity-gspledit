@@ -1,0 +1,106 @@
+#pragma kernel CSMain
+
+// Input/output buffers
+StructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<float3> _VertexModPos;
+StructuredBuffer<uint> _AnchorIndices; // Buffer containing indices of fixed anchor points
+uint _AnchorCount; // Number of anchor points
+
+// Parameters
+float3 windDirection;
+float windStrength;
+float turbulence;
+float noiseScale;
+float time;
+bool heightBasedInfluence;
+float minHeight;
+float maxHeight;
+bool useVertexColor;
+
+// Simple noise function for turbulence
+float hash(float n)
+{
+    return frac(sin(n) * 43758.5453);
+}
+
+float noise(float3 pos)
+{
+    float3 p = floor(pos);
+    float3 f = frac(pos);
+    f = f * f * (3.0 - 2.0 * f);
+    
+    float n = p.x + p.y * 157.0 + 113.0 * p.z;
+    
+    float res = lerp(lerp(lerp(hash(n + 0.0), hash(n + 1.0), f.x),
+                          lerp(hash(n + 157.0), hash(n + 158.0), f.x), f.y),
+                      lerp(lerp(hash(n + 113.0), hash(n + 114.0), f.x),
+                          lerp(hash(n + 270.0), hash(n + 271.0), f.x), f.y), f.z);
+    
+    return res;
+}
+
+bool IsAnchorVertex(uint index)
+{
+    for (uint i = 0; i < _AnchorCount; i++)
+    {
+        if (_AnchorIndices[i] == index)
+            return true;
+    }
+    return false;
+}
+
+[numthreads(256,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    
+    // Check if vertex is an anchor point
+    if (IsAnchorVertex(index))
+    {
+        _VertexModPos[index] = _VertexBasePos[index]; // Keep it fixed
+        return;
+    }
+
+    // Get the base vertex position
+    float3 basePos = _VertexBasePos[index];
+    float3 modPos = basePos;
+    
+    // Calculate influence factor based on height
+    float influenceAmount = 1.0;
+    
+    if (heightBasedInfluence)
+    {
+        float heightFactor = saturate((basePos.y - minHeight) / (maxHeight - minHeight));
+        influenceAmount = saturate(heightFactor * heightFactor); // Square for more natural falloff
+    }
+
+    // Calculate turbulence using noise
+    float turbulenceNoise = noise(basePos * noiseScale + time * 0.5) * 2.0 - 1.0;
+    
+    // Create wind vector with turbulence
+    float3 windVector = windDirection;
+    
+    // Add some vertical oscillation
+    float verticalOscillation = sin(basePos.x * 0.5 + time * 2.0) * 0.3 * turbulence;
+    windVector.y += verticalOscillation;
+    
+    // Add turbulence to the direction
+    windVector += float3(
+        sin(time * 1.2 + basePos.y * 2.0) * turbulence,
+        cos(time * 1.5 + basePos.x * 1.7) * turbulence * 0.5,
+        sin(time * 0.7 + basePos.z * 1.3) * turbulence
+    );
+    
+    // Normalize and scale by wind strength and influence
+    windVector = normalize(windVector) * windStrength * influenceAmount;
+    
+    // Calculate displacement based on noise and influence
+    float displacement = (noise(basePos * 0.1 + time * 0.2) * 0.5 + 0.5) * 
+                         sin(time * 1.0 + basePos.x * 0.5 + basePos.z * 0.5);
+    
+    // Apply displacement
+    modPos += windVector * displacement;
+    
+    // Apply the modified position
+    _VertexModPos[index] = modPos;
+}

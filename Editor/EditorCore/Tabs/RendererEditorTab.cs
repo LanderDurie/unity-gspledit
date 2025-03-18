@@ -161,8 +161,26 @@ namespace UnityEditor.GsplEdit {
 
             // Shadow Toggles
             mesh.m_CastShadows = EditorGUILayout.Toggle(new GUIContent("Cast Shadows"), mesh.m_CastShadows);
-            mesh.m_ReceiveShadows = EditorGUILayout.Toggle(new GUIContent("Receive Shadows"), mesh.m_ReceiveShadows);
-            mesh.m_ReceiveLighting = EditorGUILayout.Toggle(new GUIContent("Receive Lighting"), mesh.m_ReceiveLighting);
+            mesh.m_ReceiveShadows = EditorGUILayout.Toggle(new GUIContent("Receive Lighting"), mesh.m_ReceiveShadows);
+            
+            if (surfaceMaterial.HasProperty("_DiffuseComponent")) {
+                float diffuseComponent = surfaceMaterial.GetFloat("_DiffuseComponent");
+                diffuseComponent = EditorGUILayout.Slider(new GUIContent("Diffuse Component"), diffuseComponent, 0f, 1f);
+                surfaceMaterial.SetFloat("_DiffuseComponent", diffuseComponent);
+            }
+
+            if (surfaceMaterial.HasProperty("_ShadowStrength")) {
+                float shadowStrength = surfaceMaterial.GetFloat("_ShadowStrength");
+                shadowStrength = EditorGUILayout.Slider(new GUIContent("Light Factor"), shadowStrength, 0f, 1f);
+                surfaceMaterial.SetFloat("_ShadowStrength", shadowStrength);
+            }
+
+            if (surfaceMaterial.HasProperty("_AmbientLight")) {
+                float ambientLight = surfaceMaterial.GetFloat("_AmbientLight");
+                ambientLight = EditorGUILayout.Slider(new GUIContent("Ambient Component"), ambientLight, 0f, 1f);
+                surfaceMaterial.SetFloat("_AmbientLight", ambientLight);
+            }
+            
 
             if (GUI.changed) {
                 EditorUtility.SetDirty(gs);

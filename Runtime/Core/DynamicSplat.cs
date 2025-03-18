@@ -6,7 +6,7 @@ namespace UnityEngine.GsplEdit {
     [ExecuteInEditMode, Serializable]
     public class DynamicSplat : MonoBehaviour {
         // Serialized Fields
-        // [SerializeField] private GameObject m_DebugPlane;
+        [SerializeField] private GameObject m_DebugPlane;
         [HideInInspector, SerializeField] public Shader m_ScaffoldShader;
         [HideInInspector, SerializeField] public Shader m_SurfaceShader;
         [HideInInspector, SerializeField] public Shader m_ShadowCasterShader;
@@ -261,7 +261,7 @@ namespace UnityEngine.GsplEdit {
                     m_CSEditMesh
                 );
 
-                // m_Mesh.m_DebugPlane = m_DebugPlane;
+                m_EditableMesh.m_DebugPlane = m_DebugPlane;
                 m_ModifierSystem.SetMesh(ref m_EditableMesh);
                 GenerateLinks();
 

@@ -1,0 +1,47 @@
+// GravityDeform.compute
+#pragma kernel CSMain
+
+// Input/output buffers
+StructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<float3> _VertexModPos;
+
+// Parameters
+float3 gravityCenter;
+float gravityStrength;
+float falloff;
+float maxDisplacement;
+
+[numthreads(256,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    
+    // Get the base vertex position
+    float3 basePos = _VertexBasePos[index];
+    
+    // Calculate vector from vertex to gravity center
+    float3 direction = gravityCenter - basePos;
+    float distance = length(direction);
+    
+    // Avoid division by zero
+    if (distance < 0.0001)
+    {
+        _VertexModPos[index] = basePos;
+        return;
+    }
+    
+    // Normalize direction
+    direction = normalize(direction);
+    
+    // Calculate force based on distance (inverse power falloff)
+    float force = gravityStrength / pow(max(distance, 0.0001), falloff);
+    
+    // Clamp displacement to max value
+    force = min(force, maxDisplacement);
+    
+    // Apply displacement in the direction of gravity
+    float3 displacement = direction * force;
+    
+    // Apply the modified position
+    _VertexModPos[index] += displacement;
+}

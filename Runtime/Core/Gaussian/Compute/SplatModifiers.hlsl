@@ -3,7 +3,9 @@
 
 #include "../../Scaffold/Compute/OffscreenUtilities.hlsl"
 #include "../../Links/Compute/LinkUtilities.hlsl"
+#include "./SSSamplePoints.hlsl"
 #include "./SamplePoints.hlsl"
+#include "ColorUtils.hlsl"
 
 #ifndef QUATERNION_IDENTITY
 #define QUATERNION_IDENTITY float4(0, 0, 0, 1)
@@ -48,6 +50,11 @@ float4x4 _MatrixMV;
 float4x4 _MatrixP;
 float4 _VecWorldSpaceCameraPos;
 int _SelectionMode;
+
+#ifndef VP
+#define VP
+float4x4 _MatrixVP;
+#endif
 
 RWStructuredBuffer<uint> _SplatSortDistances;
 RWStructuredBuffer<uint> _SplatSortKeys;
@@ -95,7 +102,7 @@ bool CanIgnoreModifiers(SplatLink currentSplat) {
     return !anyLinks;
 }
 
-bool ShouldRemoveSplat(SplatLink currentSplat, float threshold = 0.5) {
+bool ShouldRemoveSplat(SplatLink currentSplat, float threshold = 0.9999) {
     float totalWeight = 0;
     bool anyLinks = false;
     [unroll]
@@ -107,7 +114,7 @@ bool ShouldRemoveSplat(SplatLink currentSplat, float threshold = 0.5) {
 
         anyLinks = true;
         Triangle t = _MeshIndices[triangleId];
-        if (IsVertexDeleted(t.v0) || IsVertexDeleted(t.v1) || IsVertexDeleted(t.v2)) continue;
+        if (IsVertexDeleted(t.v0) || IsVertexDeleted(t.v1) || IsVertexDeleted(t.v2)) return true;
         totalWeight += triangleWeight;
 
     }
@@ -691,7 +698,7 @@ TranslateOut translatePoint(int splatIndex, float3 p) {
         // Compute weight based on distance and perpendicular distance
         float distanceToCentroid = length(projPoint - center);
         // float weight = 1 / (exp(DistanceToTriangle(tv, p)) + 1e-5);
-        float weight = triangleWeight * surfaceArea / (exp(distanceToCentroid) * sqrt(abs(perpDistance) + 1e-5));
+        float weight = surfaceArea / (exp(distanceToCentroid) * sqrt(abs(perpDistance) + 1e-5));
 
         if (weight > 0) {
             totalWeight += weight;
@@ -837,44 +844,94 @@ half calculateColorVariance(half4 colors[6], int count) {
     return variance;
 }
 
-half4 getModColor(int splatIndex, SplatData splat) {
-    half4 avgColor = half4(0, 0, 0, 0);
+half4 getModColor(int splatIndex, ModSplat splat) {
+    const int NUM_SAMPLES = 12;
+    half4 weightedColor = half4(0, 0, 0, 0);
     half totalWeight = 0;
-    half similarity = 0;
-
     SplatLink currentSplat = LoadSplatLink(splatIndex);
-    Tetrahedron hex = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
-    TranslateOut to;
-
-    half3 colorsLab[4];
-
-    // Process each vertex of the hexahedron
-    to = translatePoint(splatIndex, hex.v0);
-    colorsLab[0] = (to.col.rgb);
-    avgColor.rgb += colorsLab[0] / 4;
-
-    to = translatePoint(splatIndex, hex.v1);
-    colorsLab[1] = (to.col.rgb);
-    avgColor.rgb += colorsLab[1] / 4;
-
-    to = translatePoint(splatIndex, hex.v2);
-    colorsLab[2] = (to.col.rgb);
-    avgColor.rgb += colorsLab[2] / 4;
-
-    to = translatePoint(splatIndex, hex.v3);
-    colorsLab[3] = (to.col.rgb);
-    avgColor.rgb += colorsLab[3] / 4;
-
-    // Compute perceptual similarity using Delta-E 2000
-    for (int i = 0; i < 4; i++) {
-        similarity += 1.0 - DeltaE2000(colorsLab[i], avgColor.rgb) / 100.0;
+    half3 colorsLab[NUM_SAMPLES];
+    float2 samplePoints[NUM_SAMPLES];
+    
+    float2 innerPoints[6];
+    getEdgePoints6(splat.pos, splat.scale * 0.5, splat.rot, 2.0, innerPoints);
+    
+    // Get outer ring points
+    float2 outerPoints[6];
+    getEdgePoints6(splat.pos, splat.scale, splat.rot, 3.0, outerPoints);
+    
+    // Combine points into one array
+    for (int i = 0; i < 6; i++) {
+        samplePoints[i] = innerPoints[i];
     }
-    similarity /= 4.0;
-    similarity = similarity * similarity * similarity; // Cubic response
-    avgColor.a *= similarity; // Store similarity in alpha
+    for (int i = 0; i < 6; i++) {
+        samplePoints[i + 6] = outerPoints[i];
+    }
+    
+    // Calculate splat center in screen space
+    float4 centerClipPos = mul(_MatrixVP, float4(splat.pos, 1.0));
+    float2 centerNDC = centerClipPos.xy / centerClipPos.w;
+    float2 centerScreen = (centerNDC * 0.5 + 0.5) * float2(_VecScreenParams.x, _VecScreenParams.y);
+    
+    // Calculate splat standard deviation based on scale
+    float sigma = length(splat.scale.xy) * 0.5;
+    
+    // Sample colors with Gaussian weighting
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+        // Sample color at this point
+        colorsLab[i] = SampleTextureScreenSpace(samplePoints[i]);
+        
+        // Calculate distance from the center
+        float distance = length(samplePoints[i] - centerScreen) / (_VecScreenParams.x * 0.5);
+        
+        // Apply Gaussian weight
+        // Inner points (first 4) get higher base weight
+        half baseWeight = (i < 4) ? 1.5 : 1.0;
+        half weight = baseWeight * exp(-distance * distance / (2.0 * sigma * sigma));
+        
+        // Accumulate weighted color
+        weightedColor.rgb += colorsLab[i] * weight;
+        totalWeight += weight;
+    }
+    
+    // Normalize by total weight
+    if (totalWeight > 0.001) {
+        weightedColor.rgb /= totalWeight;
+    }
+    
+    // Compute perceptual similarity with distance weighting
+    half similarity = 0;
+    half similarityWeight = 0;
+    
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+        half sampleSimilarity = 1.0 - CIEDE2000Similarity(colorsLab[i], weightedColor.rgb);
+        
+        // Calculate distance from the center for this sample
+        float distance = length(samplePoints[i] - centerScreen) / (_VecScreenParams.x * 0.5);
+        
+        // Weight the similarity based on the Gaussian importance
+        // Inner points contribute more to similarity assessment
+        half weight = (i < 4) ? 1.5 : 1.0;
+        weight *= exp(-distance * distance / (2.0 * sigma * sigma));
+        
+        similarity += sampleSimilarity * weight;
+        similarityWeight += weight;
+    }
+    
+    if (similarityWeight > 0.001) {
+        similarity /= similarityWeight;
+    }
+    similarity *= similarity * similarity;
 
-    return avgColor;
+    // Apply cubic response for more contrast in similarity
+    // similarity = smoothstep(0.01, 0.99, similarity);
+    
+    // Store final alpha
+    weightedColor.a = similarity;
+    
+    return weightedColor;
+    // return half4(similarity, similarity, similarity, 1);
 }
+
 
 
 
@@ -910,7 +967,7 @@ ModSplat calcModSplat(int splatIndex, SplatData splat) {
 
         fitSteinerCircumellipsoid(transformTetra, m);
     }
-    m.color = getModColor(splatIndex, splat);
+    m.color = getModColor(splatIndex, m);
 
     return m;
 }

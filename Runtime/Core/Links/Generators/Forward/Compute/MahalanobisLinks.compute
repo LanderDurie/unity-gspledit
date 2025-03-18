@@ -1,6 +1,7 @@
 #pragma kernel OpacityContributions
 #include "../../../../Gaussian/Compute/GaussianSplatting.hlsl"
 #include "../../../Compute/LinkUtilities.hlsl"
+#include "./Utils.hlsl"
 
 struct Triangle {
     int v0;
@@ -16,76 +17,6 @@ uint _SplatCount;
 float _GlobalSigma;
 static const float MAX_DISTANCE = 1e30f;
 
-// Helper function to convert a 3x3 matrix to a 4x4 matrix
-float4x4 Convert3x3To4x4(float3x3 mat3x3) {
-    return float4x4(
-        float4(mat3x3[0], 0.0f),
-        float4(mat3x3[1], 0.0f),
-        float4(mat3x3[2], 0.0f),
-        float4(0.0f, 0.0f, 0.0f, 1.0f)
-    );
-}
-
-// Function to convert a quaternion to a 4x4 rotation matrix
-float4x4 quatToMatrix(float4 quat) {
-    float3x3 rotationMat = float3x3(
-        1.0f - 2.0f * (quat.y * quat.y + quat.z * quat.z),  2.0f * (quat.x * quat.y - quat.w * quat.z),  2.0f * (quat.x * quat.z + quat.w * quat.y),
-        2.0f * (quat.x * quat.y + quat.w * quat.z),  1.0f - 2.0f * (quat.x * quat.x + quat.z * quat.z),  2.0f * (quat.y * quat.z - quat.w * quat.x),
-        2.0f * (quat.x * quat.z - quat.w * quat.y),  2.0f * (quat.y * quat.z + quat.w * quat.x),  1.0f - 2.0f * (quat.x * quat.x + quat.y * quat.y)
-    );
-    return Convert3x3To4x4(rotationMat);
-}
-
-float3 mahalanobis_transform(float3 pos, SplatData splat) {
-    // Translate to local space and apply rotation and scaling
-    pos -= splat.pos;
-    float4x4 rotationMatrix = quatToMatrix(splat.rot);
-    float4x4 inverseRotation = transpose(rotationMatrix);
-    pos = mul(inverseRotation, float4(pos, 0.0)).xyz;
-    pos /= splat.scale;
-    return pos;
-}
-
-float3 dist(float3 p1, float3 p2, float3 p3, float3 extPos) {
-    // Compute vectors relative to p1
-    float3 v0 = p2 - p1;
-    float3 v1 = p3 - p1;
-    float3 v2 = extPos - p1;
-
-    // Compute dot products
-    float d00 = dot(v0, v0);
-    float d01 = dot(v0, v1);
-    float d11 = dot(v1, v1);
-    float d20 = dot(v2, v0);
-    float d21 = dot(v2, v1);
-
-    // Compute the denominator of the barycentric coordinates
-    float denom = d00 * d11 - d01 * d01;
-
-    // Compute barycentric coordinates with improved stability
-    float v = (d11 * d20 - d01 * d21) / max(denom, 1e-6f);
-    float w = (d00 * d21 - d01 * d20) / max(denom, 1e-6f);
-    float u = 1.0f - v - w;
-
-    // Clamp barycentric coordinates
-    v = max(0.0f, v);
-    w = max(0.0f, w);
-    u = max(0.0f, u);
-
-    float sum = u + v + w;
-    u /= sum;
-    v /= sum;
-    w /= sum;
-
-    // Compute the closest point in the triangle
-    float3 closestPoint = u * p1 + v * p2 + w * p3;
-
-    // Compute the shortest distance
-    float distance = length(extPos - closestPoint);
-
-    return float3(distance, v, w);
-}
-
 [numthreads(128, 1, 1)]
 void OpacityContributions(uint3 id : SV_DispatchThreadID) {
     uint splatIndex = id.x;
@@ -95,81 +26,56 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
 
     float minDistances[LINK_COUNT] = { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, 
                                       MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE };
-    float minX[LINK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0 };
-    float minY[LINK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0 };
     int minIndices[LINK_COUNT] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 
     // First pass: find closest triangles
     [loop]
     for (uint i = 0; i < _IndexCount; i++) {
-
-        // Transform vertices to splat's local space
         Triangle t = _MeshIndices[i];
-        float3 p1 = _VertexBasePos[t.v0];
-        float3 p2 = _VertexBasePos[t.v1];
-        float3 p3 = _VertexBasePos[t.v2];
+        float3 p1 = MahalanobisTransform(_VertexBasePos[t.v0], splat);
+        float3 p2 = MahalanobisTransform(_VertexBasePos[t.v1], splat);
+        float3 p3 = MahalanobisTransform(_VertexBasePos[t.v2], splat);
 
-        float3 worldDistance = dist(
-            p1, 
-            p2, 
-            p3, 
-            splat.pos);
+        // Calculate distance and barycentric coordinates
+        float distance = length(ClosestPoint(float3(0,0,0), p1, p2, p3));
 
-        float3 localDistance = dist(p1, p2, p3, splat.pos);
-
-        // Insert the new distance and index into the sorted list
+        // Insert the new distance, index, and barycentric coordinates into the sorted list
         for (uint j = 0; j < LINK_COUNT; j++) {
-            if (localDistance.x < minDistances[j]) {
+            if (distance < minDistances[j]) {
                 // Shift existing values down
                 for (uint k = LINK_COUNT - 1; k > j; k--) {
                     minDistances[k] = minDistances[k - 1];
                     minIndices[k] = minIndices[k - 1];
-                    minX[k] = minX[k - 1];
-                    minY[k] = minY[k - 1];
                 }
 
-                // Insert the new triangle
-                minDistances[j] = localDistance.x;
+                // Insert the new triangle and its barycentric coordinates
+                minDistances[j] = distance;
                 minIndices[j] = i;
-                minX[j] = localDistance.y;
-                minY[j] = localDistance.z;
 
                 break;
             }
         }
     }
 
-    // Calculate weights and store results
-    SplatLink splatLinks;
-    float totalWeight = 0.0f;
-    float sigmaSquared = _GlobalSigma * _GlobalSigma;
-    float threshold = 0;
-
-    [unroll]
+    float totalDist = 0.0;
     for (uint j = 0; j < LINK_COUNT; j++) {
-        float weight = exp(-0.5 * (minDistances[j] * minDistances[j]) / sigmaSquared);
-        if (j == 0) {
-        splatLinks.triangleIds[j] = (weight > threshold) ? minIndices[j] : -1;
-        splatLinks.triangleWeights[j] = (weight > threshold) ? weight : 0;
-        splatLinks.triangleX[j] = (weight > threshold) ? minX[j] : 0;
-        splatLinks.triangleY[j] = (weight > threshold) ? minY[j] : 0;
-        
-
-        totalWeight += splatLinks.triangleWeights[j];
-        } else {
-            splatLinks.triangleIds[j] = -1;
-            splatLinks.triangleWeights[j] = 0;
-            splatLinks.triangleX[j] =  0;
-            splatLinks.triangleY[j] =  0;
-        }
+        totalDist += minDistances[j];
     }
 
-    // Normalize weights if total weight is non-zero
-    if (totalWeight > 0) {
-        [unroll]
-        for (uint k = 0; k < LINK_COUNT; k++) {
-            splatLinks.triangleWeights[k] /= totalWeight;
-        }
+    // Calculate weights and store results
+    SplatLink splatLinks;
+    float sigmaSquared = _GlobalSigma * _GlobalSigma;
+    float threshold = 0.00001;
+
+    [unroll]
+    for (uint k = 0; k < LINK_COUNT; k++) {
+        float weight = 1 - (minDistances[k] / totalDist);
+        splatLinks.triangleIds[k] = (weight > threshold) ? minIndices[k] : -1;
+        splatLinks.triangleWeights[k] = (weight > threshold) ? weight : 0;
+
+        // Store the barycentric coordinates
+        splatLinks.triangleX[k] = (weight > threshold) ? 0 : 0;
+        splatLinks.triangleY[k] = (weight > threshold) ? 0 : 0;
     }
 
     SetSplatLink(splatIndex, splatLinks);

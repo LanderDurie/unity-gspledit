@@ -1,6 +1,113 @@
 #ifndef COLOR_MIXER_HLSL
 #define COLOR_MIXER_HLSL
 
+
+////////////////////////////////
+/////// COLOR CONVESION ////////
+////////////////////////////////
+
+half3 RGBtoYUV(half3 rgb) {
+    const half3x3 YUV_MATRIX = half3x3(
+        0.2126,  0.7152,  0.0722,
+       -0.09991, -0.33609, 0.436,
+        0.615,   -0.55861, -0.05639
+    );
+
+    return mul(YUV_MATRIX, rgb);
+}
+
+
+
+////////////////////////////////
+/////// COLOR SIMILARITY ///////
+////////////////////////////////
+
+half YUVSimilarity(half3 rgb1, half3 rgb2) {
+    half3 yuv1 = RGBtoYUV(rgb1);
+    half3 yuv2 = RGBtoYUV(rgb2);
+
+    // Luminance difference
+    half dY = yuv2.x - yuv1.x;
+    
+    // Chrominance differences
+    half dU = yuv2.y - yuv1.y;
+    half dV = yuv2.z - yuv1.z;
+
+    half deltaE = sqrt( (dY * dY * 0.8) + 
+                        (dU * dU * 0.1) + 
+                        (dV * dV * 0.1) );
+
+    return deltaE;
+}
+
+half CIEDE2000Similarity(half3 lab1, half3 lab2) {
+    // Lightness difference
+    half dL = lab2.x - lab1.x;
+
+    // C* (chroma)
+    half C1 = sqrt(lab1.y * lab1.y + lab1.z * lab1.z);
+    half C2 = sqrt(lab2.y * lab2.y + lab2.z * lab2.z);
+    
+    half meanC = (C1 + C2) * 0.5;
+    half G = 0.5 * (1.0 - sqrt((meanC * meanC) / (meanC * meanC + 25.0)));
+
+    // Adjust a* values
+    half a1Prime = lab1.y * (1.0 + G);
+    half a2Prime = lab2.y * (1.0 + G);
+
+    // Chroma using adjusted a*
+    half C1Prime = sqrt(a1Prime * a1Prime + lab1.z * lab1.z);
+    half C2Prime = sqrt(a2Prime * a2Prime + lab2.z * lab2.z);
+
+    // Chroma difference
+    half dCPrime = C2Prime - C1Prime;
+
+    // Hue angles
+    half h1 = atan2(lab1.z, a1Prime);
+    if (h1 < 0.0) h1 += 6.283185; // Ensure non-negative hue
+
+    half h2 = atan2(lab2.z, a2Prime);
+    if (h2 < 0.0) h2 += 6.283185;
+
+    // Hue difference
+    half dHPrime = h2 - h1;
+    if (abs(dHPrime) > 3.14159) {
+        dHPrime -= sign(dHPrime) * 6.283185;
+    }
+    dHPrime = 2.0 * sqrt(C1Prime * C2Prime) * sin(dHPrime * 0.5);
+
+    half meanH = (abs(h1 - h2) > 3.14159) ? (h1 + h2 + 6.283185) * 0.5 : (h1 + h2) * 0.5;
+
+    // Weighting functions for lightness, chroma, and hue
+    half T = 1.0 - 0.17 * cos(meanH - 0.523599) +
+                  0.24 * cos(2.0 * meanH) +
+                  0.32 * cos(3.0 * meanH + 0.10472) -
+                  0.20 * cos(4.0 * meanH - 1.09956);
+
+    half SL = 1.0 + ((0.015 * (lab1.x + lab2.x - 100.0) * (lab1.x + lab2.x - 100.0)) / sqrt(20.0 + (lab1.x + lab2.x - 100.0) * (lab1.x + lab2.x - 100.0)));
+    half SC = 1.0 + 0.045 * meanC;
+    half SH = 1.0 + 0.015 * meanC * T;
+
+    // Rotation term (hue weighting factor)
+    half deltaTheta = 0.523599 * exp(-((meanH - 4.799655) * (meanH - 4.799655)) / 0.16);
+    half RT = -2.0 * sqrt(pow(meanC, 7.0) / (pow(meanC, 7.0) + pow(25.0, 7.0))) * sin(2.0 * deltaTheta);
+
+    // CIEDE2000 distance formula
+    half deltaE = sqrt((dL / SL) * (dL / SL) +
+                       (dCPrime / SC) * (dCPrime / SC) +
+                       (dHPrime / SH) * (dHPrime / SH) +
+                       RT * (dCPrime / SC) * (dHPrime / SH));
+
+    return deltaE;
+}
+
+
+
+
+////////////////////////////////
+/////// COLOR MIXERS ///////////
+////////////////////////////////
+
 // Alpha blending (standard)
 half4 alphaMix(half4 fg, half4 bg) {
     // Check if foreground is black with 0 alpha (individual components)
@@ -169,7 +276,7 @@ half4 shadowMix(half4 base, half4 mod) {
     float gamma = 2.2; // Standard gamma correction factor
 
     // Compute shadow value
-    half3 shadowVal = (1 - mod.rgb) * 0.85;
+    half3 shadowVal = (1 - mod.rgb) * 0.85 * mod.a;
 
     // Apply gamma correction to shadowVal
     shadowVal = pow(max(shadowVal, 0.0001), gamma);
@@ -184,128 +291,50 @@ half4 shadowMix(half4 base, half4 mod) {
 
     // Mix shadow with base color
     half3 mix = shadowColor * shadowVal + (1 - shadowVal) * base.rgb;
-    return half4(mix, base.a);
+    // return half4(mix, base.a);
+    return mod;
+}
+
+half3 ExtractLightingShadowWithTransparency(half4 color) {
+    // Extract the RGB lighting/shadow contribution
+    half3 lightingFactor = color.rgb;
+    
+    // Handle the transparency by setting alpha to zero in the shadowed areas
+    // If the alpha is very low, it means the area is transparent (shadowed area)
+    half alphaThreshold = 0.1;  // Adjust based on desired transparency threshold
+    
+    // Set alpha to 0 if it is under the threshold (transparent shadowed area)
+    if (color.a < alphaThreshold) {
+        lightingFactor = half3(0, 0, 0); // Completely transparent
+    }
+
+    return lightingFactor;
 }
 
 
 
-// Constants for RGB to XYZ conversion (D65 illuminant)
-#define Xn 0.95047f
-#define Yn 1.00000f
-#define Zn 1.08883f
+half4 CustomColorMix(half4 base, half4 mod) {
 
-// Helper function to clamp values between 0 and 1
-half clamp(half value, half minVal, half maxVal) {
-    return max(min(value, maxVal), minVal);
+    // half3 c = ExtractLightingShadowWithTransparency(mod);
+
+    // half influence = CIEDE2000Similarity(half3(1,1,1), mod);
+
+    // // half4 mix = mod * influence + (1 - influence) * base;
+
+    // // mix.a = base.a;
+    // // return mix;
+
+    // // // Choose a blend factor based on the amount of light
+    // // half blendFactor = saturate(lightIntensity);  // Light intensity determines how much to blend.
+
+    // // // If lightIntensity is high (pixel is lit), prefer meshA (with lighting and shadows)
+    // // // If lightIntensity is low (pixel is in shadow), prefer meshB (with texture)
+    // // return lerp(meshBColor, meshAColor, blendFactor);
+    // // return half4(c, 1);
+    // return half4(influence, influence, influence, 1);
+    
+    return base * mod;
 }
-
-// RGB to XYZ conversion (D65)
-half3 RGBtoXYZ(half3 rgb) {
-    // Linearize RGB
-    rgb = clamp(rgb, 0.0, 1.0);
-    rgb = (rgb <= 0.04045) ? rgb / 12.92 : pow((rgb + 0.055) / 1.055, 2.4);
-
-    // Apply RGB to XYZ transformation matrix (D65)
-    half3 xyz;
-    xyz.x = 0.4124564f * rgb.x + 0.3575761f * rgb.y + 0.1804375f * rgb.z;
-    xyz.y = 0.2126729f * rgb.x + 0.7151522f * rgb.y + 0.0721750f * rgb.z;
-    xyz.z = 0.0193339f * rgb.x + 0.1191920f * rgb.y + 0.9503041f * rgb.z;
-
-    return xyz;
-}
-
-// XYZ to Lab conversion
-half3 XYZtoLab(half3 xyz) {
-    // Normalize to D65 reference white
-    xyz.x /= Xn;
-    xyz.y /= Yn;
-    xyz.z /= Zn;
-
-    // Apply the transformation for each channel
-    half3 lab;
-    lab.x = 116.0 * max(0.0, pow(xyz.y, 1.0 / 3.0) - 0.137931);
-    lab.y = 500.0 * (pow(xyz.x, 1.0 / 3.0) - pow(xyz.y, 1.0 / 3.0));
-    lab.z = 200.0 * (pow(xyz.y, 1.0 / 3.0) - pow(xyz.z, 1.0 / 3.0));
-
-    return lab;
-}
-
-// RGB to Lab conversion
-half3 RGBtoLab(half3 rgb) {
-    return XYZtoLab(RGBtoXYZ(rgb));
-}
-
-// Lab to XYZ conversion
-half3 LabtoXYZ(half3 lab) {
-    half3 xyz;
-    xyz.y = pow((lab.x + 16.0) / 116.0, 3.0);
-    xyz.x = lab.y / 500.0 + xyz.y;
-    xyz.z = xyz.y - lab.z / 200.0;
-
-    // Denormalize using reference white values
-    xyz.x *= Xn;
-    xyz.y *= Yn;
-    xyz.z *= Zn;
-
-    return xyz;
-}
-
-// XYZ to RGB conversion
-half3 XYZtoRGB(half3 xyz) {
-    half3 rgb;
-
-    // Apply XYZ to RGB transformation matrix (D65)
-    rgb.x =  3.2404542 * xyz.x - 1.5371385 * xyz.y - 0.4985314 * xyz.z;
-    rgb.y = -0.9692660 * xyz.x + 1.8760108 * xyz.y + 0.0415560 * xyz.z;
-    rgb.z =  0.0556434 * xyz.x - 0.2040259 * xyz.y + 1.0572252 * xyz.z;
-
-    // Apply inverse gamma correction
-    rgb = (rgb <= 0.0031308) ? rgb * 12.92 : pow(rgb, 1.0 / 2.4) * 1.055 - 0.055;
-
-    return clamp(rgb, 0.0, 1.0);
-}
-
-// Lab to RGB conversion
-half3 LabToRGB(half3 lab) {
-    return XYZtoRGB(LabtoXYZ(lab));
-}
-
-
-// Delta-E 2000 color difference metric
-half DeltaE2000(half3 lab1, half3 lab2) {
-    // Calculate the C* values (chroma)
-    half C1 = sqrt(lab1.y * lab1.y + lab1.z * lab1.z);
-    half C2 = sqrt(lab2.y * lab2.y + lab2.z * lab2.z);
-
-    // Calculate the mean C*
-    half meanC = (C1 + C2) / 2.0;
-
-    // Calculate the G factor (to account for hue shift)
-    half G = 0.5 * (1.0 - sqrt(meanC * meanC / (meanC * meanC + 25.0)));
-
-    // Adjust for hue shift
-    half h1 = atan2(lab1.z, lab1.y);
-    half h2 = atan2(lab2.z, lab2.y);
-    half H1 = (h1 < 0.0) ? h1 + 6.283185 : h1; // Ensure hue is non-negative
-    half H2 = (h2 < 0.0) ? h2 + 6.283185 : h2;
-
-    half dH = H2 - H1;
-    if (abs(dH) > 3.14159) dH -= 6.283185;
-
-    half dL = lab2.x - lab1.x;
-    half dC = C2 - C1;
-
-    // Calculate the final deltaE value
-    half term1 = dL / 1.0;
-    half term2 = dC / (1.0 + 0.045 * meanC);
-    half term3 = dH / (1.0 + 0.015 * meanC);
-
-    half deltaE = sqrt(term1 * term1 + term2 * term2 + term3 * term3);
-
-    return deltaE;
-}
-
-
 
 
 #endif

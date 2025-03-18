@@ -1,6 +1,8 @@
 #ifndef SAMPLE_POINTS_HLSL
 #define SAMPLE_POINTS_HLSL
 
+#ifndef SUB_STRUCTS
+#define SUB_STRUCTS
 struct Tetrahedron {
     float3 v0;
     float3 v1;
@@ -21,8 +23,15 @@ struct Line {
     float3 v0;
     float3 v1;
 };
+#endif
 
-Tetrahedron computeTetrahedronFromEllipsoid(float3 center, float3 scale, float4 rotationQuat)
+
+#ifndef VP
+#define VP
+float4x4 _MatrixVP;
+#endif
+
+Tetrahedron computeTetrahedronFromEllipsoid(float3 center, float3 scale, float4 rotationQuat, float distanceFactor = 4.0)
 {
     rotationQuat = normalize(rotationQuat);
 
@@ -42,10 +51,10 @@ Tetrahedron computeTetrahedronFromEllipsoid(float3 center, float3 scale, float4 
         2 * (xz - yw), 2 * (yz + xw), 1 - 2 * (xx + yy)
     );
 
-    float3 dir0 = normalize(float3(1, 1, 1)) * scale   * 4.0;
-    float3 dir1 = normalize(float3(-1, -1, 1)) * scale * 4.0;
-    float3 dir2 = normalize(float3(-1, 1, -1)) * scale * 4.0;
-    float3 dir3 = normalize(float3(1, -1, -1)) * scale * 4.0;
+    float3 dir0 = normalize(float3(1, 1, 1)) * scale   * distanceFactor;
+    float3 dir1 = normalize(float3(-1, -1, 1)) * scale * distanceFactor;
+    float3 dir2 = normalize(float3(-1, 1, -1)) * scale * distanceFactor;
+    float3 dir3 = normalize(float3(1, -1, -1)) * scale * distanceFactor;
 
     Tetrahedron t;
     t.v0 = mul(rotationMatrix, dir0) + center;
@@ -56,7 +65,7 @@ Tetrahedron computeTetrahedronFromEllipsoid(float3 center, float3 scale, float4 
     return t;
 }
 
-Hexahedron computeHexahedronFromEllipsoid(float3 center, float3 scale, float4 rotationQuat)
+Hexahedron computeHexahedronFromEllipsoid(float3 center, float3 scale, float4 rotationQuat, float distanceFactor = 3.0)
 {
     rotationQuat = normalize(rotationQuat);
 
@@ -77,12 +86,12 @@ Hexahedron computeHexahedronFromEllipsoid(float3 center, float3 scale, float4 ro
     );
 
     // Define the 6 points (2 per axis) in local space
-    float3 dir0 = float3( 1,  0,  0) * scale * 3; // +X axis
-    float3 dir1 = float3(-1,  0,  0) * scale * 3; // -X axis
-    float3 dir2 = float3( 0,  1,  0) * scale * 3; // +Y axis
-    float3 dir3 = float3( 0, -1,  0) * scale * 3; // -Y axis
-    float3 dir4 = float3( 0,  0,  1) * scale * 3; // +Z axis
-    float3 dir5 = float3( 0,  0, -1) * scale * 3; // -Z axis
+    float3 dir0 = float3( 1,  0,  0) * scale * distanceFactor; // +X axis
+    float3 dir1 = float3(-1,  0,  0) * scale * distanceFactor; // -X axis
+    float3 dir2 = float3( 0,  1,  0) * scale * distanceFactor; // +Y axis
+    float3 dir3 = float3( 0, -1,  0) * scale * distanceFactor; // -Y axis
+    float3 dir4 = float3( 0,  0,  1) * scale * distanceFactor; // +Z axis
+    float3 dir5 = float3( 0,  0, -1) * scale * distanceFactor; // -Z axis
 
     Hexahedron h;
     h.v0 = mul(rotationMatrix, dir0) + center; // +X
@@ -135,6 +144,5 @@ Line computeLineFromEllipsoid(float3 center, float3 scale, float4 rotationQuat)
 
     return l;
 }
-
 
 #endif

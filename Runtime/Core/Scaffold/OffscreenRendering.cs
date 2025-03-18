@@ -159,14 +159,14 @@ namespace UnityEngine.GsplEdit
 
             // Clear both render textures before use
             RenderTexture.active = m_TempRenderTexture;
-            GL.Clear(true, true, new Color(0, 0, 0, 0));
+            GL.Clear(true, true, new Color(1, 1, 1, 1));
             RenderTexture.active = m_Context.offscreenBuffer;
-            GL.Clear(true, true, new Color(0, 0, 0, 0));
+            GL.Clear(true, true, new Color(1, 1, 1, 1));
             RenderTexture.active = null;
             
             // Set camera background color to fully transparent
             Color originalBgColor = m_Context.offscreenCam.backgroundColor;
-            m_Context.offscreenCam.backgroundColor = new Color(0, 0, 0, 0);
+            m_Context.offscreenCam.backgroundColor = new Color(1, 1, 1, 1);
             m_Context.offscreenCam.clearFlags = CameraClearFlags.SolidColor;
 
             // Save original camera settings

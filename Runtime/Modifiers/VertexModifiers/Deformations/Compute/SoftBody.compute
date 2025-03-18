@@ -1,0 +1,102 @@
+// SoftBodyDeform.compute
+#pragma kernel CSMain
+
+// Input/output buffers
+StructuredBuffer<float3> _VertexBasePos;
+RWStructuredBuffer<float3> _VertexModPos;
+RWStructuredBuffer<float3> _VelocityBuffer;
+RWStructuredBuffer<float3> _PositionBuffer;
+
+// Physics parameters
+float deltaTime;
+float stiffness;
+float mass;
+float damping;
+float3 gravity;
+float3 externalForceDir;
+float externalForceMag;
+float maxDeformation;
+bool useLocalSpace;
+bool useVertexMass;
+bool enableFloorCollision;
+float floorHeight;
+float floorBounciness;
+
+[numthreads(256,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    
+    // Get the base vertex position and current modified position
+    float3 basePos = _VertexBasePos[index];
+    float3 currentPos = _VertexModPos[index];
+    float3 velocity = _VelocityBuffer[index];
+    
+    // On first frame initialize the position
+    if (all(velocity == float3(0, 0, 0)) && all(currentPos == basePos))
+    {
+        _PositionBuffer[index] = basePos;
+        _VelocityBuffer[index] = float3(0, 0, 0);
+        _VertexModPos[index] = basePos;
+        return;
+    }
+    
+    // Get current position from the position buffer
+    currentPos = _PositionBuffer[index];
+    
+    // Calculate force based on spring system (Hooke's Law)
+    float3 springForce = (basePos - currentPos) * stiffness;
+    
+    // Apply mass (can be vertex-dependent if needed)
+    float vertexMass = mass;
+    if (useVertexMass)
+    {
+        // You could modify mass based on vertex attributes like:
+        // - Y coordinate (higher vertices lighter)
+        // - Distance from center
+        // - Vertex color data (if available in buffer)
+        vertexMass = mass * (1.0 + basePos.y * 0.1);
+    }
+    
+    // Calculate acceleration (F = ma)
+    float3 acceleration = springForce / vertexMass;
+    
+    // Add gravity
+    acceleration += gravity;
+    
+    // Add external force
+    acceleration += externalForceDir * externalForceMag;
+    
+    // Update velocity with damping
+    velocity = velocity * (1.0 - damping) + acceleration * deltaTime;
+    
+    // Update position
+    float3 newPos = currentPos + velocity * deltaTime;
+    
+    // Apply floor collision if enabled
+    if (enableFloorCollision && newPos.y < floorHeight)
+    {
+        newPos.y = floorHeight;
+        velocity.y = -velocity.y * floorBounciness;
+    }
+    
+    // Limit deformation distance if needed
+    if (maxDeformation > 0)
+    {
+        float3 deformation = newPos - basePos;
+        float deformMagnitude = length(deformation);
+        
+        if (deformMagnitude > maxDeformation)
+        {
+            newPos = basePos + normalize(deformation) * maxDeformation;
+            
+            // Reduce velocity when hitting max deformation
+            velocity *= 0.9;
+        }
+    }
+    
+    // Update the buffers
+    _VelocityBuffer[index] = velocity;
+    _PositionBuffer[index] = newPos;
+    _VertexModPos[index] = newPos;
+}
