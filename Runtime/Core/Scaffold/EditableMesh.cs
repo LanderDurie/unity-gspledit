@@ -372,6 +372,7 @@ namespace UnityEngine.GsplEdit {
             m_OffscreenRenderer.m_DebugPlane = m_DebugPlane;
             m_OffscreenRenderer.m_SurfaceMesh = m_Context.scaffoldMesh;
             m_OffscreenRenderer.m_SurfaceMaterial = m_SurfaceMaterial;
+            m_OffscreenRenderer.m_SurfaceColorTex = m_Context.backwardColorTex;
             m_OffscreenRenderer.m_GlobalTransform = m_GlobalTransform;
             m_OffscreenRenderer.m_ReceiveShadows = m_ReceiveShadows;
             // m_OffscreenRenderer.m_PostProcessMaterial = m_PostProcessMaterial;

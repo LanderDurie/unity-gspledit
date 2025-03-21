@@ -53,7 +53,7 @@ void CalcCovariance3D(float3x3 rotMat, out float3 sigma0, out float3 sigma1)
 }
 
 // from "EWA Splatting" (Zwicker et al 2002) eq. 31
-float3 CalcCovariance2D(float3 worldPos, float3 cov3d0, float3 cov3d1, float4x4 matrixV, float4x4 matrixP, float4 screenParams)
+float3 CalcCovariance2D(float3 worldPos, float3 cov3d0, float3 cov3d1, float4x4 matrixV, float4x4 matrixP, float4 screenParams, bool orthographic = false)
 {
     float4x4 viewMatrix = matrixV;
     float3 viewPos = mul(viewMatrix, float4(worldPos, 1)).xyz;
@@ -69,11 +69,21 @@ float3 CalcCovariance2D(float3 worldPos, float3 cov3d0, float3 cov3d1, float4x4 
 
     float focal = screenParams.x * matrixP._m00 / 2;
 
-    float3x3 J = float3x3(
-        focal / viewPos.z, 0, -(focal * viewPos.x) / (viewPos.z * viewPos.z),
-        0, focal / viewPos.z, -(focal * viewPos.y) / (viewPos.z * viewPos.z),
-        0, 0, 0
-    );
+    float3x3 J;
+    if (orthographic) {
+        J = float3x3(
+            focal, 0, 0,
+            0, focal, 0,
+            0, 0, 0
+        );
+    } else {
+        J = float3x3(
+            focal / viewPos.z, 0, -(focal * viewPos.x) / (viewPos.z * viewPos.z),
+            0, focal / viewPos.z, -(focal * viewPos.y) / (viewPos.z * viewPos.z),
+            0, 0, 0
+        );
+    }
+    
     float3x3 W = (float3x3)viewMatrix;
     float3x3 T = mul(J, W);
     float3x3 V = float3x3(

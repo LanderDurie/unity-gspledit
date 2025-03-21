@@ -278,7 +278,7 @@ namespace UnityEngine.GsplEdit {
 
         public void GenerateLinks() {
             m_LinkGenerator.GenerateForward();
-            // m_LinkGenerator.GenerateBackward(); // TODO
+            m_LinkGenerator.GenerateBackward(); // TODO
 
             // Sync GPU Buffers to Serializable struct
             m_ScaffoldData.forwardLinks = new ForwardLink[m_Context.forwardLinks.count];

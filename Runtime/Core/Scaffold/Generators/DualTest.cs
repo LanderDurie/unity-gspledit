@@ -1,503 +1,398 @@
-// using System.Collections.Generic;
-// using System.Runtime.InteropServices;
-// using System.Linq;
+using System.Collections.Generic;
+using System.Linq;
+using Unity.Mathematics;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.GsplEdit;
 
-// namespace UnityEngine.GsplEdit
-// {
-//     [ExecuteInEditMode]
-//     public class DualContouringGen : MeshGenBase
-//     {
-//         [System.Serializable]
-//         public class Settings
-//         {
-//             public float scale = 4.0f;
-//             public float threshold = 0.9f;
-//             public uint maxDepth = 3;
-//             public uint samplesPerNode = 8;
-//             public float gradientVarianceThreshold = 0.2f;
-//         }
+public class DualTest : MonoBehaviour
+{
+    public Color m_GizmoColor = Color.green;
+    public Color m_IntersectionColor = Color.red;
+    public Color m_GradientColor = Color.blue;
+    public int m_ParticleIterations = 10;
+    public float m_ForceScale = 0.05f; // 5% as mentioned in the paper
+    public float m_ConvergenceThreshold = 0.001f;
+    public int m_BinarySearchIterations = 10;
+    public float m_DebugSize = 1.0f;
+    public bool m_drawDebug = false;
+    public GameObject m_DynamicSplatObject;
+    private MeshUtils.SplatData[] m_SplatArray;
+    public float m_SplatScale = 4.0f;
+    public float m_Threshold = 0.1f;
+    public ComputeShader m_IcosahedronComputeShader;
 
-//         [StructLayout(LayoutKind.Sequential)]
-//         public unsafe struct SplatData
-//         {
-//             public Vector3 center;
-//             public fixed float vertices[12 * 3];
-//             public fixed int indices[60];
-//             public float opacity;
-//             public Vector3 boundMin;
-//             public Vector3 boundMax;
-//             public Quaternion rot;
-//             public Vector3 scale;
+    private readonly Vector3[] m_CubeVertices = new Vector3[8];
+    private readonly Vector3[] m_EdgeIntersections = new Vector3[12];
+    private readonly Vector3[] m_EdgeGradients = new Vector3[12];
+    private readonly bool[] m_HasIntersection = new bool[12];
+    private Vector3 m_OptimalVertex;
+    private bool m_HasValidVertex;
 
-//             public static int GetSize()
-//             {
-//                 return sizeof(float) * (3 + 12 * 3 + 1 + 3 + 3) + sizeof(int) * 60;
-//             }
+    private static readonly int[,] edges = new int[,] {
+        {0,1}, {1,2}, {2,3}, {3,0},  // bottom edges
+        {4,5}, {5,6}, {6,7}, {7,4},  // top edges
+        {0,4}, {1,5}, {2,6}, {3,7}   // vertical edges
+    };
 
-//             public Bounds GetBounds()
-//             {
-//                 return new Bounds(center, boundMax - boundMin);
-//             }
-//         }
+    unsafe public void Initialize() {
+        SharedComputeContext context = m_DynamicSplatObject.GetComponent<DynamicSplat>().GetContext();
+        
+        Vector3 size = context.gsSplatData.boundsMax - context.gsSplatData.boundsMin;
+        Vector3 center = (context.gsSplatData.boundsMax + context.gsSplatData.boundsMin) * 0.5f;
 
-//         public Settings m_Settings = new Settings();
-//         public ComputeShader m_IcosahedronComputeShader;
+        int splatCount = context.gsSplatData.splatCount;
+        int itemsPerDispatch = 65535;
 
-//         private OctreeNode m_Root;
-//         private System.Random random = new System.Random();
+        m_SplatArray = new MeshUtils.SplatData[splatCount];
 
-//         public class OctreeNode
-//         {
-//             public Bounds m_Bounds;
-//             public List<int> m_SplatIds;
-//             public OctreeNode[] m_Children;
-//             public uint m_Depth;
-//             public bool m_IsLeaf;
-//             public Vector3? m_VertexPosition;
-//             public int m_VertexIndex = -1;
-//             public bool m_ContainsSurface;
+        using (ComputeBuffer IcosahedronBuffer = new ComputeBuffer(splatCount, sizeof(MeshUtils.SplatData)))
+        {
+            IcosahedronBuffer.SetData(m_SplatArray);
+            m_IcosahedronComputeShader.SetFloat("_GlobalScaleFactor",m_SplatScale);
+            m_IcosahedronComputeShader.SetBuffer(0, "_SplatPos", context.gsPosData);
+            m_IcosahedronComputeShader.SetBuffer(0, "_SplatOther", context.gsOtherData);
+            m_IcosahedronComputeShader.SetBuffer(0, "_SplatSH", context.gsSHData);
+            m_IcosahedronComputeShader.SetBuffer(0, "_SplatChunks", context.gsChunks);
+            m_IcosahedronComputeShader.SetInt("_SplatChunkCount", context.gsChunksValid ? context.gsChunks.count : 0);
+            uint format = (uint)context.gsSplatData.posFormat | ((uint)context.gsSplatData.scaleFormat << 8) | ((uint)context.gsSplatData.shFormat << 16);
+            m_IcosahedronComputeShader.SetInt("_SplatFormat", (int)format);
+            m_IcosahedronComputeShader.SetTexture(0, "_SplatColor", context.gsColorData);
+            m_IcosahedronComputeShader.SetBuffer(0, "_IcosahedronBuffer", IcosahedronBuffer);
 
-//             public OctreeNode(Bounds bounds, uint depth)
-//             {
-//                 m_Bounds = bounds;
-//                 m_SplatIds = new List<int>();
-//                 m_Children = null;
-//                 m_Depth = depth;
-//                 m_ContainsSurface = true;
-//                 m_IsLeaf = true;
-//                 m_VertexPosition = bounds.center;
-//             }
+            for (int i = 0; i < Mathf.CeilToInt((float)splatCount / itemsPerDispatch); i++)
+            {
+                int offset = i * itemsPerDispatch;
+                m_IcosahedronComputeShader.SetInt("_Offset", offset);
+                int currentDispatchSize = Mathf.Min(splatCount - offset, itemsPerDispatch);
+                m_IcosahedronComputeShader.Dispatch(0, currentDispatchSize, 1, 1);
+            }
 
-//             private Vector3 CalculateGradient(Vector3 point, float threshold, List<SplatData> splats, float epsilon = 0.001f)
-//             {
-//                 Vector3 gradient = Vector3.zero;
+            IcosahedronBuffer.GetData(m_SplatArray);
+        }
+    }
 
-//                 System.Threading.Tasks.Parallel.For(0, 3, i =>
-//                 {
-//                     Vector3 delta = Vector3.zero;
-//                     delta[i] = epsilon;
+    public void Bake() {
+        FindEdgeIntersections();
+        foreach (var i in m_HasIntersection) {
+        Debug.Log(i);
 
-//                     float x1 = EvaluateSDF(point + delta, threshold, splats);
-//                     float x2 = EvaluateSDF(point - delta, threshold, splats);
+        }
+        FindOptimalVertex();
+    }
 
-//                     gradient[i] = (x1 - x2) / (2 * epsilon);
-//                 });
+    private void OnDrawGizmos()
+    {
+        InitializeCubeVertices();
 
-//                 return gradient;
-//             }
+        Gizmos.color = m_GizmoColor;
+        Matrix4x4 oldMatrix = Gizmos.matrix;
+        Gizmos.matrix = Matrix4x4.TRS(transform.position, transform.rotation, transform.localScale);
+        if (m_drawDebug) {
+            Gizmos.DrawWireCube(Vector3.zero, transform.localScale);
+        }
+        Gizmos.matrix = Matrix4x4.identity;
 
-//             private float EvaluateSDF(Vector3 point, float threshold, List<SplatData> splats)
-//             {
-//                 float sum = 0f;
-//                 float minDistance = float.MaxValue;
-//                 int i = 0;
-
-//                 foreach (var splatId in m_SplatIds)
-//                 {
-//                     SplatData splat = splats[splatId];
-
-//                     Vector3 offset = point - splat.center;
-//                     Vector3 localPoint = Quaternion.Inverse(splat.rot) * offset;
-
-//                     Vector3 scaledPoint = new Vector3(
-//                         localPoint.x / splat.scale.x,
-//                         localPoint.y / splat.scale.y,
-//                         localPoint.z / splat.scale.z
-//                     );
-
-//                     float squaredDist = scaledPoint.sqrMagnitude;
-//                     sum += splat.opacity * Mathf.Exp(-squaredDist);
-
-//                     float actualDistance = offset.sqrMagnitude;
-//                     minDistance = Mathf.Min(minDistance, actualDistance);
-
-//                     i++;
-//                 }
-
-//                 return sum > threshold ? sum - threshold : -Mathf.Sqrt(minDistance);
-//             }
-
-//             private Vector3[] GetJitteredPointsInBounds(Bounds bounds, uint sampleCount, System.Random random)
-//             {
-//                 Vector3[] points = new Vector3[sampleCount];
-//                 int gridSize = Mathf.CeilToInt(Mathf.Pow(sampleCount, 1.0f / 3.0f));
-//                 Vector3 cellSize = bounds.size / gridSize;
-
-//                 int index = 0;
-//                 for (int x = 0; x < gridSize && index < sampleCount; x++)
-//                 {
-//                     for (int y = 0; y < gridSize && index < sampleCount; y++)
-//                     {
-//                         for (int z = 0; z < gridSize && index < sampleCount; z++)
-//                         {
-//                             Vector3 basePos = bounds.min + new Vector3(
-//                                 (x + 0.5f) * cellSize.x,
-//                                 (y + 0.5f) * cellSize.y,
-//                                 (z + 0.5f) * cellSize.z
-//                             );
-
-//                             Vector3 jitter = new Vector3(
-//                                 ((float)random.NextDouble() - 0.5f) * cellSize.x,
-//                                 ((float)random.NextDouble() - 0.5f) * cellSize.y,
-//                                 ((float)random.NextDouble() - 0.5f) * cellSize.z
-//                             );
-
-//                             points[index++] = basePos + jitter * 0.5f;
-//                         }
-//                     }
-//                 }
-
-//                 return points;
-//             }
-
-//             public bool ShouldSplitNode(Settings settings, System.Random random, List<SplatData> splats)
-//             {
-
-//                 Vector3[] samplePoints = GetJitteredPointsInBounds(m_Bounds, settings.samplesPerNode, random);
-//                 int validGradients = 0;
-//                 Vector3 meanGradient = Vector3.zero;
-//                 float variance = 0f;
-//                 bool inside = false;
-//                 bool outside = false;
-
-//                 for (int i = 0; i < samplePoints.Length; i++)
-//                 {
-//                     Vector3 samplePoint = samplePoints[i];
-//                     float value = EvaluateSDF(samplePoint, settings.threshold, splats);
-                    
-//                     if (value > 0) {inside = true;}
-//                     if (value <= 0) {outside = true;}
-
-//                     Vector3 gradient = CalculateGradient(samplePoint, settings.threshold, splats);
-//                     if (gradient.sqrMagnitude > 1e-12f) // Avoids unnecessary sqrt
-//                     {
-//                         gradient.Normalize();
-//                         meanGradient += gradient;
-//                         validGradients++;
-//                     }
-//                 }
-
-//                 meanGradient /= validGradients;
-
-//                 for (int i = 0; i < samplePoints.Length; i++)
-//                 {
-//                     Vector3 samplePoint = samplePoints[i];
-//                     Vector3 gradient = CalculateGradient(samplePoint, settings.threshold, splats);
-//                     if (gradient.sqrMagnitude > 1e-12f)
-//                     {
-//                         gradient.Normalize();
-//                         variance += 1 - Vector3.Dot(gradient, meanGradient);
-//                     }
-//                 }
-
-//                 variance /= validGradients;
+        if (m_drawDebug)
+        {
+            Vector3? centroid = GetCentroid();
+            if (centroid == null)
+                return;
                 
-//                 m_ContainsSurface = (inside && outside);// || variance > settings.gradientVarianceThreshold;
+            Vector3[] gridForces = new Vector3[8];
+            for (int i = 0; i < 8; i++)
+            {
+                gridForces[i] = CalculateGridPointForce(m_CubeVertices[i]);
+                Handles.DrawBezier(
+                    m_CubeVertices[i],
+                    m_CubeVertices[i] + gridForces[i],
+                    m_CubeVertices[i],
+                    m_CubeVertices[i] + gridForces[i],
+                    Color.magenta,
+                    null,
+                    7
+                );
+            }
 
-//                 if (m_Depth >= settings.maxDepth || m_SplatIds.Count == 0) {
-//                     return false;
-//                 }
+            Gizmos.DrawSphere(centroid.Value, 0.1f * m_DebugSize);
 
-//                 return variance > settings.gradientVarianceThreshold;
-//             }
+            Vector3 particlePos = centroid.Value;
+            Vector3 prevPos = particlePos;
 
+            for (int iter = 0; iter < m_ParticleIterations; iter++)
+            {
+                Vector3 force = InterpolateForce(particlePos, gridForces) * m_ForceScale;
+                Handles.DrawBezier(particlePos, particlePos + force, particlePos, particlePos + force, Color.red, null, 3);
 
-//             public void SubdivideNode(List<SplatData> splats)
-//             {
-//                 if (!m_IsLeaf) return;
+                particlePos += force;
+                particlePos = ClampWithinCube(particlePos);
 
-//                 Vector3 size = m_Bounds.size * 0.5f;
-//                 Vector3 center = m_Bounds.center;
+                if ((particlePos - prevPos).sqrMagnitude < m_ConvergenceThreshold * m_ConvergenceThreshold)
+                    break;
 
-//                 m_Children = new OctreeNode[8];
-//                 for (int i = 0; i < 8; i++)
-//                 {
-//                     Vector3 offset = new Vector3(
-//                         ((i & 1) == 0) ? -size.x / 2 : size.x / 2,
-//                         ((i & 2) == 0) ? -size.y / 2 : size.y / 2,
-//                         ((i & 4) == 0) ? -size.z / 2 : size.z / 2
-//                     );
-//                     m_Children[i] = new OctreeNode(new Bounds(center + offset, size), m_Depth + 1);
+                prevPos = particlePos;
+            }
 
-//                     foreach (var id in m_SplatIds)
-//                     {
-//                         if (m_Children[i].m_Bounds.Intersects(splats[id].GetBounds()))
-//                             m_Children[i].m_SplatIds.Add(id);
-//                     }
-//                 }
-                
-//                 m_IsLeaf = false;
-//                 m_SplatIds.Clear();
-//             }
-//         }
+            Gizmos.color = m_IntersectionColor;
+            for (int i = 0; i < 12; i++)
+            {
+                if (m_HasIntersection[i])
+                {
+                    Gizmos.DrawSphere(m_EdgeIntersections[i], 0.05f * m_DebugSize);
 
-//         private void GenerateMesh(OctreeNode node, List<Vertex> vertices, List<int> indices)
-//         {
-//             if (node == null) return;
+                    Gizmos.color = m_GradientColor;
+                    Handles.DrawBezier(m_EdgeIntersections[i], m_EdgeIntersections[i] + m_EdgeGradients[i], m_EdgeIntersections[i], m_EdgeIntersections[i] + m_EdgeGradients[i], Color.blue, null, 7);
+                    Gizmos.color = m_IntersectionColor;
+                }
+            }
+        }
 
-//             if (node.m_IsLeaf)
-//             {
-//                 if (node.m_ContainsSurface)
-//                 {
-//                 //     node.m_VertexIndex = vertices.Count;
-//                 //     vertices.Add(new Vertex { position = node.m_VertexPosition.Value });
-//                     GenerateCube(node, vertices, indices);
-//                 }
-//             }
-//              else {
-//                 foreach(var child in node.m_Children) {
-//                     GenerateMesh(child, vertices, indices);
-//                 }
-//             }
-//             // else if (node.m_Children != null)
-//             // {
-//                 // foreach (var child in node.m_Children)
-//                 // {
-//                 //     if (child != null)
-//                 //     {
-//                 //         GenerateMesh(child, vertices, indices);
-//                 //     }
-//                 // }
+        if (m_HasValidVertex)
+        {
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawSphere(m_OptimalVertex, 0.1f * m_DebugSize);
+        }
 
-//                 // GenerateFacesBetweenChildren(node, indices);
-//             // }
-//         }
+        Gizmos.matrix = oldMatrix;
+    }
 
-//         private void GenerateCube(OctreeNode node, List<Vertex> vertices, List<int> indices) {
-//             Bounds bounds = node.m_Bounds;
-//             Vector3 center = bounds.center;
-//             Vector3 extents = bounds.extents; // Half the size
+    private float ScalarField(Vector3 position)
+    {
+        float accumulatedOpacity = 0f;
+            float minDistance = float.MaxValue;
 
-//             // Define the 8 cube vertices
-//             Vector3[] cubeVertices = new Vector3[]
-//             {
-//                 center + new Vector3(-extents.x, -extents.y, -extents.z), // 0
-//                 center + new Vector3(extents.x, -extents.y, -extents.z),  // 1
-//                 center + new Vector3(extents.x, -extents.y, extents.z),   // 2
-//                 center + new Vector3(-extents.x, -extents.y, extents.z),  // 3
-//                 center + new Vector3(-extents.x, extents.y, -extents.z),  // 4
-//                 center + new Vector3(extents.x, extents.y, -extents.z),   // 5
-//                 center + new Vector3(extents.x, extents.y, extents.z),    // 6
-//                 center + new Vector3(-extents.x, extents.y, extents.z)    // 7
-//             };
+            foreach (var splat in m_SplatArray)
+            {
+                // Calculate the combined inverse rotation and scale matrix
+                Matrix4x4 invSplatRot_ScaleMat = Matrix4x4.TRS(Vector3.zero, Quaternion.Inverse(splat.rot), Vector3.one)
+                                                * Matrix4x4.Scale(new Vector3(1.0f / splat.scale.x, 1.0f / splat.scale.y, 1.0f / splat.scale.z));
 
-//             // Add vertices to the list
-//             int baseIndex = vertices.Count;
-//             for (int i = 0; i < cubeVertices.Length; i++)
-//             {
-//                 vertices.Add(new Vertex { position = cubeVertices[i] });
-//             }
+                // Apply the transformation to the offset
+                Vector3 offset = position - splat.center;
+                Vector3 transformedPos = invSplatRot_ScaleMat.MultiplyPoint3x4(offset);
 
-//             // Define the 12 triangles (two per face)
-//             int[] cubeIndices = new int[]
-//             {
-//                 0, 1, 2,  2, 3, 0, // Bottom face
-//                 4, 5, 6,  6, 7, 4, // Top face
-//                 0, 4, 7,  7, 3, 0, // Left face
-//                 1, 5, 6,  6, 2, 1, // Right face
-//                 3, 2, 6,  6, 7, 3, // Front face
-//                 0, 1, 5,  5, 4, 0  // Back face
-//             };
+                // Calculate squared distance
+                float distanceSquared = transformedPos.sqrMagnitude;
 
-//             // Add indices to the list
-//             for (int i = 0; i < cubeIndices.Length; i++)
-//             {
-//                 indices.Add(baseIndex + cubeIndices[i]);
-//             }
-//         }
+                // Adjust opacity calculation to include the / 2.0f factor
+                float opacity = splat.opacity * Mathf.Exp(-distanceSquared / 2.0f);
+                accumulatedOpacity += opacity;
 
-//         private void GeneratePoint(OctreeNode node, List<Vertex> vertices, List<int> indices) {
-//             Vector3 center = node.m_VertexPosition.Value;
+                float actualDistance = offset.sqrMagnitude;
+                minDistance = Mathf.Min(minDistance, actualDistance);
+            }
+        
+            return accumulatedOpacity > 0.01 ? accumulatedOpacity : -minDistance;
+    }
 
-//             // Define the 8 cube vertices
-//             Vector3[] verts = new Vector3[]
-//             {
-//                 new Vector3(center.x + 0.02f, center.y, center.z), // 0
-//                 new Vector3(center.x, center.y + 0.02f, center.z),  // 1
-//                 new Vector3(center.x, center.y, center.z + 0.02f),   // 2
-//             };
+    private Vector3 CalculateGridPointForce(Vector3 gridPoint)
+    {
+        Vector3 totalForce = Vector3.zero;
+        int intersectionCount = 0;
 
-//             // Add vertices to the list
-//             int baseIndex = vertices.Count;
-//             for (int i = 0; i < verts.Length; i++)
-//             {
-//                 vertices.Add(new Vertex { position = verts[i] });
-//             }
+        for (int i = 0; i < 12; i++)
+        {
+            if (m_HasIntersection[i])
+            {
+                Vector3 normal = m_EdgeGradients[i];
+                float distance = Vector3.Dot(normal, m_EdgeIntersections[i] - gridPoint);
+                totalForce += normal * distance;
+                intersectionCount++;
+            }
+        }
 
-//             int[] cubeIndices = new int[]
-//             {
-//                 0, 1, 2
-//             };
+        return intersectionCount > 0 ? totalForce / intersectionCount : Vector3.zero;
+    }
 
-//             // Add indices to the list
-//             for (int i = 0; i < cubeIndices.Length; i++)
-//             {
-//                 indices.Add(baseIndex + cubeIndices[i]);
-//             }
-//         }
+    private Vector3 InterpolateForce(Vector3 position, Vector3[] gridForces)
+    {
+        Vector3 C = transform.InverseTransformPoint(position) + transform.localScale / 2;
+        Vector3 L = transform.localScale;
 
+        float ratioX = C.x / L.x;
+        float ratioY = C.y / L.y;
+        float ratioZ = C.z / L.z;
 
+        Vector3 Fl1 = (1 - ratioX) * gridForces[0] + ratioX * gridForces[1];
+        Vector3 Fl2 = (1 - ratioX) * gridForces[3] + ratioX * gridForces[2];
+        Vector3 Fl3 = (1 - ratioX) * gridForces[4] + ratioX * gridForces[5];
+        Vector3 Fl4 = (1 - ratioX) * gridForces[7] + ratioX * gridForces[6];
 
-//         private void GenerateFacesBetweenChildren(OctreeNode node, List<int> indices)
-//         {
-//             if (node.m_Children == null || node.m_Children.Length != 8)
-//                 return;
+        Vector3 Fb1 = (1 - ratioY) * Fl1 + ratioY * Fl3;
+        Vector3 Fb2 = (1 - ratioY) * Fl2 + ratioY * Fl4;
 
-//             // Table for face checking: each entry contains 4 indices representing corners of a face
-//             int[,] faceTable = new int[,]
-//             {
-//                 // Faces along X axis (left to right)
-//                 {0, 2, 4, 6}, // left face
-//                 {1, 3, 5, 7}, // right face
-//                 // Faces along Y axis (bottom to top)
-//                 {0, 1, 4, 5}, // bottom face
-//                 {2, 3, 6, 7}, // top face
-//                 // Faces along Z axis (back to front)
-//                 {0, 1, 2, 3}, // back face
-//                 {4, 5, 6, 7}  // front face
-//             };
+        return (1 - ratioZ) * Fb1 + ratioZ * Fb2;
+    }
 
-//             // Check each face
-//             for (int face = 0; face < 6; face++)
-//             {
-//                 OctreeNode[] faceNodes = new OctreeNode[4];
-//                 bool validFace = true;
+    private void InitializeCubeVertices()
+    {
+        Vector3 halfSize = Vector3.one * 0.5f;
+        m_CubeVertices[0] = TransformPoint(new Vector3(-halfSize.x, -halfSize.y, -halfSize.z));
+        m_CubeVertices[1] = TransformPoint(new Vector3(halfSize.x, -halfSize.y, -halfSize.z));
+        m_CubeVertices[2] = TransformPoint(new Vector3(halfSize.x, -halfSize.y, halfSize.z));
+        m_CubeVertices[3] = TransformPoint(new Vector3(-halfSize.x, -halfSize.y, halfSize.z));
+        m_CubeVertices[4] = TransformPoint(new Vector3(-halfSize.x, halfSize.y, -halfSize.z));
+        m_CubeVertices[5] = TransformPoint(new Vector3(halfSize.x, halfSize.y, -halfSize.z));
+        m_CubeVertices[6] = TransformPoint(new Vector3(halfSize.x, halfSize.y, halfSize.z));
+        m_CubeVertices[7] = TransformPoint(new Vector3(-halfSize.x, halfSize.y, halfSize.z));
+    }
 
-//                 // Get the 4 nodes that make up this face
-//                 for (int i = 0; i < 4; i++)
-//                 {
-//                     int nodeIndex = faceTable[face, i];
-//                     if (nodeIndex >= 0 && nodeIndex < 8 && node.m_Children[nodeIndex] != null)
-//                     {
-//                         faceNodes[i] = node.m_Children[nodeIndex];
-//                     }
-//                     else
-//                     {
-//                         validFace = false;
-//                         break;
-//                     }
-//                 }
+    private Vector3? GetCentroid()
+    {
+        int intersectionCount = 0;
+        Vector3 centroid = Vector3.zero;
 
-//                 if (!validFace) continue;
+        for (int i = 0; i < 12; i++)
+        {
+            if (m_HasIntersection[i])
+            {
+                centroid += m_EdgeIntersections[i];
+                intersectionCount++;
+            }
+        }
 
-//                 // Check if all nodes have valid vertices
-//                 bool allNodesHaveVertices = true;
-//                 for (int i = 0; i < 4; i++)
-//                 {
-//                     if (faceNodes[i].m_VertexIndex == -1)
-//                     {
-//                         allNodesHaveVertices = false;
-//                         break;
-//                     }
-//                 }
+        if (intersectionCount == 0)
+        {
+            m_HasValidVertex = false;
+            return null;
+        }
 
-//                 if (!allNodesHaveVertices) continue;
+        centroid /= intersectionCount;
+        return centroid;
+    }
 
-//                 // Generate two triangles for the face
-//                 // First triangle
-//                 indices.Add(faceNodes[0].m_VertexIndex);
-//                 indices.Add(faceNodes[1].m_VertexIndex);
-//                 indices.Add(faceNodes[2].m_VertexIndex);
+    private Vector3 ClampWithinCube(Vector3 worldPos)
+    {
+        Vector3 localPos = transform.InverseTransformPoint(worldPos);
+        Vector3 halfExtents = transform.localScale / 2;
 
-//                 // Second triangle
-//                 indices.Add(faceNodes[1].m_VertexIndex);
-//                 indices.Add(faceNodes[3].m_VertexIndex);
-//                 indices.Add(faceNodes[2].m_VertexIndex);
-//             }
-//         }
+        localPos.x = Mathf.Clamp(localPos.x, -halfExtents.x, halfExtents.x);
+        localPos.y = Mathf.Clamp(localPos.y, -halfExtents.y, halfExtents.y);
+        localPos.z = Mathf.Clamp(localPos.z, -halfExtents.z, halfExtents.z);
 
-//         private void BuildOctree(OctreeNode node, Settings settings, System.Random random, List<SplatData> splats)
-//         {
-//             if (node.ShouldSplitNode(settings, random, splats))
-//             {
-//                 node.SubdivideNode(splats);
-//                 foreach (var child in node.m_Children)
-//                     BuildOctree(child, settings, random, splats);
-//             }
-//         }
+        return transform.TransformPoint(localPos);
+    }
 
+    private void FindOptimalVertex()
+    {
+        if (GetCentroid() is not Vector3 centroid)
+            return;
 
-//         public unsafe override void Generate(SharedComputeContext context, ref Vertex[] vertexList, ref int[] indexList)
-//         {
-//             Vector3 size = context.gsSplatData.boundsMax - context.gsSplatData.boundsMin;
-//             Vector3 center = (context.gsSplatData.boundsMax + context.gsSplatData.boundsMin) * 0.5f;
-//             m_Root = new OctreeNode(new Bounds(center, size), 0);
+        Vector3[] gridForces = new Vector3[8];
+        for (int i = 0; i < 8; i++)
+        {
+            gridForces[i] = CalculateGridPointForce(m_CubeVertices[i]);
+        }
 
-//             int splatCount = context.gsSplatData.gsSplatCount;
-//             int itemsPerDispatch = 65535;
+        Vector3 particlePos = centroid;
+        Vector3 prevPos = particlePos;
 
-//             SplatData[] splatArray = new SplatData[splatCount];
+        for (int iter = 0; iter < m_ParticleIterations; iter++)
+        {
+            Vector3 force = InterpolateForce(particlePos, gridForces) * m_ForceScale;
+            particlePos += force;
+            particlePos = ClampWithinCube(particlePos);
 
-//             using (ComputeBuffer IcosahedronBuffer = new ComputeBuffer(splatCount, sizeof(SplatData)))
-//             {
-//                 IcosahedronBuffer.SetData(splatArray);
-//                 SetupComputeShader(context, IcosahedronBuffer);
+            if ((particlePos - prevPos).sqrMagnitude < m_ConvergenceThreshold * m_ConvergenceThreshold)
+                break;
 
-//                 for (int i = 0; i < Mathf.CeilToInt((float)splatCount / itemsPerDispatch); i++)
-//                 {
-//                     int offset = i * itemsPerDispatch;
-//                     m_IcosahedronComputeShader.SetInt("_Offset", offset);
-//                     int currentDispatchSize = Mathf.Min(splatCount - offset, itemsPerDispatch);
-//                     m_IcosahedronComputeShader.Dispatch(0, currentDispatchSize, 1, 1);
-//                 }
+            prevPos = particlePos;
+        }
 
-//                 IcosahedronBuffer.GetData(splatArray);
-//             }
+        m_OptimalVertex = particlePos;
+        m_HasValidVertex = true;
+    }
 
-//             // Directly populate the list without looping
-//             m_Root.m_SplatIds = Enumerable.Range(0, splatCount).ToList();
+    private Vector3 CalculateGradient(Vector3 position)
+    {
+        float epsilon = 0.0001f;
+        return new Vector3(
+            (ScalarField(position + new Vector3(epsilon, 0, 0)) - ScalarField(position - new Vector3(epsilon, 0, 0))) / (2 * epsilon),
+            (ScalarField(position + new Vector3(0, epsilon, 0)) - ScalarField(position - new Vector3(0, epsilon, 0))) / (2 * epsilon),
+            (ScalarField(position + new Vector3(0, 0, epsilon)) - ScalarField(position - new Vector3(0, 0, epsilon))) / (2 * epsilon)
+        ).normalized;
+    }
 
-//             // Pass the correct type (List<SplatData>) to BuildOctree
-//             List<SplatData> splatList = new List<SplatData>(splatArray);
-//             BuildOctree(m_Root, m_Settings, random, splatList);
+    private Vector3 TransformPoint(Vector3 localPoint)
+    {
+        return transform.TransformPoint(Vector3.Scale(localPoint, transform.localScale));
+    }
 
+    private Vector3 BinarySearchIntersection(Vector3 v1, Vector3 v2)
+    {
+        float f1 = ScalarField(v1);
+        float f2 = ScalarField(v2);
 
-//             // Add QEF solver for all leaf nodes that ContainSurface
-//             ProcessLeafNodes(m_Root, m_Settings, splatList);
+        Vector3 a = v1;
+        Vector3 b = v2;
 
-//             // Generate the final mesh
-//             List<Vertex> vertices = new List<Vertex>();
-//             List<int> indices = new List<int>();
-            
-//             GenerateMesh(m_Root, vertices, indices);
+        for (int i = 0; i < m_BinarySearchIterations; i++)
+        {
+            Vector3 mid = (a + b) * 0.5f;
+            float fmid = ScalarField(mid);
 
-//             vertexList = vertices.ToArray();
-//             indexList = indices.ToArray();
-//         }
+            if (Mathf.Abs(fmid) < 1e-6f)
+                return mid;
 
-//         private void ProcessLeafNodes(OctreeNode node, Settings settings, List<SplatData> splats)
-//         {
-//             if (node == null) return;
+            if (fmid * f1 < 0)
+            {
+                b = mid;
+                f2 = fmid;
+            }
+            else
+            {
+                a = mid;
+                f1 = fmid;
+            }
+        }
 
-//             if (node.m_IsLeaf)
-//             {
-//                 if (node.m_ContainsSurface)
-//                 {
-//                     // node.GenerateVertexPosition(settings, splats);
-//                 }
-//             }
-//             else
-//             {
-//                 foreach (var child in node.m_Children)
-//                 {
-//                     ProcessLeafNodes(child, settings, splats);
-//                 }
-//             }
-//         }
+        return (a + b) * 0.5f;
+    }
+
+    private void FindEdgeIntersections()
+    {
+        for (int i = 0; i < 12; i++)
+        {
+            Vector3 v1 = m_CubeVertices[edges[i, 0]];
+            Vector3 v2 = m_CubeVertices[edges[i, 1]];
+
+            float f1 = ScalarField(v1);
+            float f2 = ScalarField(v2);
+            Debug.Log($"{f1}, {f2}");
+
+            if (f1 * f2 < 0)
+            {
+                m_EdgeIntersections[i] = BinarySearchIntersection(v1, v2);
+                m_EdgeGradients[i] = CalculateGradient(m_EdgeIntersections[i]);
+                m_HasIntersection[i] = true;
+            }
+            else
+            {
+                m_HasIntersection[i] = false;
+            }
+        }
+    }
+}
 
 
-//         private void SetupComputeShader(SharedComputeContext context, ComputeBuffer IcosahedronBuffer)
-//         {
-//             m_IcosahedronComputeShader.SetFloat("_GlobalScaleFactor", m_Settings.scale);
-//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatPos", context.gsPosData);
-//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatOther", context.gsOtherData);
-//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatSH", context.gsSHData);
-//             m_IcosahedronComputeShader.SetBuffer(0, "_SplatChunks", context.gsChunks);
-//             m_IcosahedronComputeShader.SetInt("_SplatChunkCount", context.gsChunksValid ? context.gsChunks.count : 0);
-//             uint format = (uint)context.gsSplatData.posFormat | ((uint)context.gsSplatData.scaleFormat << 8) | ((uint)context.gsSplatData.shFormat << 16);
-//             m_IcosahedronComputeShader.SetInt("_SplatFormat", (int)format);
-//             m_IcosahedronComputeShader.SetTexture(0, "_SplatColor", context.gsColorData);
-//             m_IcosahedronComputeShader.SetBuffer(0, "_IcosahedronBuffer", IcosahedronBuffer);
-//         }
-//     }
-// }
+
+
+[CustomEditor(typeof(DualTest))]
+public class DualTestEditor : Editor
+{
+    public override void OnInspectorGUI()
+    {
+        DrawDefaultInspector();
+
+        DualTest script = (DualTest)target;
+        if (GUILayout.Button("Initialize"))
+        {
+            script.Initialize();
+        }
+
+        if (GUILayout.Button("Bake"))
+        {
+            script.Bake();
+        }
+    }
+}

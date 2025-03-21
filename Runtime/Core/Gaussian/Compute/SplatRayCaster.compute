@@ -1,0 +1,257 @@
+// // SPDX-License-Identifier: MIT
+// #define GROUP_SIZE 1024
+
+// #pragma kernel CSSetIndices
+// #pragma kernel CSCalcDistances
+// #pragma kernel CSCalcViewData
+// #pragma kernel CSUpdateEditData
+// #pragma kernel CSInitEditData
+// #pragma kernel CSClearBuffer
+// #pragma kernel CSInvertSelection
+// #pragma kernel CSSelectAll
+// #pragma kernel CSOrBuffers
+// #pragma kernel CSSelectionUpdate
+// #pragma kernel CSTranslateSelection
+// #pragma kernel CSRotateSelection
+// #pragma kernel CSScaleSelection
+// #pragma kernel CSExportData
+// #pragma kernel CSCopySplats
+
+// // DeviceRadixSort
+// #pragma kernel InitDeviceRadixSort
+// #pragma kernel Upsweep
+// #pragma kernel Scan
+// #pragma kernel Downsweep
+
+// // GPU sorting needs wave ops
+// #pragma require wavebasic
+
+// #pragma use_dxc
+
+// #include "DeviceRadixSort.hlsl"
+// #include "GaussianSplatting.hlsl"
+// #include "ColorUtils.hlsl"
+// #include "SplatModifiers.hlsl"
+
+
+
+// // radix sort etc. friendly, see http://stereopsis.com/radix.html
+// uint FloatToSortableUint(float f)
+// {
+//     uint fu = asuint(f);
+//     uint mask = -((int)(fu >> 31)) | 0x80000000;
+//     return fu ^ mask;
+// }
+
+// [numthreads(GROUP_SIZE,1,1)]
+// void CSSetIndices (uint3 id : SV_DispatchThreadID)
+// {
+//     uint idx = id.x;
+//     if (idx >= _SplatCount)
+//         return;
+
+//     _SplatSortKeys[idx] = idx;
+// }
+
+// [numthreads(GROUP_SIZE,1,1)]
+// void CSCalcDistances (uint3 id : SV_DispatchThreadID)
+// {    
+//     uint idx = id.x;
+//     if (idx >= _SplatCount)
+//         return;
+
+//     SplatLink currentSplat = LoadSplatLink(id);
+
+//     if (ShouldRemoveSplat(currentSplat)) 
+//         return;
+
+//     uint origIdx = _SplatSortKeys[idx];
+
+//     float3 pos;
+//     if (CanIgnoreModifiers(currentSplat)) {
+//         pos = LoadSplatPos(origIdx);
+//     } else {
+//         SplatData splat = LoadSplatData(origIdx);
+//         Tetrahedron baseTetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
+//         pos = translatePoint(origIdx, (baseTetra.v0 + baseTetra.v1 + baseTetra.v2 + baseTetra.v3) / 4.0).pos;
+//     }
+
+//     pos = mul(_MatrixMV, float4(pos.xyz, 1)).xyz;
+
+//     _SplatSortDistances[idx] = FloatToSortableUint(pos.z);
+// }
+
+// RWStructuredBuffer<SplatViewData> _SplatViewData;
+
+// float _SplatScale;
+// float _SplatOpacityScale;
+// uint _SHOrder;
+// uint _SHOnly;
+
+// uint _SplatCutoutsCount;
+
+// #define SPLAT_CUTOUT_TYPE_ELLIPSOID 0
+// #define SPLAT_CUTOUT_TYPE_BOX 1
+
+// struct GaussianCutoutShaderData // match GaussianCutout.ShaderData in C#
+// {
+//     float4x4 mat;
+//     uint typeAndFlags;
+// };
+// StructuredBuffer<GaussianCutoutShaderData> _SplatCutouts;
+
+// RWByteAddressBuffer _SplatSelectedBits;
+// ByteAddressBuffer _SplatDeletedBits;
+// uint _SplatBitsValid;
+
+// void DecomposeCovariance(float3 cov2d, out float2 v1, out float2 v2)
+// {
+//     #if 0 // does not quite give the correct results?
+
+//     // https://jsfiddle.net/mattrossman/ehxmtgw6/
+//     // References:
+//     // - https://www.youtube.com/watch?v=e50Bj7jn9IQ
+//     // - https://en.wikipedia.org/wiki/Eigenvalue_algorithm#2%C3%972_matrices
+//     // - https://people.math.harvard.edu/~knill/teaching/math21b2004/exhibits/2dmatrices/index.html
+//     float a = cov2d.x;
+//     float b = cov2d.y;
+//     float d = cov2d.z;
+//     float det = a * d - b * b; // matrix is symmetric, so "c" is same as "b"
+//     float trace = a + d;
+
+//     float mean = 0.5 * trace;
+//     float dist = sqrt(mean * mean - det);
+
+//     float lambda1 = mean + dist; // 1st eigenvalue
+//     float lambda2 = mean - dist; // 2nd eigenvalue
+
+//     if (b == 0) {
+//         // https://twitter.com/the_ross_man/status/1706342719776551360
+//         if (a > d) v1 = float2(1, 0);
+//         else v1 = float2(0, 1);
+//     } else
+//         v1 = normalize(float2(b, d - lambda2));
+
+//     v1.y = -v1.y;
+//     // The 2nd eigenvector is just a 90 degree rotation of the first since Gaussian axes are orthogonal
+//     v2 = float2(v1.y, -v1.x);
+
+//     // scaling components
+//     v1 *= sqrt(lambda1);
+//     v2 *= sqrt(lambda2);
+
+//     float radius = 1.5;
+//     v1 *= radius;
+//     v2 *= radius;
+
+//     #else
+
+//     // same as in antimatter15/splat
+//     float diag1 = cov2d.x, diag2 = cov2d.z, offDiag = cov2d.y;
+//     float mid = 0.5f * (diag1 + diag2);
+//     float radius = length(float2((diag1 - diag2) / 2.0, offDiag));
+//     float lambda1 = mid + radius;
+//     float lambda2 = max(mid - radius, 0.1);
+//     float2 diagVec = normalize(float2(offDiag, lambda1 - diag1));
+//     diagVec.y = -diagVec.y;
+//     float maxSize = 4096.0;
+//     v1 = min(sqrt(2.0 * lambda1), maxSize) * diagVec;
+//     v2 = min(sqrt(2.0 * lambda2), maxSize) * float2(diagVec.y, -diagVec.x);
+
+//     #endif
+// }
+
+// bool IsSplatCut(float3 pos)
+// {
+//     bool finalCut = false;
+//     for (uint i = 0; i < _SplatCutoutsCount; ++i)
+//     {
+//         GaussianCutoutShaderData cutData = _SplatCutouts[i];
+//         uint type = cutData.typeAndFlags & 0xFF;
+//         if (type == 0xFF) // invalid/null cutout, ignore
+//             continue;
+//         bool invert = (cutData.typeAndFlags & 0xFF00) != 0;
+
+//         float3 cutoutPos = mul(cutData.mat, float4(pos, 1)).xyz;
+//         if (type == SPLAT_CUTOUT_TYPE_ELLIPSOID)
+//         {
+//             if (dot(cutoutPos, cutoutPos) <= 1) return invert;
+//         }
+//         if (type == SPLAT_CUTOUT_TYPE_BOX)
+//         {
+//             if (all(abs(cutoutPos) <= 1)) return invert;
+//         }
+//         finalCut |= !invert;
+//     }
+//     return finalCut;
+// }
+
+
+// [numthreads(GROUP_SIZE,1,1)]
+// void CSCalcViewData (uint3 id : SV_DispatchThreadID)
+// {
+//     uint idx = id.x;
+//     if (idx >= _SplatCount)
+//         return;
+
+//     SplatLink currentSplat = LoadSplatLink(idx);
+//     if (ShouldRemoveSplat(currentSplat)) {
+//         SplatViewData v;
+//         v.pos = float4(0,0,0,1);
+//         v.axis1 = float2(0,0);
+//         v.axis2 = float2(0,0);
+//         v.color = uint2(0,0);
+//         _SplatViewData[idx] = v;
+//         return;
+//     }
+
+//     SplatData splat = LoadSplatData(idx);
+//     SplatViewData view = (SplatViewData)0;
+
+//     bool ignoreModifiers = CanIgnoreModifiers(currentSplat);
+
+//     ModSplat modSplat;
+//     modSplat.pos = splat.pos;
+//     modSplat.rot = splat.rot;
+//     modSplat.scale = splat.scale;
+//     if (!ignoreModifiers) {
+//         modSplat = calcModSplat(idx, splat);
+//     }
+    
+//     float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(modSplat.pos ,1)).xyz;
+//     float4 centerClipPos = mul(_MatrixVP, float4(centerWorldPos, 1));
+//     half opacityScale = _SplatOpacityScale;
+//     float splatScale = _SplatScale;
+   
+//     view.pos = centerClipPos;
+//     bool behindCam = centerClipPos.w <= 0;
+//     if (!behindCam)
+//     {
+//         float3x3 splatRotScaleMat = CalcMatrixFromRotationScale(modSplat.rot, modSplat.scale * splatScale);
+
+//         float3 cov3d0, cov3d1;
+//         CalcCovariance3D(splatRotScaleMat, cov3d0, cov3d1);
+
+//         float3 cov2d = CalcCovariance2D(modSplat.pos, cov3d0, cov3d1, _MatrixMV, _MatrixP, _VecScreenParams, true);
+        
+//         DecomposeCovariance(cov2d, view.axis1, view.axis2);
+
+//         float3 worldViewDir = _VecWorldSpaceCameraPos.xyz - centerWorldPos;
+//         float3 objViewDir = mul((float3x3)_MatrixWorldToObject, worldViewDir);
+//         objViewDir = normalize(objViewDir);
+
+//         half4 col;
+//         col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
+//         col.a = min(splat.opacity * opacityScale, 65000);
+
+//         if (!ignoreModifiers) {
+//             // col = CustomColorMix(col, modSplat.color);
+//             col.rgb *= modSplat.color.rgb;
+//         }
+
+//         view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
+//         view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);
+//     }
+    
+//     _SplatViewData[idx] = view;
+// }

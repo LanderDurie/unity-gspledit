@@ -22,7 +22,8 @@ namespace UnityEngine.GsplEdit
             {
                 { GenType.Icosahedron, generatorHolder.AddComponent<IcosaehdronGen>() },
                 { GenType.MarchingCubes, generatorHolder.AddComponent<MarchingCubesGen>() },
-                { GenType.DualContouringGen, generatorHolder.AddComponent<DualContouringGen>() }
+                { GenType.DualContouringGen, generatorHolder.AddComponent<DualContouringGen>() },
+                { GenType.SurfaceNets, generatorHolder.AddComponent<SurfaceNetGen>() }
             };
         }
 
@@ -55,7 +56,7 @@ namespace UnityEngine.GsplEdit
             baseMesh.Optimize();
             baseMesh.RecalculateNormals();
             baseMesh.RecalculateBounds();
-            // MeshGenUtils.AutoUVUnwrap(ref baseMesh);
+            MeshGenUtils.AutoUVUnwrap(ref baseMesh);
 
 
             // Create and initialize the EditableMesh

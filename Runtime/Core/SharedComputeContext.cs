@@ -22,6 +22,7 @@ namespace UnityEngine.GsplEdit {
         [NonSerialized] public GraphicsBuffer scaffoldModVertex;
         [NonSerialized] public GraphicsBuffer scaffoldIndices;
         [NonSerialized] public ComputeBuffer scaffoldDeletedBits;
+        [NonSerialized] public Texture2D backwardColorTex;
 
         [NonSerialized] public ComputeBuffer forwardLinks;
         [NonSerialized] public RenderTexture offscreenBuffer;

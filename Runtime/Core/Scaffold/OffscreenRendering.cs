@@ -11,6 +11,7 @@ namespace UnityEngine.GsplEdit
         private SharedComputeContext m_Context;
         public Material m_SurfaceMaterial;
         public Mesh m_SurfaceMesh;
+        public Texture2D m_SurfaceColorTex;
         public Transform m_GlobalTransform;
         public bool m_ReceiveShadows;
         
@@ -352,6 +353,12 @@ private void ApplyFalloffEffect()
             if (m_SurfaceMesh == null || m_SurfaceMaterial == null) {
                 Debug.LogWarning("Surface mesh or material is not assigned.");
                 return;
+            }
+
+            if (m_SurfaceColorTex != null) {
+                m_SurfaceMaterial.SetTexture("_MainTex", m_SurfaceColorTex);
+            } else {
+                Debug.LogWarning("m_SurfaceColorTex is null. Surface might render incorrectly.");
             }
 
             // Draw the surface mesh
