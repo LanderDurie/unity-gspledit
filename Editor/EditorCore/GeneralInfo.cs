@@ -29,10 +29,14 @@ namespace UnityEditor.GsplEdit {
             if (isLocked) {
                 if (GUILayout.Button("Exit Edit Mode")) {
                     isLocked = false;
+                    if (gs.GetMesh() != null)
+                        gs.GetMesh().m_DrawScaffoldMesh = false;
                 }
             } else {
                 if (GUILayout.Button("Enter Edit Mode")) {
                     isLocked = true;
+                    if (gs.GetMesh() != null)
+                        gs.GetMesh().m_DrawScaffoldMesh = true;
                 }
             }
         }

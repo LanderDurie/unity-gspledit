@@ -1,7 +1,6 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
-using Codice.Client.Common.TreeGrouper;
 
 namespace UnityEngine.GsplEdit
 {
@@ -13,16 +12,13 @@ namespace UnityEngine.GsplEdit
             public float scale = 2.0f;
             public float threshold = 0.01f;
             public int maxDepth = 5;
-            public int lod = 4;
-            // public uint samplesPerNode = 8;
-            // public float gradientVarianceThreshold = 0.2f;
         }
 
         public Settings m_Settings = new Settings();
         public ComputeShader m_IcosahedronComputeShader;
 
         private OctreeNode m_Root;
-        private System.Random random = new System.Random();
+        private Dictionary<EdgeKey, List<OctreeNode>> edgeMap;
 
         private static readonly int[,] edges = new int[,] {
             {0,1}, {1,2}, {2,3}, {3,0},  // bottom edges
@@ -32,9 +28,10 @@ namespace UnityEngine.GsplEdit
 
         public unsafe override void Generate(SharedComputeContext context, ref Vector3[] vertexList, ref int[] indexList)
         {
-            Vector3 size = context.gsSplatData.boundsMax - context.gsSplatData.boundsMin;
+            edgeMap = new Dictionary<EdgeKey, List<OctreeNode>>();
+            Vector3 size = (context.gsSplatData.boundsMax - context.gsSplatData.boundsMin) * 1.2f;
             Vector3 center = (context.gsSplatData.boundsMax + context.gsSplatData.boundsMin) * 0.5f;
-            m_Root = new OctreeNode(new Bounds(center, size), 0);
+            m_Root = new OctreeNode(null, new Bounds(center, size));
 
             int splatCount = context.gsSplatData.splatCount;
             int itemsPerDispatch = 65535;
@@ -62,47 +59,21 @@ namespace UnityEngine.GsplEdit
 
             // Pass the correct type (List<MeshUtils.SplatData>) to BuildOctree
             List<MeshUtils.SplatData> splatList = new List<MeshUtils.SplatData>(splatArray);
-
-            OctreeNode.Settings s = new();
-            s.maxDepth = m_Settings.maxDepth;
-            s.threshold = m_Settings.threshold;
-
-            OctreeNode.BuildOctree(m_Root, s, random, splatList);
-
-
-            // Add QEF solver for all leaf nodes that ContainSurface
-            ProcessLeafNodes(m_Root, m_Settings, splatList);
+            
+            
+            OctreeBuilder.BuildOctree(splatList, m_Root, m_Settings.maxDepth);
+            OctreeHullBuilder.ExtractHull(m_Root);
+            IterGen(m_Root, m_Settings.threshold, splatList);
 
             // Generate the final mesh
             List<Vector3> vertices = new List<Vector3>();
             List<int> indices = new List<int>();
             
-            OctreeNode.GenerateMesh(s, splatList, m_Root, vertices, indices);
+            OctreeMeshGen.Gen(vertices, indices, edgeMap);
 
             vertexList = vertices.ToArray();
             indexList = indices.ToArray();
         }
-
-        private void ProcessLeafNodes(OctreeNode node, Settings settings, List<MeshUtils.SplatData> splats)
-        {
-            if (node == null) return;
-
-            if (node.m_IsLeaf)
-            {
-                if (node.m_ContainsPotentialSurface)
-                {
-                    GenerateVertexPosition(node, settings, splats);
-                }
-            }
-            else
-            {
-                foreach (var child in node.m_Children)
-                {
-                    ProcessLeafNodes(child, settings, splats);
-                }
-            }
-        }
-
 
         private void SetupComputeShader(SharedComputeContext context, ComputeBuffer IcosahedronBuffer)
         {
@@ -118,12 +89,31 @@ namespace UnityEngine.GsplEdit
             m_IcosahedronComputeShader.SetBuffer(0, "_IcosahedronBuffer", IcosahedronBuffer);
         }
 
+        private void IterGen(OctreeNode currentNode, float threshold, List<MeshUtils.SplatData> splats) {
+            if (currentNode == null)
+                currentNode = m_Root;
 
-        private void GenerateVertexPosition(OctreeNode node, Settings settings, List<MeshUtils.SplatData> splatData) 
+            if (currentNode.m_ContainsSurface && currentNode.m_IsLeaf) {
+                GenerateVertexPosition(currentNode, threshold, splats);
+            }
+
+            if (!currentNode.m_IsLeaf) {
+                foreach(var child in currentNode.m_Children) {
+                    if (child != null) {
+                        IterGen(child, threshold, splats);
+                    }
+                }
+            }
+        }
+
+        public void GenerateVertexPosition(OctreeNode node, float threshold, List<MeshUtils.SplatData> splats) 
         {
             // Compute the cube vertices from node.m_Bounds
             Vector3 min = node.m_Bounds.min;
             Vector3 max = node.m_Bounds.max;
+
+            Vector3 closestCorner = new Vector3(0,0,0);
+            float closestCornerValue = float.MaxValue;
 
             Vector3[] cubeVertices = new Vector3[8]
             {
@@ -147,48 +137,72 @@ namespace UnityEngine.GsplEdit
                 Vector3 v1 = cubeVertices[edges[i, 0]];
                 Vector3 v2 = cubeVertices[edges[i, 1]];
 
-                float f1 = node.EvaluateSDF(v1, settings.threshold, splatData);
-                float f2 = node.EvaluateSDF(v2, settings.threshold, splatData);
-                
-                Debug.Log($"ScalarField values: {f1}, {f2}");
+                float f1 = node.EvaluateSDF(v1, threshold, splats);
+                float f2 = node.EvaluateSDF(v2, threshold, splats);
 
-                if (f1 * f2 < 0) // Check for sign change (zero crossing)
+                // Add node to edges
+                EdgeKey line;
+                if (f1 < f2) 
+                    line = new EdgeKey(v1, v2);
+                else
+                    line = new EdgeKey(v2, v1);
+
+                if (!edgeMap.ContainsKey(line))
                 {
-                    intersection[i] = BinarySearchIntersection(node, v1, v2, settings, splatData);
-                    // m_EdgeGradients[i] = CalculateGradient(m_EdgeIntersections[i]);
+                    // If edge doesn't exist, add it
+                    edgeMap[line] = new List<OctreeNode>();
+                }
+                edgeMap[line].Add(node);
+
+                // Vertex position for edge
+                if (f1 * f2 < 0) {
                     containsEdge[i] = true;
+                    intersection[i] = BinarySearchIntersection(node, v1, v2, threshold, splats);
+                    
                 }
                 else
                 {
                     containsEdge[i] = false;
+                    if (Math.Abs(f1) < closestCornerValue) {
+                        closestCorner = v1;
+                        closestCornerValue = Math.Abs(f1);
+                    }
+
+                    if (Math.Abs(f2) < closestCornerValue) {
+                        closestCorner = v2;
+                        closestCornerValue = Math.Abs(f2);
+                    }
                 }
             }
 
-            node.m_VertexPosition = new Vector3(0,0,0);
             int count = 0;
+            node.m_VertexPosition = new Vector3(0,0,0);
             for (int i = 0; i < 12; i++) {
                 if (containsEdge[i]) {
                     node.m_VertexPosition += intersection[i];
                     count++;
                 }
             }
+            
             if (count > 0) {
                 node.m_VertexPosition /= count;
+            } else {
+                node.m_VertexPosition = node.m_Bounds.center;
             }
         }
 
-        private Vector3 BinarySearchIntersection(OctreeNode node, Vector3 v1, Vector3 v2, Settings settings, List<MeshUtils.SplatData> splatData)
+        private Vector3 BinarySearchIntersection(OctreeNode node, Vector3 v1, Vector3 v2, float threshold, List<MeshUtils.SplatData> splats)
         {
-            float f1 = node.EvaluateSDF(v1, settings.threshold, splatData);
-            float f2 = node.EvaluateSDF(v2, settings.threshold, splatData);
+            float f1 = node.EvaluateSDF(v1, threshold, splats);
+            float f2 = node.EvaluateSDF(v2, threshold, splats);
 
             Vector3 a = v1;
             Vector3 b = v2;
 
-            for (int i = 0; i < 10; i++)
+            for (int i = 0; i < 20; i++)
             {
                 Vector3 mid = (a + b) * 0.5f;
-                float fmid = node.EvaluateSDF(mid, settings.threshold, splatData);
+                float fmid = node.EvaluateSDF(mid, threshold, splats);
 
                 if (Mathf.Abs(fmid) < 1e-6f)
                     return mid;

@@ -57,7 +57,7 @@ namespace UnityEditor.GsplEdit {
 
             if (GUILayout.Button("Bake Mesh")) {
                 gs.GenerateMesh();
-                gs.GenerateLinks();
+                gs.GenerateForwardLinks();
             }
 
             EditorGUI.BeginDisabledGroup(gs.GetMesh() == null); 
@@ -65,9 +65,14 @@ namespace UnityEditor.GsplEdit {
                 gs.GetMesh().ResetMesh();
             }
 
-            if (GUILayout.Button("Recreate Links")) {
-                gs.GenerateLinks();
+            if (GUILayout.Button("Extract Backward Links")) {
+                gs.GenerateBackwardLinks();
             }
+
+            if (GUILayout.Button("Recreate Forward Links")) {
+                gs.GenerateForwardLinks();
+            }
+
             EditorGUI.EndDisabledGroup();
         }
 
@@ -105,7 +110,6 @@ namespace UnityEditor.GsplEdit {
                 0.0f, 
                 1.0f
             );
-            meshGen.m_Settings.lod = EditorGUILayout.IntField("Level Of Detail", Mathf.Clamp(meshGen.m_Settings.lod, 4, 1000));
             meshGen.m_Settings.maxDepth = EditorGUILayout.IntField("Max Tree Depth", Mathf.Clamp(meshGen.m_Settings.maxDepth, 1, 100));
         }
 

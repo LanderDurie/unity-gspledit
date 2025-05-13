@@ -1,0 +1,27 @@
+#pragma kernel CSMain
+
+struct RayPayload
+{
+    float3 origin;
+    float3 direction;
+    int pixelX;
+    int pixelY;
+};
+
+StructuredBuffer<RayPayload> rays;
+RWTexture2D<float4> Result;
+
+[numthreads(64, 1, 1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= rays.Length) return;
+
+    RayPayload ray = rays[id.x];
+    float4 color = float4(0, 0, 0, 0);
+
+    // TODO: Custom GPU-side ray logic (sample splat structures, etc.)
+    // Simulate a hit color for testing:
+    color = float4(abs(ray.direction), 1.0);
+
+    Result[int2(ray.pixelX, ray.pixelY)] = color;
+}

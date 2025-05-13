@@ -1,6 +1,9 @@
 using System;
 
 namespace UnityEngine.GsplEdit {
+
+    public enum RenderPassType {Color, Depth, Normal};
+
     [Serializable]
     public class SharedComputeContext {
         // Serializable fields
@@ -15,19 +18,25 @@ namespace UnityEngine.GsplEdit {
         [NonSerialized] public GraphicsBuffer gsOtherData;
         [NonSerialized] public GraphicsBuffer gsSHData;
         [NonSerialized] public GraphicsBuffer gsChunks;
-        [NonSerialized] public Texture2D splatColorMap;
-        [NonSerialized] public Texture2D splatNormalMap;
         [NonSerialized] public Texture gsColorData;
         [NonSerialized] public GraphicsBuffer scaffoldBaseVertex;
         [NonSerialized] public GraphicsBuffer scaffoldModVertex;
         [NonSerialized] public GraphicsBuffer scaffoldIndices;
         [NonSerialized] public ComputeBuffer scaffoldDeletedBits;
+        [NonSerialized] public Texture2D backwardDepthTex;
+        [NonSerialized] public Texture2D backwardNormalTex;
         [NonSerialized] public Texture2D backwardColorTex;
+
+        [NonSerialized] public RenderPassType renderType;
 
         [NonSerialized] public ComputeBuffer forwardLinks;
         [NonSerialized] public RenderTexture offscreenBuffer;
         [NonSerialized] public Camera offscreenCam;
         [NonSerialized] public Mesh scaffoldMesh;
+
+        public SharedComputeContext() {
+            renderType = RenderPassType.Color;
+        }
 
         public bool AllValid() {
             return SplatDataValid() && SplatBuffersValid() && MeshValid();

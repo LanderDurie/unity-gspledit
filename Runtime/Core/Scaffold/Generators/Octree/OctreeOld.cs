@@ -1,4 +1,6 @@
 // using System.Collections.Generic;
+// using System.Diagnostics;
+// using System.Threading;
 
 // namespace UnityEngine.GsplEdit
 // {
@@ -7,8 +9,26 @@
 //         public class Settings
 //         {
 //             public float threshold = 0.01f;
-//             public int maxDepth = 5;
+//             public int maxDepth = 3;
 //         }
+
+//         public ComputeShader sdfComputeShader;
+//         public int threadGroupSize = 64;
+
+//         public static long m_Time = 0;
+//         Stopwatch stopwatch = new Stopwatch();
+
+//         struct SplatData
+//         {
+//             public Vector3 center;
+//             public Quaternion rot;
+//             public Vector3 scale;
+//             public float opacity;
+//         }
+
+//         ComputeBuffer inputPointsBuffer;
+//         ComputeBuffer splatsBuffer;
+//         ComputeBuffer outputBuffer;
 
 //         public Bounds m_Bounds;
 //         public List<int> m_SplatIds;
@@ -50,6 +70,7 @@
 
 //         public float EvaluateSDF(Vector3 point, float threshold, List<MeshUtils.SplatData> splats)
 //         {
+//             stopwatch.Restart();
 //             float accumulatedOpacity = 0f;
 //             float minDistance = float.MaxValue;
 
@@ -76,6 +97,7 @@
 //                 minDistance = Mathf.Min(minDistance, actualDistance);
 //             }
         
+//             m_Time += stopwatch.ElapsedTicks;
 //             return accumulatedOpacity > 0.01 ? accumulatedOpacity - threshold : -minDistance;
 //         }
 
@@ -271,58 +293,58 @@
 //             }
 //         }
         
-//         private static void GenerateCube(Settings settings, OctreeNode node, List<Vector3> vertices, List<int> indices, List<MeshUtils.SplatData> splats) {
+//         public static void GenerateCube(Settings settings, OctreeNode node, List<Vector3> vertices, List<int> indices, List<MeshUtils.SplatData> splats) {
 
-//             // Vector3 center = node.m_Bounds.center;
-//             // Vector3 extents = node.m_Bounds.extents;
-//             // Vector3[] cubeVertices = new Vector3[]
-//             // {
-//             //     center + new Vector3(-extents.x, -extents.y, -extents.z), // 0
-//             //     center + new Vector3(extents.x, -extents.y, -extents.z),  // 1
-//             //     center + new Vector3(extents.x, -extents.y, extents.z),   // 2
-//             //     center + new Vector3(-extents.x, -extents.y, extents.z),  // 3
-//             //     center + new Vector3(-extents.x, extents.y, -extents.z),  // 4
-//             //     center + new Vector3(extents.x, extents.y, -extents.z),   // 5
-//             //     center + new Vector3(extents.x, extents.y, extents.z),    // 6
-//             //     center + new Vector3(-extents.x, extents.y, extents.z)    // 7
-//             // };
+//             Vector3 center = node.m_Bounds.center;
+//             Vector3 extents = node.m_Bounds.extents;
+//             Vector3[] cubeVertices = new Vector3[]
+//             {
+//                 center + new Vector3(-extents.x, -extents.y, -extents.z), // 0
+//                 center + new Vector3(extents.x, -extents.y, -extents.z),  // 1
+//                 center + new Vector3(extents.x, -extents.y, extents.z),   // 2
+//                 center + new Vector3(-extents.x, -extents.y, extents.z),  // 3
+//                 center + new Vector3(-extents.x, extents.y, -extents.z),  // 4
+//                 center + new Vector3(extents.x, extents.y, -extents.z),   // 5
+//                 center + new Vector3(extents.x, extents.y, extents.z),    // 6
+//                 center + new Vector3(-extents.x, extents.y, extents.z)    // 7
+//             };
 
-//             // bool foundIn = false;
-//             // bool foundOut = false;
-//             // foreach(var corner in cubeVertices) {
-//             //     float value = node.EvaluateSDF(corner, settings.threshold, splats);
-//             //     if (value <= 0) {
-//             //         foundOut = true;
-//             //     } else {
-//             //         foundIn = true;
-//             //     }
-//             // }
+//             bool foundIn = false;
+//             bool foundOut = false;
+//             foreach(var corner in cubeVertices) {
+//                 float value = node.EvaluateSDF(corner, settings.threshold, splats);
+//                 if (value <= 0) {
+//                     foundOut = true;
+//                 } else {
+//                     foundIn = true;
+//                 }
+//             }
 
-//             // if (foundOut && foundIn) {
-//             //     // Add vertices to the list
-//             //     int baseIndex = vertices.Count;
-//             //     for (int a = 0; a < cubeVertices.Length; a++)
-//             //     {
-//             //         vertices.Add(cubeVertices[a]);
-//             //     }
+//             if (foundOut && foundIn) {
+//                 // Add vertices to the list
+//                 int baseIndex = vertices.Count;
+//                 for (int a = 0; a < cubeVertices.Length; a++)
+//                 {
+//                     vertices.Add(cubeVertices[a]);
+//                 }
 
-//             //     // Define the 12 triangles (two per face)
-//             //     int[] cubeIndices = new int[]
-//             //     {
-//             //         0, 1, 2,  2, 3, 0, // Bottom face
-//             //         4, 5, 6,  6, 7, 4, // Top face
-//             //         0, 4, 7,  7, 3, 0, // Left face
-//             //         1, 5, 6,  6, 2, 1, // Right face
-//             //         3, 2, 6,  6, 7, 3, // Front face
-//             //         0, 1, 5,  5, 4, 0  // Back face
-//             //     };
+//                 // Define the 12 triangles (two per face)
+//                 int[] cubeIndices = new int[]
+//                 {
+//                     0, 1, 2,  2, 3, 0, // Bottom face
+//                     4, 5, 6,  6, 7, 4, // Top face
+//                     0, 4, 7,  7, 3, 0, // Left face
+//                     1, 5, 6,  6, 2, 1, // Right face
+//                     3, 2, 6,  6, 7, 3, // Front face
+//                     0, 1, 5,  5, 4, 0  // Back face
+//                 };
 
-//             //     // Add indices to the list
-//             //     for (int a = 0; a < cubeIndices.Length; a++)
-//             //     {
-//             //         indices.Add(baseIndex + cubeIndices[a]);
-//             //     }
-//             // }
+//                 // Add indices to the list
+//                 for (int a = 0; a < cubeIndices.Length; a++)
+//                 {
+//                     indices.Add(baseIndex + cubeIndices[a]);
+//                 }
+//             }
             
 //             if (node.m_VertexPosition != null) {
 //                 vertices.Add((Vector3)node.m_VertexPosition);

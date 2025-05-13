@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using UnityEditor;
 
 namespace UnityEngine.GsplEdit
 {
@@ -44,20 +45,20 @@ namespace UnityEngine.GsplEdit
             // Generate vertex and index data
             m_Generators[m_SelectedType].Generate(m_Context, ref vertexList, ref indexList);
 
-            // Optimize the mesh
-            MeshGenUtils.OptimizeMesh(ref vertexList, ref indexList);
+            // Merge overlapping vertices and generate vertex normals
+            Vector3[] mergedNormals = new Vector3[vertexList.Length];
+            for (int i = 0; i < mergedNormals.Length; i++) {
+                mergedNormals[i] = Vector3.up;
+            }
+            MeshGenUtils.MergeOverlappingVertices(ref vertexList, ref indexList, ref mergedNormals);
 
-            // Debug.Log($"Mesh Generated: {vertexList.Length} vertices, {indexList.Length} indices.");
-
-            // Set Mesh
             Mesh baseMesh = new Mesh();
             baseMesh.vertices = vertexList;
             baseMesh.triangles = indexList;
-            baseMesh.Optimize();
             baseMesh.RecalculateNormals();
             baseMesh.RecalculateBounds();
-            MeshGenUtils.AutoUVUnwrap(ref baseMesh);
-
+            baseMesh = MeshGenUtils.UnwrapMesh(baseMesh);
+            Debug.Log(vertexList.Count());
 
             // Create and initialize the EditableMesh
             m_Context.scaffoldMesh = baseMesh;

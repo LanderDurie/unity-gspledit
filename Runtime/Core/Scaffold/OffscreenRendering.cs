@@ -14,6 +14,7 @@ namespace UnityEngine.GsplEdit
         public Texture2D m_SurfaceColorTex;
         public Transform m_GlobalTransform;
         public bool m_ReceiveShadows;
+        public EditableMesh.ModifierMode m_RenderMode;
         
         // New variables for falloff effect
         public Material m_FalloffMaterial;
@@ -303,51 +304,51 @@ namespace UnityEngine.GsplEdit
             }
         }
 
-private void ApplyFalloffEffect()
-{
-    // Skip if falloff material or textures are missing
-    if (m_FalloffMaterial == null || m_TempRenderTexture == null || m_Context.offscreenBuffer == null)
-    {
-        // Fallback to direct copy without edge falloff
-        if (m_TempRenderTexture != null && m_Context.offscreenBuffer != null)
+        private void ApplyFalloffEffect()
         {
-            // Clear destination first
-            RenderTexture.active = m_Context.offscreenBuffer;
-            GL.Clear(true, true, new Color(0, 0, 0, 0));
-            RenderTexture.active = null;
-            
-            Graphics.Blit(m_TempRenderTexture, m_Context.offscreenBuffer);
-        }
-        return;
-    }
+            // Skip if falloff material or textures are missing
+            if (m_FalloffMaterial == null || m_TempRenderTexture == null || m_Context.offscreenBuffer == null)
+            {
+                // Fallback to direct copy without edge falloff
+                if (m_TempRenderTexture != null && m_Context.offscreenBuffer != null)
+                {
+                    // Clear destination first
+                    RenderTexture.active = m_Context.offscreenBuffer;
+                    GL.Clear(true, true, new Color(0, 0, 0, 0));
+                    RenderTexture.active = null;
+                    
+                    Graphics.Blit(m_TempRenderTexture, m_Context.offscreenBuffer);
+                }
+                return;
+            }
 
-    try
-    {
-        // Clear the destination texture
-        RenderTexture.active = m_Context.offscreenBuffer;
-        GL.Clear(true, true, new Color(0, 0, 0, 0));
-        RenderTexture.active = null;
-        
-        // Render with the falloff shader to the final target
-        Graphics.Blit(m_TempRenderTexture, m_Context.offscreenBuffer, m_FalloffMaterial);
-        
-        // Important: release active render texture
-        RenderTexture.active = null;
-    }
-    catch (System.Exception e)
-    {
-        // If shader is incompatible, just do a straight blit
-        Debug.LogWarning("Error applying falloff effect: " + e.Message);
-        
-        // Clear the destination texture
-        RenderTexture.active = m_Context.offscreenBuffer;
-        GL.Clear(true, true, new Color(0, 0, 0, 0));
-        RenderTexture.active = null;
-        
-        Graphics.Blit(m_TempRenderTexture, m_Context.offscreenBuffer);
-        RenderTexture.active = null;
-    }
-}
+            try
+            {
+                // Clear the destination texture
+                RenderTexture.active = m_Context.offscreenBuffer;
+                GL.Clear(true, true, new Color(0, 0, 0, 0));
+                RenderTexture.active = null;
+                
+                // Render with the falloff shader to the final target
+                Graphics.Blit(m_TempRenderTexture, m_Context.offscreenBuffer, m_FalloffMaterial);
+                
+                // Important: release active render texture
+                RenderTexture.active = null;
+            }
+            catch (System.Exception e)
+            {
+                // If shader is incompatible, just do a straight blit
+                Debug.LogWarning("Error applying falloff effect: " + e.Message);
+                
+                // Clear the destination texture
+                RenderTexture.active = m_Context.offscreenBuffer;
+                GL.Clear(true, true, new Color(0, 0, 0, 0));
+                RenderTexture.active = null;
+                
+                Graphics.Blit(m_TempRenderTexture, m_Context.offscreenBuffer);
+                RenderTexture.active = null;
+            }
+        }
 
         private void DrawSurface() {
             if (m_SurfaceMesh == null || m_SurfaceMaterial == null) {
@@ -355,11 +356,15 @@ private void ApplyFalloffEffect()
                 return;
             }
 
-            if (m_SurfaceColorTex != null) {
-                m_SurfaceMaterial.SetTexture("_MainTex", m_SurfaceColorTex);
-            } else {
-                Debug.LogWarning("m_SurfaceColorTex is null. Surface might render incorrectly.");
+            if (m_Context.backwardNormalTex != null) {
+                m_SurfaceMaterial.SetTexture("_NormalTex", m_Context.backwardNormalTex);
             }
+
+            if (m_Context.backwardDepthTex != null) {
+                m_SurfaceMaterial.SetTexture("_DepthTex", m_Context.backwardDepthTex);
+            }
+
+            m_SurfaceMaterial.SetInt("_RenderMode", (int)m_RenderMode);
 
             // Draw the surface mesh
             Graphics.DrawMesh(

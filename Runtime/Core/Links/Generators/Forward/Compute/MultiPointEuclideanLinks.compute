@@ -4,6 +4,8 @@
 #include "../../../../Gaussian/Compute/SamplePoints.hlsl"
 #include "./Utils.hlsl"
 
+#pragma use_dxc
+
 struct Triangle {
     int v0;
     int v1;
@@ -14,35 +16,240 @@ RWStructuredBuffer<float3> _VertexBasePos;
 RWStructuredBuffer<Triangle> _MeshIndices;
 uint _IndexCount;
 uint _SplatCount;
-float _GlobalSigma;
-static const float MAX_DISTANCE = 1e30f;
+float _Sigma = 20;
+static const float MAX_DISTANCE = 1e127f;
 
+struct EncapsSplat {
+    float3 pos;
+    float3 scale;
+    float4 rot;
+};
+
+float3x3 QuaternionToMatrix(float4 q)
+{
+    float x = q.x, y = q.y, z = q.z, w = q.w;
+
+    float xx = x * x;
+    float yy = y * y;
+    float zz = z * z;
+    float xy = x * y;
+    float xz = x * z;
+    float yz = y * z;
+    float wx = w * x;
+    float wy = w * y;
+    float wz = w * z;
+
+    return float3x3(
+        1.0f - 2.0f * (yy + zz), 2.0f * (xy - wz),     2.0f * (xz + wy),
+        2.0f * (xy + wz),     1.0f - 2.0f * (xx + zz), 2.0f * (yz - wx),
+        2.0f * (xz - wy),     2.0f * (yz + wx),     1.0f - 2.0f * (xx + yy)
+    );
+}
+
+float4 MatrixToQuaternion(float3x3 m)
+{
+    float trace = m[0][0] + m[1][1] + m[2][2];
+    float4 q;
+
+    if (trace > 0.0f) {
+        float s = sqrt(trace + 1.0f) * 2.0f; // S = 4 * qw
+        q.w = 0.25f * s;
+        q.x = (m[2][1] - m[1][2]) / s;
+        q.y = (m[0][2] - m[2][0]) / s;
+        q.z = (m[1][0] - m[0][1]) / s;
+    }
+    else if ((m[0][0] > m[1][1]) && (m[0][0] > m[2][2])) {
+        float s = sqrt(1.0f + m[0][0] - m[1][1] - m[2][2]) * 2.0f; // S = 4 * qx
+        q.w = (m[2][1] - m[1][2]) / s;
+        q.x = 0.25f * s;
+        q.y = (m[0][1] + m[1][0]) / s;
+        q.z = (m[0][2] + m[2][0]) / s;
+    }
+    else if (m[1][1] > m[2][2]) {
+        float s = sqrt(1.0f + m[1][1] - m[0][0] - m[2][2]) * 2.0f; // S = 4 * qy
+        q.w = (m[0][2] - m[2][0]) / s;
+        q.x = (m[0][1] + m[1][0]) / s;
+        q.y = 0.25f * s;
+        q.z = (m[1][2] + m[2][1]) / s;
+    }
+    else {
+        float s = sqrt(1.0f + m[2][2] - m[0][0] - m[1][1]) * 2.0f; // S = 4 * qz
+        q.w = (m[1][0] - m[0][1]) / s;
+        q.x = (m[0][2] + m[2][0]) / s;
+        q.y = (m[1][2] + m[2][1]) / s;
+        q.z = 0.25f * s;
+    }
+
+    return normalize(q);
+}
+
+float3 ComputeSplatNormal(SplatData splat, float3 surfacePoint)
+{
+    float3x3 R = QuaternionToMatrix(normalize(splat.rot));     // Rotation matrix
+    float3 invScale2 = 1.0 / (splat.scale * splat.scale);       // 1/s^2
+
+    float3 offset = surfacePoint - splat.pos;
+
+    // Apply gradient formula: 2 * R * diag(1/s^2) * R^T * offset
+    float3 rotated = mul(transpose(R), offset);                 // into PCA space
+    float3 scaled = rotated * invScale2;                        // apply 1/s^2
+    float3 gradient = mul(R, scaled);                           // back to world space
+
+    return normalize(gradient); // outward-pointing surface normal
+}
+
+EncapsSplat ComputeEncapsulatingSplat(SplatData mainSplat, float3 anchorPos)
+{
+    float3 offset = anchorPos - mainSplat.pos;
+
+    // Step 1: Build PCA rotation matrix from main splat
+    float3x3 R = QuaternionToMatrix(normalize(mainSplat.rot));
+
+    // Step 2: Project offset into PCA frame
+    float3 projectedOffset = mul(transpose(R), offset); // PCA space
+
+    // Step 3: Estimate true surface normal on Gaussian shell
+    float3 anchorNormal = ComputeSplatNormal(mainSplat, anchorPos);
+
+    // Step 4: Construct local tangent-bitangent-normal frame
+    float3 tangent = normalize(cross(anchorNormal, float3(0.0, 1.0, 0.0)));
+    if (length(tangent) < 1e-4)
+        tangent = normalize(cross(anchorNormal, float3(1.0, 0.0, 0.0)));
+    float3 bitangent = normalize(cross(anchorNormal, tangent));
+
+    float3x3 newBasis = float3x3(tangent, bitangent, anchorNormal); // Columns
+
+    // Step 5: Estimate new scale from projected offset and original scale
+    float3 projectedPCA = abs(projectedOffset) * mainSplat.scale;
+    float3 newScale = max(projectedPCA, float3(0.01, 0.01, 0.01)); // Avoid zero scale
+
+    // Step 6: Convert basis to quaternion
+    float4 newQuat = MatrixToQuaternion(newBasis);
+
+    // Final encapsulating splat
+    EncapsSplat result;
+    result.pos = anchorPos;
+    result.scale = newScale;
+    result.rot = normalize(newQuat);
+    return result;
+}
+
+
+float calcPCAScore(EncapsSplat splat, float3 p) {
+    float meanSD = (splat.scale.x + splat.scale.y + splat.scale.z) / 3;
+    float threshold = 2.14 * meanSD;
+    float3 alpha = 3.0 / (1.86 * meanSD * 1.86 * meanSD); // Element-wise
+
+    // Step 1: Convert quaternion to PCA basis
+    float3x3 R = QuaternionToMatrix(normalize(splat.rot));
+
+    float3 offset = p - splat.pos;
+
+    // Step 3: Project offset onto PCA axes
+    float3 d;
+    d.x = abs(dot(offset, R[0]));
+    d.y = abs(dot(offset, R[1]));
+    d.z = abs(dot(offset, R[2]));
+
+    // Step 4: Apply smoothing
+    float3 decay = max(d - threshold, float3(0.0, 0.0, 0.0));
+    float3 delta = 1.0 - exp(-alpha * decay * decay);
+
+    float3 lambda = splat.scale;
+    float lambdaMax = max(max(lambda.x, lambda.y), lambda.z);
+    float3 adjustedLambda = lambda + (lambdaMax - lambda) * delta;
+
+    float3 frac = d / adjustedLambda;
+    float distSq = dot(frac, frac);
+    return distSq;
+}
+
+// Helper function to determine if a point is inside a triangle
+bool IsPointInTriangle(float3 p, float3 p1, float3 p2, float3 p3) {
+    // Barycentric coordinate approach
+    float3 v0 = p2 - p1;
+    float3 v1 = p3 - p1;
+    float3 v2 = p - p1;
+    
+    float d00 = dot(v0, v0);
+    float d01 = dot(v0, v1);
+    float d11 = dot(v1, v1);
+    float d20 = dot(v2, v0);
+    float d21 = dot(v2, v1);
+    
+    float denom = d00 * d11 - d01 * d01;
+    float v = (d11 * d20 - d01 * d21) / denom;
+    float w = (d00 * d21 - d01 * d20) / denom;
+    float u = 1.0 - v - w;
+    
+    return (u >= 0.0) && (v >= 0.0) && (w >= 0.0);
+}
+
+// Helper function to find closest point on a line segment
+float3 ClosestPointOnSegment(float3 p, float3 a, float3 b) {
+    float3 ab = b - a;
+    float t = dot(p - a, ab) / dot(ab, ab);
+    t = clamp(t, 0.0, 1.0);
+    return a + t * ab;
+}
+
+
+float FindMinimalScore(EncapsSplat splat, float3 p1, float3 p2, float3 p3) {
+
+    // 5. Calculate scores for each edge point
+    float score1 = calcPCAScore(splat, p1);
+    float score2 = calcPCAScore(splat, p2);
+    float score3 = calcPCAScore(splat, p3);
+    float total = score1 + score2 + score3;
+    score1 /= total;
+    score2 /= total;
+    score3 /= total;
+    float center = score1 * p1 + score2 * p2 + score3 * p3;
+    
+    return calcPCAScore(splat, center);
+
+    // // 6. Return the point with minimum score
+    // if (score1 <= score2 && score1 <= score3) return score1;
+    // else if (score2 <= score1 && score2 <= score3) return score2;
+    // else return score3;
+}
+
+
+bool contains(int list[8], int i) {
+    for (int j = 0; j < 8; j++) {
+        if (i == list[j]) {
+            return true;
+        }
+    }
+    return false;
+}
 [numthreads(128, 1, 1)]
 void OpacityContributions(uint3 id : SV_DispatchThreadID) {
     uint splatIndex = id.x;
     if (splatIndex >= _SplatCount) return;
     
     SplatData splat = LoadSplatData(splatIndex);
-    Tetrahedron tetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot, 100);
+    Tetrahedron tetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot, 2.14);
     
-    float3 tetraVertices[4];
-    tetraVertices[0] = tetra.v0;
-    tetraVertices[1] = tetra.v1;
-    tetraVertices[2] = tetra.v2;
-    tetraVertices[3] = tetra.v3;
-    
-    // For each vertex, store the 2 best triangles
-    float vertexMinDistances[4][2] = {
-        { MAX_DISTANCE, MAX_DISTANCE },
-        { MAX_DISTANCE, MAX_DISTANCE },
-        { MAX_DISTANCE, MAX_DISTANCE },
-        { MAX_DISTANCE, MAX_DISTANCE }
+    // Generate tetra splats
+    EncapsSplat tetraSplats[4];
+    tetraSplats[0] = ComputeEncapsulatingSplat(splat, tetra.v0);
+    tetraSplats[1] = ComputeEncapsulatingSplat(splat, tetra.v1);
+    tetraSplats[2] = ComputeEncapsulatingSplat(splat, tetra.v2);
+    tetraSplats[3] = ComputeEncapsulatingSplat(splat, tetra.v3);
+
+    // For each vertex, store the 8 best triangles
+    float minDistances[4][8] = {
+        { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE },
+        { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE },
+        { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE },
+        { MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE }
     };
-    int vertexMinIndices[4][2] = {
-        { -1, -1 },
-        { -1, -1 },
-        { -1, -1 },
-        { -1, -1 }
+    int minIds[4][8] = {
+        { -1, -1, -1, -1, -1, -1, -1, -1 },
+        { -1, -1, -1, -1, -1, -1, -1, -1 },
+        { -1, -1, -1, -1, -1, -1, -1, -1 },
+        { -1, -1, -1, -1, -1, -1, -1, -1 }
     };
     
     // First pass: find closest triangles for each vertex
@@ -52,85 +259,102 @@ void OpacityContributions(uint3 id : SV_DispatchThreadID) {
         float3 p1 = _VertexBasePos[t.v0];
         float3 p2 = _VertexBasePos[t.v1];
         float3 p3 = _VertexBasePos[t.v2];
-        float baseDist = length(splat.pos - ClosestPoint(splat.pos, p1, p2, p3));
 
-        // Check each tetrahedron vertex
-        for (uint v = 0; v < 4; v++) {
-            // Calculate distance from vertex to triangle
-            float distance = length(tetraVertices[v] - ClosestPoint(tetraVertices[v], p1, p2, p3));
-            distance = lerp(distance, baseDist, 0.7);
+        for (uint j = 0; j < 4; j++) {
+            // float pcaDist = length(splat.pos - ClosestPoint(splat.pos, p1, p2, p3));
+            float pcaDist = (FindMinimalScore(tetraSplats[j], p1, p2, p3));
+            float distance = length(splat.pos - ClosestPoint(splat.pos, p1, p2, p3));
+            // pcaDist = min(pcaDist, 10 * distance);
+            
 
-            // Check if this triangle is already assigned to another vertex
-            bool alreadyAssigned = false;
-            for (uint otherV = 0; otherV < 4; otherV++) {
-                if (otherV == v) continue;  // Skip the current vertex
-                
-                // Check if this triangle index is already assigned to another vertex
-                for (uint j = 0; j < 2; j++) {
-                    if (vertexMinIndices[otherV][j] == (int)i) {
-                        alreadyAssigned = true;
-                        break;
-                    }
-                }
-                if (alreadyAssigned) break;
-            }
-            
-            // Skip if already assigned to another vertex
-            if (alreadyAssigned) continue;
-            
-            // Check if this triangle is better than current choices for this vertex
-            for (uint j = 0; j < 2; j++) {
-                if (distance < vertexMinDistances[v][j]) {
-                    // Shift values if needed
-                    if (j == 0) {
-                        vertexMinDistances[v][1] = vertexMinDistances[v][0];
-                        vertexMinIndices[v][1] = vertexMinIndices[v][0];
-                    }
-                    
-                    // Insert the new triangle
-                    vertexMinDistances[v][j] = distance;
-                    vertexMinIndices[v][j] = i;
+
+            // Find insertion point
+            int insertPos = -1;
+            for (uint k = 0; k < LINK_COUNT; k++) {
+                if (pcaDist < minDistances[j][k]) {
+                    insertPos = k;
                     break;
                 }
             }
+            
+            // Shift elements and insert if we found a valid position
+            if (insertPos != -1) {
+                // Shift elements down
+                for (uint k = LINK_COUNT - 1; k > insertPos; k--) {
+                    minDistances[j][k] = minDistances[j][k-1];
+                    minIds[j][k] = minIds[j][k-1];
+                }
+                
+                // Insert new element
+                minDistances[j][insertPos] = pcaDist;
+                minIds[j][insertPos] = i;
+            }
+        }
+    }
+
+    // Select final unique IDs
+    int finalIds[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+    int currentId = 0;
+    
+    // First try to take the farthest links from each vertex (most unique)
+    for (uint i = 0; i < 4 && currentId < 8; i++) {
+        for (uint k = LINK_COUNT-1; k >= 0 && currentId < 8; k--) {
+            int candidate = minIds[i][k];
+            if (candidate == -1) continue;
+            
+            bool found = false;
+            for (uint l = 0; l < currentId; l++) {
+                if (finalIds[l] == candidate) {
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                finalIds[currentId] = candidate;
+                currentId++;
+            }
         }
     }
     
-    // Convert vertex-based arrays to the flat arrays needed for output
-    float minDistances[LINK_COUNT];
-    int minIndices[LINK_COUNT];
-    
-    for (uint v = 0; v < 4; v++) {
-        uint baseSlot = v * 2;
+    // Fill remaining slots with closest triangles not already included
+    for (uint i = currentId; i < 8; i++) {
+        float minDist = MAX_DISTANCE;
+        int minId = -1;
         
-        // Assign the two links for this vertex
-        minDistances[baseSlot] = vertexMinDistances[v][0];
-        minIndices[baseSlot] = vertexMinIndices[v][0];
+        for (uint j = 0; j < 4; j++) {
+            for (uint k = 0; k < 8; k++) {
+                if (minIds[j][k] == -1) continue;
+                
+                bool exists = false;
+                for (uint l = 0; l < currentId; l++) {
+                    if (finalIds[l] == minIds[j][k]) {
+                        exists = true;
+                        break;
+                    }
+                }
+                
+                if (!exists && minDistances[j][k] < minDist) {
+                    minDist = minDistances[j][k];
+                    minId = minIds[j][k];
+                }
+            }
+        }
         
-        minDistances[baseSlot + 1] = vertexMinDistances[v][1];
-        minIndices[baseSlot + 1] = vertexMinIndices[v][1];
-    }
-    
-    // Calculate total distance for normalization
-    float totalDist = 0.0;
-    for (uint j = 0; j < LINK_COUNT; j++) {
-        if (minIndices[j] >= 0 && minDistances[j] < MAX_DISTANCE) {
-            totalDist += minDistances[j];
+        if (minId != -1) {
+            finalIds[currentId] = minId;
+            currentId++;
+        } else {
+            break;  // No more unique triangles to add
         }
     }
-    
-    // Calculate weights and store results
+
     SplatLink splatLinks;
-    float sigmaSquared = _GlobalSigma * _GlobalSigma;
-    float threshold = 0.00001;
     
     [unroll]
     for (uint k = 0; k < LINK_COUNT; k++) {
-        float weight = (totalDist > 0.0) ? (1.0 - (minDistances[k] / totalDist)) : 0.0;
-        splatLinks.triangleIds[k] = (minIndices[k] >= 0 && weight > threshold) ? minIndices[k] : -1;
-        splatLinks.triangleWeights[k] = (minIndices[k] >= 0 && weight > threshold) ? weight : 0;
-        
-        // Store the barycentric coordinates (currently not utilized)
+        splatLinks.triangleIds[k] = finalIds[k];
+        splatLinks.triangleWeights[k] = 0;
         splatLinks.triangleX[k] = 0;
         splatLinks.triangleY[k] = 0;
     }

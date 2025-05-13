@@ -3,15 +3,24 @@ using UnityEngine.Rendering;
 
 namespace UnityEngine.GsplEdit {
     public class EditableMesh {
+
+        public enum ModifierMode {
+            All,
+            Color,
+            Normal,
+            Depth
+        }
+
         public GameObject m_DebugPlane;
         public Vector3 m_SelectedPos;
         public Vector3 m_SelectedScale;
         public Quaternion m_SelectedRot;
         public Transform m_GlobalTransform;
         public bool m_CastShadows = true;
-        public bool m_ReceiveShadows = true;
-        public bool m_ReceiveLighting = true;
+        public bool m_DynamicLighting = true;
         public bool m_DrawScaffoldMesh = false;
+        public bool m_OnlyModifiers = false;
+        public ModifierMode m_ModifierMode = ModifierMode.All;
         private ComputeShader m_CSEditMesh;
 
         private OffscreenRendering m_OffscreenRenderer;
@@ -52,9 +61,12 @@ namespace UnityEngine.GsplEdit {
                 m_Context.scaffoldMesh = new Mesh();
                 m_Context.scaffoldMesh.vertices = m_Context.scaffoldData.baseVertices;
                 m_Context.scaffoldMesh.triangles = m_Context.scaffoldData.indices;
+                m_Context.scaffoldMesh.OptimizeReorderVertexBuffer();
+                m_Context.scaffoldMesh.OptimizeIndexBuffers();
+                m_Context.scaffoldMesh.Optimize();
                 m_Context.scaffoldMesh.RecalculateNormals();
                 m_Context.scaffoldMesh.RecalculateBounds();
-                // MeshGenUtils.AutoUVUnwrap(ref m_Context.scaffoldMesh);
+                m_Context.scaffoldMesh = MeshGenUtils.UnwrapMesh(m_Context.scaffoldMesh);
             }
 
             // Recreate scaffold buffers
@@ -84,6 +96,9 @@ namespace UnityEngine.GsplEdit {
                 UnityEngine.Object.DestroyImmediate(m_Context.scaffoldMesh);
                 m_Context.scaffoldMesh = null;
             }
+
+            m_SelectionGroup?.Destroy();
+            m_ModifierSystem?.Destroy();
         }
 
         private bool IsValid() {
@@ -226,7 +241,7 @@ namespace UnityEngine.GsplEdit {
             m_Context.scaffoldMesh.vertices = modifiedVertices;
 
             // Recalculate normals and bounds
-            m_Context.scaffoldMesh.RecalculateNormals();
+            // m_Context.scaffoldMesh.RecalculateNormals();
             m_Context.scaffoldMesh.RecalculateBounds();
         }
 
@@ -365,17 +380,15 @@ namespace UnityEngine.GsplEdit {
                 DrawShadowCaster(cam);
             }
 
-            m_SurfaceMaterial.SetTexture("_MainTex", m_Context.splatColorMap);
-            m_SurfaceMaterial.SetTexture("_BumpMap", m_Context.splatNormalMap);
-            m_SurfaceMaterial.EnableKeyword("_NORMALMAP");
+            GSRenderSystem.instance.m_DynamicLighting = m_DynamicLighting;
+            GSRenderSystem.instance.m_OnlyModifiers = m_OnlyModifiers;
 
             m_OffscreenRenderer.m_DebugPlane = m_DebugPlane;
             m_OffscreenRenderer.m_SurfaceMesh = m_Context.scaffoldMesh;
             m_OffscreenRenderer.m_SurfaceMaterial = m_SurfaceMaterial;
-            m_OffscreenRenderer.m_SurfaceColorTex = m_Context.backwardColorTex;
             m_OffscreenRenderer.m_GlobalTransform = m_GlobalTransform;
-            m_OffscreenRenderer.m_ReceiveShadows = m_ReceiveShadows;
-            // m_OffscreenRenderer.m_PostProcessMaterial = m_PostProcessMaterial;
+            m_OffscreenRenderer.m_ReceiveShadows = m_DynamicLighting;
+            m_OffscreenRenderer.m_RenderMode = m_ModifierMode;
             m_OffscreenRenderer.Render(renderers, cam);
         }
     }

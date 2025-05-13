@@ -39,6 +39,10 @@ namespace UnityEngine.GsplEdit {
             }
         }
 
+        public void Dispose() {
+            Destroy();
+        }
+
         public void Destroy() {
             m_SelectedVerticesBuffer?.Dispose();
             m_SelectedVerticesBuffer = null;

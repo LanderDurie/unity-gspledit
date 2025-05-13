@@ -6,6 +6,8 @@ namespace UnityEditor.GsplEdit {
         private string[] m_TabNames = { "Object", "Renderer", "Generator", "Modifier", "Material" };
         private uint m_CurrentTabId = 0;
         private Tab[] m_Tabs;
+        private Vector2 m_ScrollPosition;
+
 
         public static EditorContainer Create() {
             EditorContainer instance = CreateInstance<EditorContainer>();
@@ -42,7 +44,10 @@ namespace UnityEditor.GsplEdit {
 
             m_CurrentTabId = (uint)GUILayout.SelectionGrid((int)m_CurrentTabId, m_TabNames, 4);
             DrawUtils.Separator();
+
+            m_ScrollPosition = EditorGUILayout.BeginScrollView(m_ScrollPosition);
             m_Tabs[m_CurrentTabId].Draw(gs);
+            EditorGUILayout.EndScrollView();
         }
     }
 }

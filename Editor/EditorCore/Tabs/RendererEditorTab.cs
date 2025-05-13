@@ -161,8 +161,9 @@ namespace UnityEditor.GsplEdit {
 
             // Shadow Toggles
             mesh.m_CastShadows = EditorGUILayout.Toggle(new GUIContent("Cast Shadows"), mesh.m_CastShadows);
-            mesh.m_ReceiveShadows = EditorGUILayout.Toggle(new GUIContent("Receive Lighting"), mesh.m_ReceiveShadows);
+            mesh.m_DynamicLighting = EditorGUILayout.Toggle(new GUIContent("Dynamic Lighting"), mesh.m_DynamicLighting);
             
+
             if (surfaceMaterial.HasProperty("_DiffuseComponent")) {
                 float diffuseComponent = surfaceMaterial.GetFloat("_DiffuseComponent");
                 diffuseComponent = EditorGUILayout.Slider(new GUIContent("Diffuse Component"), diffuseComponent, 0f, 1f);
@@ -180,7 +181,57 @@ namespace UnityEditor.GsplEdit {
                 ambientLight = EditorGUILayout.Slider(new GUIContent("Ambient Component"), ambientLight, 0f, 1f);
                 surfaceMaterial.SetFloat("_AmbientLight", ambientLight);
             }
+
+            if (surfaceMaterial.HasProperty("_NormalIntensity")) {
+                float normal = surfaceMaterial.GetFloat("_NormalIntensity");
+                normal = EditorGUILayout.Slider(new GUIContent("Normal Component"), normal, 0f, 1f);
+                surfaceMaterial.SetFloat("_NormalIntensity", normal);
+            }
+
+            if (surfaceMaterial.HasProperty("_DepthDisplacement")) {
+                float depth = surfaceMaterial.GetFloat("_DepthDisplacement");
+                depth = EditorGUILayout.Slider(new GUIContent("Depth Component"), depth, 0f, 1f);
+                surfaceMaterial.SetFloat("_DepthDisplacement", depth);
+            }
+
+            mesh.m_OnlyModifiers = EditorGUILayout.Toggle(new GUIContent("Only Color Modifiers"), mesh.m_OnlyModifiers);
             
+            if (mesh.m_OnlyModifiers) {
+                mesh.m_ModifierMode = (EditableMesh.ModifierMode)EditorGUILayout.EnumPopup(
+                    new GUIContent("Render Mode", "Choose the rendering mode"),
+                    mesh.m_ModifierMode
+                );
+            }
+
+            switch (mesh.m_ModifierMode)
+            {
+                case EditableMesh.ModifierMode.Depth:
+                    // Depth controls
+                    if (surfaceMaterial.HasProperty("_MinDepth")) {
+                        float minDepth = surfaceMaterial.GetFloat("_MinDepth");
+                        minDepth = EditorGUILayout.Slider(new GUIContent("Min Depth", "Minimum depth value for visualization"), minDepth, 0f, 1f);
+                        surfaceMaterial.SetFloat("_MinDepth", minDepth);
+                    }
+
+                    if (surfaceMaterial.HasProperty("_MaxDepth")) {
+                        float maxDepth = surfaceMaterial.GetFloat("_MaxDepth");
+                        maxDepth = EditorGUILayout.Slider(new GUIContent("Max Depth", "Maximum depth value for visualization"), maxDepth, 0f, 1f);
+                        surfaceMaterial.SetFloat("_MaxDepth", maxDepth);
+                    }
+                    break;
+
+                case EditableMesh.ModifierMode.Normal:
+                    // Normal controls
+                    if (surfaceMaterial.HasProperty("_NormalContrast")) {
+                        float normalContrast = surfaceMaterial.GetFloat("_NormalContrast");
+                        normalContrast = EditorGUILayout.Slider(
+                            new GUIContent("Normal Contrast", "Adjusts the contrast of normal map visualization"), 
+                            normalContrast, 0.1f, 4f);
+                        surfaceMaterial.SetFloat("_NormalContrast", normalContrast);
+                    }
+                    break;
+            }
+
 
             if (GUI.changed) {
                 EditorUtility.SetDirty(gs);

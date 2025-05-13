@@ -11,7 +11,7 @@ namespace UnityEngine.GsplEdit
             public float threshold = 0f;
             public float scale = 4f;
             public float cutoff = .999f;
-            public int lod = 64;
+            public int lod = 32;
         }
 
         [StructLayout(LayoutKind.Sequential)]

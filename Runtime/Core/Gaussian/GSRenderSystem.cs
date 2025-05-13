@@ -22,6 +22,12 @@ namespace UnityEngine.GsplEdit {
         CommandBuffer m_CommandBuffer;
         private SharedComputeContext m_Context;
 
+        public bool m_DynamicLighting = false;
+        public bool m_OnlyModifiers = false;
+        public bool m_ForceDepth = false;
+        public bool m_OrthoCamera = false;
+        public Vector3[] m_TriangleProj = new Vector3[6]; // v1, v2, v3, n1, n2, n3
+
         public void RegisterSplat(GSRenderer r, ref SharedComputeContext context) {
             if (m_Splats.Count == 0) {
                 if (GraphicsSettings.currentRenderPipeline == null) {
@@ -105,17 +111,24 @@ namespace UnityEngine.GsplEdit {
 
                 // cache view
                 kvp.Item2.Clear();
-                Material displayMat = gs.m_RenderMode switch {
+
+                Material displayMat;
+                displayMat = gs.m_RenderMode switch {
                     GSRenderer.RenderMode.DebugPoints => gs.m_MatDebugPoints,
                     GSRenderer.RenderMode.DebugPointIndices => gs.m_MatDebugPoints,
                     GSRenderer.RenderMode.DebugBoxes => gs.m_MatDebugBoxes,
                     GSRenderer.RenderMode.DebugChunkBounds => gs.m_MatDebugBoxes,
+                    GSRenderer.RenderMode.SplatDepth => gs.m_MatSplatDepth,
                     _ => gs.m_MatSplats
                 };
+
                 if (displayMat == null) {
                     continue;
                 }
+                
 
+                m_OrthoCamera = cam.orthographic;
+                
                 gs.SetAssetDataOnMaterial(mpb);
                 mpb.SetBuffer(GSRenderer.Props.SplatChunks, gs.m_SharedContext.gsChunks);
                 mpb.SetBuffer(GSRenderer.Props.SplatViewData, gs.m_GpuView);
@@ -133,6 +146,14 @@ namespace UnityEngine.GsplEdit {
                 mpb.SetFloat(GSRenderer.Props.SplatSize, gs.m_PointDisplaySize);
                 mpb.SetInteger(GSRenderer.Props.SHOrder, gs.m_SHOrder);
                 mpb.SetInteger(GSRenderer.Props.SHOnly, gs.m_SHOnly ? 1 : 0);
+                mpb.SetInteger(GSRenderer.Props.DynamicLighting, m_DynamicLighting ? 1 : 0);
+                mpb.SetInteger(GSRenderer.Props.OrthoCam, m_OrthoCamera ? 1 : 0);
+                mpb.SetInteger(GSRenderer.Props.OnlyModifiers, m_OnlyModifiers ? 1 : 0);
+                mpb.SetInteger(GSRenderer.Props.ForceDepth, m_ForceDepth ? 1 : 0);
+
+                gs.m_TriProjBuff.SetData(m_TriangleProj);
+                mpb.SetBuffer(GSRenderer.Props.TriangleProj, gs.m_TriProjBuff);
+
                 mpb.SetInteger(GSRenderer.Props.DisplayIndex, gs.m_RenderMode == GSRenderer.RenderMode.DebugPointIndices ? 1 : 0);
                 mpb.SetInteger(GSRenderer.Props.DisplayChunks, gs.m_RenderMode == GSRenderer.RenderMode.DebugChunkBounds ? 1 : 0);
 

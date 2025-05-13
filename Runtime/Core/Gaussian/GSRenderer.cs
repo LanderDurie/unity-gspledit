@@ -17,6 +17,7 @@ namespace UnityEngine.GsplEdit {
             DebugPointIndices,
             DebugBoxes,
             DebugChunkBounds,
+            SplatDepth
         }
 
         public float m_SplatScale = 1.0f;
@@ -34,13 +35,14 @@ namespace UnityEngine.GsplEdit {
         public Shader m_ShaderComposite;
         public Shader m_ShaderDebugPoints;
         public Shader m_ShaderDebugBoxes;
+        public Shader m_SplatDepthShader;
         [Tooltip("Gaussian splatting compute shader")]
         public ComputeShader m_CSSplatUtilities;
         GraphicsBuffer m_GpuSortDistances;
         internal GraphicsBuffer m_GpuSortKeys;
         internal GraphicsBuffer m_GpuView;
         internal GraphicsBuffer m_GpuIndexBuffer;
-
+        internal ComputeBuffer m_TriProjBuff; // 6 float3
         // these buffers are only for splat editing, and are lazily created
         GraphicsBuffer m_GpuEditCutouts;
         GraphicsBuffer m_GpuEditCountsBounds;
@@ -57,6 +59,7 @@ namespace UnityEngine.GsplEdit {
         internal Material m_MatComposite;
         internal Material m_MatDebugPoints;
         internal Material m_MatDebugBoxes;
+        internal Material m_MatSplatDepth;
 
         internal int m_FrameCounter;
         SplatData m_PrevAsset;
@@ -106,6 +109,11 @@ namespace UnityEngine.GsplEdit {
             public static readonly int SelectionMode = Shader.PropertyToID("_SelectionMode");
             public static readonly int SplatPosMouseDown = Shader.PropertyToID("_SplatPosMouseDown");
             public static readonly int SplatOtherMouseDown = Shader.PropertyToID("_SplatOtherMouseDown");
+            public static readonly int DynamicLighting = Shader.PropertyToID("_DynamicLighting");
+            public static readonly int OrthoCam = Shader.PropertyToID("_OrthoCam");
+            public static readonly int OnlyModifiers = Shader.PropertyToID("_OnlyModifiers");
+            public static readonly int ForceDepth = Shader.PropertyToID("_ForceDepth");
+            public static readonly int TriangleProj = Shader.PropertyToID("_TriangleProj");
         }
 
         [field: NonSerialized] public bool editModified { get; private set; }
@@ -148,6 +156,7 @@ namespace UnityEngine.GsplEdit {
             Shader shaderComposite,
             Shader shaderDebugPoints,
             Shader shaderDebugBoxes,
+            Shader shaderSplatDepth,
             ComputeShader csSplatUtilities
         ) {
 
@@ -159,10 +168,11 @@ namespace UnityEngine.GsplEdit {
             gsr.m_ShaderComposite = shaderComposite;
             gsr.m_ShaderDebugBoxes = shaderDebugBoxes;
             gsr.m_ShaderDebugPoints = shaderDebugPoints;
+            gsr.m_SplatDepthShader = shaderSplatDepth;
             gsr.m_CSSplatUtilities = csSplatUtilities;
 
             gsr.m_FrameCounter = 0;
-            if (gsr.m_ShaderSplats == null || gsr.m_ShaderComposite == null || gsr.m_ShaderDebugPoints == null || gsr.m_ShaderDebugBoxes == null || gsr.m_CSSplatUtilities == null) {
+            if (gsr.m_SplatDepthShader == null || gsr.m_ShaderSplats == null || gsr.m_ShaderComposite == null || gsr.m_ShaderDebugPoints == null || gsr.m_ShaderDebugBoxes == null || gsr.m_CSSplatUtilities == null) {
                 return null;
             }
             if (!SystemInfo.supportsComputeShaders)
@@ -172,6 +182,7 @@ namespace UnityEngine.GsplEdit {
             gsr.m_MatComposite = new Material(gsr.m_ShaderComposite) { name = "GaussianClearDstAlpha" };
             gsr.m_MatDebugPoints = new Material(gsr.m_ShaderDebugPoints) { name = "GaussianDebugPoints" };
             gsr.m_MatDebugBoxes = new Material(gsr.m_ShaderDebugBoxes) { name = "GaussianDebugBoxes" };
+            gsr.m_MatSplatDepth = new Material(gsr.m_SplatDepthShader) { name = "GaussianDebugBoxes" };
 
             gsr.m_Sorter = new GpuSorting(gsr.m_CSSplatUtilities);
             GSRenderSystem.instance.RegisterSplat(gsr, ref context);
@@ -225,6 +236,8 @@ namespace UnityEngine.GsplEdit {
                 0, 4, 1, 4, 5, 1,
                 2, 3, 6, 3, 7, 6
             });
+
+            m_TriProjBuff = new ComputeBuffer(6, sizeof(float) * 3);
 
             InitSortBuffers(m_SharedContext.gsSplatData.splatCount);
         }
@@ -325,6 +338,8 @@ namespace UnityEngine.GsplEdit {
             DisposeBuffer(ref m_GpuEditCutouts);
 
             m_SorterArgs.resources.Dispose();
+            m_TriProjBuff?.Dispose();
+            m_TriProjBuff = null;
 
             editSelectedSplats = 0;
             editDeletedSplats = 0;
@@ -369,6 +384,13 @@ namespace UnityEngine.GsplEdit {
             cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.SplatOpacityScale, m_OpacityScale);
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOrder, m_SHOrder);
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOnly, m_SHOnly ? 1 : 0);
+            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.DynamicLighting, GSRenderSystem.instance.m_DynamicLighting ? 1 : 0);
+            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.OrthoCam, GSRenderSystem.instance.m_OrthoCamera ? 1 : 0);
+            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.OnlyModifiers, GSRenderSystem.instance.m_OnlyModifiers ? 1 : 0);
+            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.ForceDepth, GSRenderSystem.instance.m_ForceDepth ? 1 : 0);
+
+            m_TriProjBuff.SetData(GSRenderSystem.instance.m_TriangleProj);
+            cmb.SetComputeBufferParam(m_CSSplatUtilities, (int)KernelIndices.CalcViewData, GSRenderer.Props.TriangleProj, m_TriProjBuff);
 
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.CalcViewData, out uint gsX, out _, out _);
             cmb.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcViewData, (m_GpuView.count + (int)gsX - 1) / (int)gsX, 1, 1);

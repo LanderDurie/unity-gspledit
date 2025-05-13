@@ -34,7 +34,6 @@
 #include "SplatModifiers.hlsl"
 
 
-
 // radix sort etc. friendly, see http://stereopsis.com/radix.html
 uint FloatToSortableUint(float f)
 {
@@ -87,7 +86,10 @@ float _SplatScale;
 float _SplatOpacityScale;
 uint _SHOrder;
 uint _SHOnly;
-
+uint _DynamicLighting;
+uint _OrthoCam;
+uint _OnlyModifiers;
+uint _ForceDepth;
 uint _SplatCutoutsCount;
 
 #define SPLAT_CUTOUT_TYPE_ELLIPSOID 0
@@ -186,7 +188,6 @@ bool IsSplatCut(float3 pos)
     return finalCut;
 }
 
-
 [numthreads(GROUP_SIZE,1,1)]
 void CSCalcViewData (uint3 id : SV_DispatchThreadID)
 {
@@ -211,43 +212,60 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     bool ignoreModifiers = CanIgnoreModifiers(currentSplat);
 
     ModSplat modSplat;
-    modSplat.pos = splat.pos;
+    modSplat.pos = float4(splat.pos, 1);
     modSplat.rot = splat.rot;
-    modSplat.scale = splat.scale;
-    if (!ignoreModifiers) {
+    modSplat.scale = float4(splat.scale, 1);
+    if (!ignoreModifiers && _ForceDepth == 0) {
         modSplat = calcModSplat(idx, splat);
     }
-    
-    float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(modSplat.pos ,1)).xyz;
+
+    float splatScale = _SplatScale;    
+
+    if (_ForceDepth != 0) {
+        modSplat = baryWarp(modSplat);
+    }
+
+    float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(modSplat.pos.xyz, 1)).xyz;
     float4 centerClipPos = mul(_MatrixVP, float4(centerWorldPos, 1));
     half opacityScale = _SplatOpacityScale;
-    float splatScale = _SplatScale;
-   
+
+
     view.pos = centerClipPos;
     bool behindCam = centerClipPos.w <= 0;
-    if (!behindCam)
+    if (!behindCam || _ForceDepth != 0)
     {
-        float3x3 splatRotScaleMat = CalcMatrixFromRotationScale(modSplat.rot, modSplat.scale * splatScale);
+
+        float3x3 splatRotScaleMat = CalcMatrixFromRotationScale(modSplat.rot, modSplat.scale.xyz * splatScale);
 
         float3 cov3d0, cov3d1;
         CalcCovariance3D(splatRotScaleMat, cov3d0, cov3d1);
 
-        float3 cov2d = CalcCovariance2D(modSplat.pos, cov3d0, cov3d1, _MatrixMV, _MatrixP, _VecScreenParams, true);
+        float3 cov2d = CalcCovariance2D(modSplat.pos, cov3d0, cov3d1, _MatrixMV, _MatrixP, _VecScreenParams, _OrthoCam != 0);
         
         DecomposeCovariance(cov2d, view.axis1, view.axis2);
 
-        float3 worldViewDir = _VecWorldSpaceCameraPos.xyz - centerWorldPos;
+        float3 worldViewDir = _VecWorldSpaceCameraPos.xyz - modSplat.pos;
         float3 objViewDir = mul((float3x3)_MatrixWorldToObject, worldViewDir);
-        objViewDir = normalize(objViewDir);
+        objViewDir = normalize(worldViewDir);
 
         half4 col;
         col.rgb = ShadeSH(splat.sh, objViewDir, _SHOrder, _SHOnly != 0);
         col.a = min(splat.opacity * opacityScale, 65000);
 
-        if (!ignoreModifiers) {
-            // col = CustomColorMix(col, modSplat.color);
-            col.rgb *= modSplat.color.rgb;
+        if (!ignoreModifiers && _DynamicLighting != 0 && _ForceDepth == 0) {
+            if (_OnlyModifiers != 0) {
+                col.rgb = modSplat.color.rgb;
+            } else {
+                col = CustomColorMix(col, modSplat.color);
+                col.rgb *= modSplat.color.rgb;
+            }
         }
+
+        if (_ForceDepth != 0) {
+            col.rgb = modSplat.color.rgb;
+            col.a *= modSplat.color.a;
+        }   
+
 
         view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
         view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);

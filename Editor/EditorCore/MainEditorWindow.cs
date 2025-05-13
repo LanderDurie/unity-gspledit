@@ -118,13 +118,19 @@ namespace UnityEditor.GsplEdit {
         }
 
         private void EnforceSelection() {
+            
+            if (m_SelectedGS != null && Selection.activeGameObject != m_SelectedGS.gameObject) {
+                m_IsLocked = false;
+                m_SelectedGS.GetMesh().m_DrawScaffoldMesh = false;
+            }
+
             if (m_IsLocked && m_SelectedGS != null && Selection.activeGameObject != m_SelectedGS.gameObject) {
                 if (Selection.activeGameObject != null && Selection.activeGameObject.GetComponent<DynamicSplat>() != null) {
                     m_SelectedGS = Selection.activeGameObject.GetComponent<DynamicSplat>();
                     m_Editor.Init(m_SelectedGS);
                 } else {
-                // Force the selection back to the selected object
-                Selection.activeGameObject = m_SelectedGS.gameObject;
+                    // Force the selection back to the selected object
+                    Selection.activeGameObject = m_SelectedGS.gameObject;
                 }
             }
         }

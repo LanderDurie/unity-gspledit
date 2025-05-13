@@ -37,6 +37,7 @@ namespace UnityEngine.GsplEdit {
         unsafe public void SetMesh(ref EditableMesh mesh) {
             m_Mesh = mesh;
             m_ModifierBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw | GraphicsBuffer.Target.CopySource, m_Context.scaffoldData.vertexCount, sizeof(Vector3)) { name = "ModifierVertices" };;
+            m_ModifierBuffer.SetData(new Vector3[m_Context.scaffoldData.vertexCount]); //Init 0
         }
 
         public void Destroy() {
@@ -125,17 +126,11 @@ namespace UnityEngine.GsplEdit {
             Vector3[] tempBuffer = new Vector3[m_Context.scaffoldModVertex.count];
             m_Context.scaffoldModVertex.GetData(tempBuffer);
             m_Context.scaffoldMesh.vertices = tempBuffer;
-            m_Context.scaffoldMesh.RecalculateNormals();
             m_Context.scaffoldMesh.RecalculateBounds();
         }
 
         public void BakeSnapshot() {
             // TODO
-            // Vector3[] tempBuffer = new Vector3[m_Context.scaffoldModVertex.count];
-            // m_Context.scaffoldModVertex.GetData(tempBuffer);
-            // m_Context.scaffoldBaseVertex.SetData(tempBuffer);
-            // m_Context.scaffoldData.baseVertices = m_Context.scaffoldData.modVertices;
-            // DisableAllGroups();
         }
 
         public void EnableAllGroups() {

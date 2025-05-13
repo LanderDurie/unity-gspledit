@@ -6,6 +6,7 @@
 #include "./SSSamplePoints.hlsl"
 #include "./SamplePoints.hlsl"
 #include "ColorUtils.hlsl"
+#include "tanc.hlsl"
 
 #ifndef QUATERNION_IDENTITY
 #define QUATERNION_IDENTITY float4(0, 0, 0, 1)
@@ -15,16 +16,20 @@
 #define PI 3.14159265359f
 #endif 
 
-static const float EPSILON = 1e-10;
+#ifndef EPSILON
+#define EPSILON 1e-6f
+#endif
+
 static const int MAX_ITERATIONS = 10;
 
 
 struct ModSplat {
-    float3 pos;
-    float4 rot;
-    float3 scale;
-    half4 color;
-};
+    float4 pos;     // 16 bytes
+    float4 rot;     // 16 bytes
+    float4 scale;   // 16 bytes (use .xyz)
+    float4 color;   // 16 bytes
+}; // 64 bytes total, fully aligned
+
 
 struct Triangle {
     int v0;
@@ -43,6 +48,7 @@ StructuredBuffer<float3> _VertexModPos;
 StructuredBuffer<Triangle> _MeshIndices;
 RWByteAddressBuffer _VertexDeletedBits;
 uint _IndexCount;
+StructuredBuffer<float3> _TriangleProj; // 6 float3s: v1, v2, v3, n1, n2, n3
 
 float4x4 _MatrixObjectToWorld;
 float4x4 _MatrixWorldToObject;
@@ -69,56 +75,32 @@ bool IsVertexDeleted(int vertexId) {
 }
 
 bool CanIgnoreModifiers(SplatLink currentSplat) {
-    // bool ignore = true;
-    // [unroll]
-    // for (int i = 0; i < 8; i++) {
-    //     // Check if valid triangle
-    //     int triangleId = currentSplat.triangleIds[i];
-    //     float triangleWeight = currentSplat.triangleWeights[i];
-    //     if (triangleId == -1 || triangleWeight <= 0) break; // Weights are sorted -> stop on first invalid
-
-    //     TriangleVerts tv;
-    //     Triangle t = _MeshIndices[triangleId];
-    //     tv.v0 = _VertexModPos[t.v0] - _VertexBasePos[t.v0];
-    //     tv.v1 = _VertexModPos[t.v1] - _VertexBasePos[t.v1];
-    //     tv.v2 = _VertexModPos[t.v2] - _VertexBasePos[t.v2];
-
-    //     if (length(tv.v0) > 0.00001 ||
-    //         length(tv.v1) > 0.00001 ||
-    //         length(tv.v2) > 0.00001) {
-    //         ignore = false;
-    //     }
-    // }
-    // return ignore;
     bool anyLinks = false;
     [unroll]
     for (int i = 0; i < 8; i++) {
         // Check if valid triangle
         int triangleId = currentSplat.triangleIds[i];
-        float triangleWeight = currentSplat.triangleWeights[i];
-        if (triangleId == -1 || triangleWeight <= 0) break; // Weights are sorted -> stop on first invalid
+        if (triangleId == -1) break; // Weights are sorted -> stop on first invalid
         anyLinks = true;
     }
     return !anyLinks;
 }
 
 bool ShouldRemoveSplat(SplatLink currentSplat, float threshold = 0.9999) {
-    float totalWeight = 0;
+    // float totalWeight = 0;
     bool anyLinks = false;
     [unroll]
     for (int i = 0; i < 8; i++) {
         // Check if valid triangle
         int triangleId = currentSplat.triangleIds[i];
-        float triangleWeight = currentSplat.triangleWeights[i];
-        if (triangleId == -1 || triangleWeight <= 0) break; // Weights are sorted -> stop on first invalid
+        if (triangleId == -1) break; // Weights are sorted -> stop on first invalid
 
         anyLinks = true;
         Triangle t = _MeshIndices[triangleId];
         if (IsVertexDeleted(t.v0) || IsVertexDeleted(t.v1) || IsVertexDeleted(t.v2)) return true;
-        totalWeight += triangleWeight;
 
     }
-    return anyLinks && totalWeight < threshold;
+    return !anyLinks;
 }
 
 
@@ -237,9 +219,6 @@ void JacobiEigenvalueDecomposition(float3x3 A, out float3 eigenvalues, out float
     // Copy input matrix (we'll modify it during iterations)
     float3x3 D = A;
     
-    const int MAX_ITERATIONS = 50;
-    const float EPSILON = 1e-16;
-    
     for (int iter = 0; iter < MAX_ITERATIONS; iter++)
     {
         // Find largest off-diagonal element
@@ -289,7 +268,7 @@ void JacobiEigenvalueDecomposition(float3x3 A, out float3 eigenvalues, out float
     eigenvalues.z = D[2][2];
 }
 
-bool fitSteinerCircumellipsoid(Tetrahedron t, inout ModSplat result)
+ModSplat fitSteinerCircumellipsoid(Tetrahedron t)
 {
     // Compute centroid
     float3 center = (t.v0 + t.v1 + t.v2 + t.v3) / 4;
@@ -320,208 +299,17 @@ bool fitSteinerCircumellipsoid(Tetrahedron t, inout ModSplat result)
     JacobiEigenvalueDecomposition(covMatrix, scale, V);
 
     // Scale factor for Steiner circumellipsoid
-    scale = sqrt(3 * scale) / 4.0;
+    scale = sqrt(3 * scale) / 4;
 
     // Convert eigenvectors to quaternion
     float4 rotation = quaternionFromMatrix(V);
 
-    result.pos = center;
-    result.scale = scale;
+    ModSplat result;
+    result.pos = float4(center, 1);
+    result.scale = float4(scale, 1);
     result.rot = rotation;
-    return true;
-}
-
-
-struct TANCCoords {
-    float t;
-    int edgeIndex;
-    float signedDistance;
-    float projectDistance;
-    int closestCorner;
-    bool isCorner;
-};
-
-bool isPointInsideTriangle(float3 p, float3 v1, float3 v2, float3 v3)
-{
-    // Compute normal of the triangle
-    float3 edge1 = v2 - v1;
-    float3 edge2 = v3 - v1;
-    float3 normal = normalize(cross(edge1, edge2));
-
-    // Compute perpendicular projection of point onto the triangle plane
-    float projectDistance = dot(normal, p - v1);
-    float3 projectedPoint = p - projectDistance * normal;
-
-    // Compute vectors        
-    float3 v0 = v2 - v1;
-    float3 v1ToV3 = v3 - v1;
-    float3 v2ToP = projectedPoint - v1;
-    
-    // Compute dot products
-    float dot00 = dot(v0, v0);
-    float dot01 = dot(v0, v1ToV3);
-    float dot02 = dot(v0, v2ToP);
-    float dot11 = dot(v1ToV3, v1ToV3);
-    float dot12 = dot(v1ToV3, v2ToP);
-
-    // Compute barycentric coordinates
-    float denom = dot00 * dot11 - dot01 * dot01;
-    float u = (dot11 * dot02 - dot01 * dot12) / denom;
-    float v = (dot00 * dot12 - dot01 * dot02) / denom;
-    float w = 1.0 - u - v;
-
-    // Check if inside the triangle
-    return (u >= 0) && (v >= 0) && (w >= 0);
-}
-
-
-float3 planeLineIntersection(float3 p0, float3 p1, float3 v2, float3 l1, float3 l2) {
-    float3 v1 = p1 - p0;
-    float3 planeNormal = normalize(cross(v1, v2));
-    float3 lineDir = l2 - l1;
-    float denom = dot(planeNormal, lineDir);
-
-    if (abs(denom) < 1e-6)
-        return float3(0, 0, 0); // Parallel case, undefined behavior
-
-    float t = dot(planeNormal, p0 - l1) / denom;
-    return l1 + t * lineDir;
-}
-
-
-TANCCoords triangleAlignedNormalizedCoordinates(float3 p, float3 v1, float3 v2, float3 v3) {
-    float3 edge1 = v2 - v1;
-    float3 edge2 = v3 - v1;
-    float3 normal = normalize(cross(edge1, edge2));
-
-    if (dot(normal, normal) < 1e-6) {
-        TANCCoords result;
-        result.t = 0;
-        result.edgeIndex = 0;
-        result.signedDistance = 0;
-        result.projectDistance = 0;
-        result.closestCorner = 0;
-        result.isCorner = false;
-        return result;
-    }
-        
-    float projectDistance = dot(normal, p - v1);
-    float3 projectedPoint = p - projectDistance * normal;
-
-    float3 edges[6] = { v1, v2, v2, v3, v3, v1 };
-    float minDistance = 3.402823466e+30; // float max
-    float t = 0;
-    uint edgeIndex = 0;
-    bool isCorner = false;
-    uint opposingCorner = 0;
-
-    for (uint i = 0; i < 3; i++) {
-        float3 a = edges[i * 2];
-        float3 b = edges[i * 2 + 1];
-        float3 ab = b - a;
-        float3 ap = projectedPoint - a;
-        float projection = dot(ap, ab) / dot(ab, ab);
-        
-        if (projection > 1 || projection < 0) {
-            int opposingEdgeIndex = (i + 2) % 3;
-            float3 potentialOpposingCorner = edges[(i * 2 + 2) % 6];
-            float cornerDistance = length(projectedPoint - potentialOpposingCorner);
-
-            if (cornerDistance < minDistance) {
-                minDistance = cornerDistance;
-                isCorner = true;
-                edgeIndex = opposingEdgeIndex;
-                opposingCorner = (i + 1) % 3;
-
-                float3 startEdge = edges[edgeIndex * 2];
-                float3 endEdge = edges[edgeIndex * 2 + 1];
-                
-                float3 cornerMax = normalize(cross(normal, potentialOpposingCorner - startEdge));
-                float3 cornerMin = normalize(cross(potentialOpposingCorner - endEdge, normal));
-                float3 cornerT = normalize(projectedPoint - potentialOpposingCorner);
-                float3 intersect = planeLineIntersection(cornerMin, cornerMax, normal, float3(0,0,0), cornerT);
-                t = length(cornerMin - intersect) / length(cornerMin - cornerMax);
-            }
-        } else {
-            float distance = length(projectedPoint - (a + projection * ab));
-            if (distance < minDistance) {
-                minDistance = distance;
-                isCorner = false;
-                edgeIndex = i;
-                t = projection;
-            }
-        }
-    }
-
-    if (isCorner) {
-        TANCCoords result;
-        result.t = t;
-        result.edgeIndex = edgeIndex;
-        result.signedDistance = minDistance;
-        result.projectDistance = projectDistance;
-        result.closestCorner = opposingCorner;
-        result.isCorner = true;
-        return result;
-    }
-
-    float3 edgeStart = edges[edgeIndex * 2];
-    float3 edgeEnd = edges[edgeIndex * 2 + 1];
-    float3 edgeDir = normalize(edgeEnd - edgeStart);
-    float3 edgeNormal = normalize(cross(edgeDir, normal));
-    float signedDistance = dot(p - edgeStart, edgeNormal);
-
-    TANCCoords result;
-    result.t = t;
-    result.edgeIndex = edgeIndex;
-    result.signedDistance = signedDistance;
-    result.projectDistance = projectDistance;
-    result.closestCorner = 0;
-    result.isCorner = false;
     return result;
 }
-
-float3 TANCToWorld(TANCCoords tanc, float3 v1, float3 v2, float3 v3) {
-    float t = tanc.t;
-    int edgeIndex = tanc.edgeIndex;
-    float signedDistance = tanc.signedDistance;
-    float projectDistance = tanc.projectDistance;
-
-    float3 a, b;
-    switch (edgeIndex) {
-        case 0: a = v1; b = v2; break;
-        case 1: a = v2; b = v3; break;
-        case 2: a = v3; b = v1; break;
-        default: return float3(0,0,0);
-    }
-
-    float3 edge1 = v2 - v1;
-    float3 edge2 = v3 - v1;
-    float3 triangleNormal = normalize(cross(edge1, edge2));
-
-    if (tanc.isCorner) {
-        float3 corner;
-        switch (tanc.closestCorner) {
-            case 0: corner = v1; break;
-            case 1: corner = v2; break;
-            case 2: corner = v3; break;
-            default: return float3(0,0,0);
-        }
-
-        float3 startEdge = a;
-        float3 endEdge = b;
-        float3 cornerMax = normalize(cross(triangleNormal, corner - startEdge));
-        float3 cornerMin = normalize(cross(corner - endEdge, triangleNormal));
-        float3 dir = normalize(cornerMin * (1 - t) + cornerMax * t);
-        return corner + dir * signedDistance + triangleNormal * projectDistance;
-    } else {
-        float3 edgeDir = normalize(b - a);
-        float3 edgeNormal = normalize(cross(edgeDir, triangleNormal));
-        float3 edgePoint = a * (1 - t) + b * t;
-        return edgePoint + edgeNormal * signedDistance + triangleNormal * projectDistance;
-    }
-}
-
-
 
 // Calculate the distance from a point to a line segment
 float DistanceToEdge(float3 p, float3 edgeStart, float3 edgeEnd) {
@@ -530,14 +318,11 @@ float DistanceToEdge(float3 p, float3 edgeStart, float3 edgeEnd) {
 
     // Project the point onto the edge
     float t = dot(pointToStart, edge) / dot(edge, edge);
-
-    // Clamp the projection to the segment
     t = clamp(t, 0.0, 1.0);
 
     // Find the closest point on the edge
     float3 closestPoint = edgeStart + t * edge;
 
-    // Return the distance from the point to the closest point on the edge
     return length(p - closestPoint);
 }
 
@@ -561,41 +346,6 @@ float3 BarycentricCoordinates(float3 p, float3 a, float3 b, float3 c) {
     return float3(u, v, w);
 }
 
-// Calculate the minimum distance from a point to the surface, edges, or vertices of a triangle
-float DistanceToTriangle(TriangleVerts t, float3 p) {
-    // Calculate the triangle's normal
-    float3 edge1 = t.v1 - t.v0;
-    float3 edge2 = t.v2 - t.v0;
-    float3 normal = normalize(cross(edge1, edge2));
-
-    // Calculate the signed distance from the point to the triangle's plane
-    float planeDistance = dot(p - t.v0, normal);
-
-    // Project the point onto the triangle's plane
-    float3 projectedPoint = p - planeDistance * normal;
-
-    // Calculate barycentric coordinates of the projected point
-    float3 barycentric = BarycentricCoordinates(projectedPoint, t.v0, t.v1, t.v2);
-
-    // Check if the projected point is inside the triangle
-    bool isInside = (barycentric.x >= 0.0) && (barycentric.y >= 0.0) && (barycentric.z >= 0.0);
-
-    if (isInside) {
-        // The closest point is on the surface of the triangle
-        return abs(planeDistance); // Perpendicular distance to the plane
-    } else {
-        // The closest point is on one of the edges or vertices
-        float distAB = DistanceToEdge(p, t.v0, t.v1);
-        float distBC = DistanceToEdge(p, t.v1, t.v2);
-        float distCA = DistanceToEdge(p, t.v2, t.v0);
-
-        float distA = length(p - t.v0);
-        float distB = length(p - t.v1);
-        float distC = length(p - t.v2);
-
-        return min(min(min(distAB, distBC), distCA), min(min(distA, distB), distC));
-    }
-}
 
 float3 ClosestPointOnTriangle(float3 p, float3 v0, float3 v1, float3 v2) {
     float3 edge1 = v1 - v0;
@@ -644,6 +394,7 @@ struct TranslateOut {
     float4 col;
 };
 
+
 TranslateOut translatePoint(int splatIndex, float3 p) {
     // Cache splat links data once
     SplatLink currentSplat = LoadSplatLink(splatIndex);
@@ -651,22 +402,24 @@ TranslateOut translatePoint(int splatIndex, float3 p) {
     
     // First pass: gather valid triangles and calculate initial values
     float weights[8];
+    bool valid[8];
+
     int validCount = 0;
     float totalWeight = 0.0;
-    int closestId = -1;
-    float closestDist = 3.402823466e+30;
+
     float4 avgColor = float4(0,0,0,0);
-    
+    float3 finalPoint = float3(0,0,0);
+
     // First pass to gather triangle data and determine weights
     [unroll]
     for (int i = 0; i < 8; i++) {
-        weights[i] = 0;
+        weights[i] = -1;
+        valid[i] = false;
 
         int triangleId = currentSplat.triangleIds[i];
-        float triangleWeight = currentSplat.triangleWeights[i];
         
         // Skip invalid triangles early
-        if (triangleId == -1 || triangleWeight <= 0) continue;
+        if (triangleId == -1) continue;
         
         // Fetch triangle data once
         Triangle t = _MeshIndices[triangleId];
@@ -684,65 +437,46 @@ TranslateOut translatePoint(int splatIndex, float3 p) {
         
         // Cache triangle data for reuse in second pass
         float3 normal = normalize(crossProduct);
-        float3 center = (tv.v0 + tv.v1 + tv.v2) / 3.0;
         
         // Compute perpendicular distance once
-        float3 toPoint = p - tv.v0;
-        float perpDistance = dot(toPoint, normal);
-        
-        // Project point onto triangle plane once
-        float3 projPoint = p - perpDistance * normal;
-        
-        // Check if point is inside triangle and cache result
-        
-        // Compute weight based on distance and perpendicular distance
-        float distanceToCentroid = length(projPoint - center);
-        // float weight = 1 / (exp(DistanceToTriangle(tv, p)) + 1e-5);
-        float weight = surfaceArea / (exp(distanceToCentroid) * sqrt(abs(perpDistance) + 1e-5));
+        float3 toPoint = p - tv.v0;         // tv.v0 is a point on the plane
+        float distance = abs(dot(toPoint, normal)); // normal is already normalized
 
-        if (weight > 0) {
-            totalWeight += weight;
-            weights[i] = weight;
+        if (distance >= 0) {
+            totalWeight += distance;
+            weights[i] = distance;
+            valid[i] = true;
             validCount++;
-        } else {
-            weights[i] = 0;
-            // Find closest triangle for fallback
-            float dist = length(p - center);
-            if (dist < closestDist) {
-                closestDist = dist;
-                closestId = i;
-            }
-        }        
+        }      
     }
 
     // Handle case where no valid weights were found
     if (validCount == 0) {
-        if (closestId == -1) {
-            TranslateOut to;
-            to.pos = float3(0,0,0);
-            to.col = float4(0,0,0,0);
-            return to;
-        }
-        weights[closestId] = 1.0;
-        totalWeight = 1.0;
-    } 
-    
-    if (totalWeight == 0) {
         TranslateOut to;
         to.pos = p;
         to.col = float4(0,0,0,0);
-        return to;    
+        return to;   
+    } 
+
+    // Normalise
+    float sum = 0;
+    [unroll]
+    for (int i = 0; i < 8; i++) {
+        weights[i] = log(2 - (weights[i] / totalWeight));
+        if (valid[i]) sum += weights[i];
+    }
+
+    [unroll]
+    for (int i = 0; i < 8; i++) {
+        weights[i] = weights[i] / sum;
     }
 
     
     // Second pass: transform point using cached data
-    float3 finalPoint = float3(0,0,0);
     [unroll]
     for (int j = 0; j < 8; j++) {
-        float normalizedWeight = weights[j] / totalWeight;
+        if (!valid[j]) continue;
 
-        if (normalizedWeight <= 0) continue;
-        
         int triangleId = currentSplat.triangleIds[j];
 
         Triangle t = _MeshIndices[triangleId];
@@ -756,46 +490,16 @@ TranslateOut translatePoint(int splatIndex, float3 p) {
         tvm.v1 = _VertexModPos[t.v1];
         tvm.v2 = _VertexModPos[t.v2];
 
-        bool isInside = isPointInsideTriangle(p, tv.v0, tv.v1, tv.v2);
-        if (isInside) {
-            // Pre-calculated triangle data
-            float3 center = (tv.v0 + tv.v1 + tv.v2) / 3.0;
-            float3 edge1 = tv.v1 - tv.v0;
-            float3 edge2 = tv.v2 - tv.v0;
-            float3 normal = normalize(cross(edge1, edge2));
-            float3 autoVert = center + normal;
-            
-            // Modified triangle data
-            float3 modCenter = (tvm.v0 + tvm.v1 + tvm.v2) / 3.0;
-            
-            // Avoid recalculating cross product
-            float3 modEdge1 = tvm.v1 - tvm.v0;
-            float3 modEdge2 = tvm.v2 - tvm.v0;
-            float3 modNormal = normalize(cross(modEdge1, modEdge2));
-            float3 modAutoVert = modCenter + modNormal;
-            
-            float4 barycentricCoords = calculateTetraBarycentricCoordinates(p, tv.v0, tv.v1, tv.v2, autoVert);
-            
-            float3 baryTransformed = barycentricCoords.x * tvm.v0 + 
-                                     barycentricCoords.y * tvm.v1 + 
-                                     barycentricCoords.z * tvm.v2 + 
-                                     barycentricCoords.w * modAutoVert;
-            
-            finalPoint += baryTransformed * normalizedWeight;
-        } else {
-            // Use pre-computed TANC coordinates
-            TANCCoords tancCoords = triangleAlignedNormalizedCoordinates(p, tv.v0, tv.v1, tv.v2);
-            float3 tancTransformed = TANCToWorld(tancCoords, tvm.v0, tvm.v1, tvm.v2);
-            
-            finalPoint += tancTransformed * normalizedWeight;
-        }
+        TANC tc = WorldToTanc(p, tv.v0, tv.v1, tv.v2);
+        float3 tancTransformed = TancToWorld(tc, tvm.v0, tvm.v1, tvm.v2);
+        
+        finalPoint += tancTransformed * weights[j];
     }
 
     [unroll]
     for (int j = 0; j < 8; j++) {
-        float normalizedWeight = weights[j] / totalWeight;
+        if (!valid[j]) continue;
 
-        if (normalizedWeight <= 0) continue;
         int triangleId = currentSplat.triangleIds[j];
 
         Triangle t = _MeshIndices[triangleId];
@@ -806,13 +510,9 @@ TranslateOut translatePoint(int splatIndex, float3 p) {
         float3 projectedPoint = ClosestPointOnTriangle(finalPoint, tvm.v0, tvm.v1, tvm.v2);
 
         // Update Color
-        avgColor += SampleTextureWorldSpace(projectedPoint) * normalizedWeight;
+        avgColor += SampleTextureWorldSpace(projectedPoint) * weights[j];
     }
 
-    if (abs(totalWeight - 1) < 0.00001) {
-        finalPoint = p;
-    }
-    
     TranslateOut to;
     to.pos = finalPoint;
     to.col = avgColor;
@@ -853,11 +553,11 @@ half4 getModColor(int splatIndex, ModSplat splat) {
     float2 samplePoints[NUM_SAMPLES];
     
     float2 innerPoints[6];
-    getEdgePoints6(splat.pos, splat.scale * 0.5, splat.rot, 2.0, innerPoints);
+    getEdgePoints6(splat.pos, splat.scale.xyz * 0.5, splat.rot, 2.0, innerPoints);
     
     // Get outer ring points
     float2 outerPoints[6];
-    getEdgePoints6(splat.pos, splat.scale, splat.rot, 3.0, outerPoints);
+    getEdgePoints6(splat.pos, splat.scale.xyz, splat.rot, 3.0, outerPoints);
     
     // Combine points into one array
     for (int i = 0; i < 6; i++) {
@@ -868,7 +568,7 @@ half4 getModColor(int splatIndex, ModSplat splat) {
     }
     
     // Calculate splat center in screen space
-    float4 centerClipPos = mul(_MatrixVP, float4(splat.pos, 1.0));
+    float4 centerClipPos = mul(_MatrixVP, splat.pos);
     float2 centerNDC = centerClipPos.xy / centerClipPos.w;
     float2 centerScreen = (centerNDC * 0.5 + 0.5) * float2(_VecScreenParams.x, _VecScreenParams.y);
     
@@ -926,10 +626,9 @@ half4 getModColor(int splatIndex, ModSplat splat) {
     // similarity = smoothstep(0.01, 0.99, similarity);
     
     // Store final alpha
-    weightedColor.a = similarity;
+    weightedColor.a = max(0.5, similarity);
     
     return weightedColor;
-    // return half4(similarity, similarity, similarity, 1);
 }
 
 
@@ -944,16 +643,16 @@ ModSplat calcModSplat(int splatIndex, SplatData splat) {
 
     float4 avgColor = float4(0,0,0,0);
     ModSplat m;
-    if (ignore) {
-        m.pos = splat.pos;
-        m.scale = splat.scale;
-        m.rot = splat.rot;
-    } else {
+    m.pos = float4(splat.pos, 1);
+    m.scale = float4(splat.scale, 0);
+    m.rot = splat.rot;
+
+    if (!ignore) {
         // Ensure numerical stability
         float maxScale = max(splat.scale.x, max(splat.scale.y, splat.scale.z));
-        splat.scale = max(splat.scale, maxScale / 50.0);
+        splat.scale.xyz = max(splat.scale.xyz, maxScale / 50.0);
 
-        Tetrahedron baseTetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale, splat.rot);
+        Tetrahedron baseTetra = computeTetrahedronFromEllipsoid(splat.pos, splat.scale.xyz, splat.rot, 4);
         Tetrahedron transformTetra;
         TranslateOut to;
         to = translatePoint(splatIndex, baseTetra.v0);
@@ -965,9 +664,93 @@ ModSplat calcModSplat(int splatIndex, SplatData splat) {
         to = translatePoint(splatIndex, baseTetra.v3);
         transformTetra.v3 = to.pos;
 
-        fitSteinerCircumellipsoid(transformTetra, m);
+        m = fitSteinerCircumellipsoid(transformTetra);
     }
     m.color = getModColor(splatIndex, m);
+
+    return m;
+}
+
+float3 warpProject(float3 p, float3 v1, float3 v2, float3 v3, float3 n1, float3 n2, float3 n3, inout bool valid)
+{
+    float3 normal = normalize(cross(v2 - v1, v3 - v1));
+    float d = dot(p - v1, normal);
+
+    float3 v1p = v1 + n1 * (d / dot(normal, n1));
+    float3 v2p = v2 + n2 * (d / dot(normal, n2));
+    float3 v3p = v3 + n3 * (d / dot(normal, n3));
+
+    float3 u = v2p - v1p;
+    float3 v = v3p - v1p;
+    float3 w = p - v1p;
+
+    float uu = dot(u, u);
+    float uv = dot(u, v);
+    float vv = dot(v, v);
+    float wu = dot(w, u);
+    float wv = dot(w, v);
+
+    float denom = uv * uv - uu * vv;
+    float s = (uv * wv - vv * wu) / denom;
+    float t = (uv * wu - uu * wv) / denom;
+
+    // false if outside triangle
+    valid = !(s < 0.0 || t < 0.0 || s + t > 1.0);
+
+    float3 proj = (1.0 - s - t) * v1 + s * v2 + t * v3;
+
+    float sign = (dot(normal, p - proj) >= 0) ? 1.0f : -1.0f;
+    return proj + normal * sign * length(p - proj);
+}
+
+
+
+ModSplat baryWarp(ModSplat ms) {
+
+    Tetrahedron baseTetra = computeTetrahedronFromEllipsoid(ms.pos, ms.scale.xyz, ms.rot, 4);
+
+    float3 wp0 = baseTetra.v0;
+    float3 wp1 = baseTetra.v1;
+    float3 wp2 = baseTetra.v2;
+    float3 wp3 = baseTetra.v3;
+
+    float3 v1 = _TriangleProj[0];
+    float3 v2 = _TriangleProj[1];
+    float3 v3 = _TriangleProj[2];
+    float3 n1 = _TriangleProj[3];
+    float3 n2 = _TriangleProj[4];
+    float3 n3 = _TriangleProj[5];
+
+    bool valid = false;
+    Tetrahedron warped;
+    bool v = true;
+    warped.v0 = warpProject(wp0, v1, v2, v3, n1, n2, n3, v);  
+    if (v) valid = true;
+    warped.v1 = warpProject(wp1, v1, v2, v3, n1, n2, n3, v);  
+    if (v) valid = true;
+    warped.v2 = warpProject(wp2, v1, v2, v3, n1, n2, n3, v);  
+    if (v) valid = true;
+    warped.v3 = warpProject(wp3, v1, v2, v3, n1, n2, n3, v);  
+    if (v) valid = true;
+
+    ModSplat m;
+
+    if (valid) {
+        m = fitSteinerCircumellipsoid(warped);
+    } else {
+        m = ms;
+    }
+    float3 normal = normalize(cross(v2 - v1, v3 - v1));
+    
+    float dist = dot(m.pos - v1, normal);
+    dist += 0.3;
+    dist /= 0.37;
+
+    if(dist < 0 || dist > 1) {
+        m.color = half4(0, 0, 0, 0);
+    } else {
+        m.color = half4(dist, dist, dist, 1);
+    }
 
     return m;
 }

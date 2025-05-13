@@ -1,0 +1,44 @@
+// Compute shader for evaluating SDF over multiple points
+#pragma kernel CSMain
+
+// Buffers
+RWStructuredBuffer<float> OutputSDF;   // Output buffer for SDF results
+StructuredBuffer<float3> InputPoints;  // Buffer containing input points
+StructuredBuffer<SplatData> Splats;    // Buffer containing splat data
+uint NumSplats;
+float Threshold;
+
+// Helper function to apply inverse rotation (Quaternion)
+float3 RotateInv(float3 p, float4 q) {
+    float3 t = 2.0 * cross(q.xyz, p);
+    return p + q.w * t + cross(q.xyz, t);
+}
+
+[numthreads(64, 1, 1)] // Process 64 points per thread group
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= InputPoints.Length) return;
+
+    float3 point = InputPoints[id.x];
+    float accumulatedOpacity = 0.0;
+    float minDistance = 1e20;
+
+    for (uint i = 0; i < NumSplats; i++) {
+        SplatData splat = Splats[i];
+
+        // Compute inverse rotation and scale
+        float3 offset = point - splat.center;
+        float3 rotated = RotateInv(offset, float4(-splat.rot.xyz, splat.rot.w)); // Quaternion inverse rotation
+        float3 transformedPos = rotated / splat.scale;
+
+        // Squared distance
+        float distanceSquared = dot(transformedPos, transformedPos);
+        float opacity = splat.opacity * exp(-distanceSquared / 2.0);
+        accumulatedOpacity += opacity;
+
+        float actualDistance = dot(offset, offset);
+        minDistance = min(minDistance, actualDistance);
+    }
+    
+    OutputSDF[id.x] = (accumulatedOpacity > 0.01) ? accumulatedOpacity - Threshold : -sqrt(minDistance);
+}

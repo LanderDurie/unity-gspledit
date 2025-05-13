@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 
 namespace UnityEngine.GsplEdit
@@ -25,55 +26,64 @@ namespace UnityEngine.GsplEdit
 
         public unsafe override void Generate(SharedComputeContext context, ref Vector3[] vertexList, ref int[] indexList)
         {
-            Vector3 size = context.gsSplatData.boundsMax - context.gsSplatData.boundsMin;
-            Vector3 center = (context.gsSplatData.boundsMax + context.gsSplatData.boundsMin) * 0.5f;
-            m_Root = new OctreeNode(new Bounds(center, size), 0);
+            // Vector3 size = context.gsSplatData.boundsMax - context.gsSplatData.boundsMin;
+            // Vector3 center = (context.gsSplatData.boundsMax + context.gsSplatData.boundsMin) * 0.5f;
+            // m_Root = new OctreeNode(new Bounds(center, size), 0);
 
-            int splatCount = context.gsSplatData.splatCount;
-            int itemsPerDispatch = 65535;
+            // int splatCount = context.gsSplatData.splatCount;
+            // int itemsPerDispatch = 65535;
 
-            MeshUtils.SplatData[] splatArray = new MeshUtils.SplatData[splatCount];
+            // MeshUtils.SplatData[] splatArray = new MeshUtils.SplatData[splatCount];
 
-            using (ComputeBuffer IcosahedronBuffer = new ComputeBuffer(splatCount, sizeof(MeshUtils.SplatData)))
-            {
-                IcosahedronBuffer.SetData(splatArray);
-                SetupComputeShader(context, IcosahedronBuffer);
+            // using (ComputeBuffer IcosahedronBuffer = new ComputeBuffer(splatCount, sizeof(MeshUtils.SplatData)))
+            // {
+            //     IcosahedronBuffer.SetData(splatArray);
+            //     SetupComputeShader(context, IcosahedronBuffer);
 
-                for (int i = 0; i < Mathf.CeilToInt((float)splatCount / itemsPerDispatch); i++)
-                {
-                    int offset = i * itemsPerDispatch;
-                    m_IcosahedronComputeShader.SetInt("_Offset", offset);
-                    int currentDispatchSize = Mathf.Min(splatCount - offset, itemsPerDispatch);
-                    m_IcosahedronComputeShader.Dispatch(0, currentDispatchSize, 1, 1);
-                }
+            //     for (int i = 0; i < Mathf.CeilToInt((float)splatCount / itemsPerDispatch); i++)
+            //     {
+            //         int offset = i * itemsPerDispatch;
+            //         m_IcosahedronComputeShader.SetInt("_Offset", offset);
+            //         int currentDispatchSize = Mathf.Min(splatCount - offset, itemsPerDispatch);
+            //         m_IcosahedronComputeShader.Dispatch(0, currentDispatchSize, 1, 1);
+            //     }
 
-                IcosahedronBuffer.GetData(splatArray);
-            }
+            //     IcosahedronBuffer.GetData(splatArray);
+            // }
 
-            // Directly populate the list without looping
-            m_Root.m_SplatIds = Enumerable.Range(0, splatCount).ToList();
+            // // Directly populate the list without looping
+            // m_Root.m_SplatIds = Enumerable.Range(0, splatCount).ToList();
 
-            // Pass the correct type (List<MeshUtils.SplatData>) to BuildOctree
-            List<MeshUtils.SplatData> splatList = new List<MeshUtils.SplatData>(splatArray);
+            // // Pass the correct type (List<MeshUtils.SplatData>) to BuildOctree
+            // List<MeshUtils.SplatData> splatList = new List<MeshUtils.SplatData>(splatArray);
 
-            OctreeNode.Settings s = new();
-            s.maxDepth = m_Settings.maxDepth;
-            s.threshold = m_Settings.threshold;
+            // OctreeNode.Settings s = new();
+            // s.maxDepth = m_Settings.maxDepth;
+            // s.threshold = m_Settings.threshold;
 
-            OctreeNode.BuildOctree(m_Root, s, random, splatList);
-
-
-            // Add QEF solver for all leaf nodes that ContainSurface
-            ProcessLeafNodes(m_Root, m_Settings, splatList);
-
-            // Generate the final mesh
-            List<Vector3> vertices = new List<Vector3>();
-            List<int> indices = new List<int>();
+            // Stopwatch stopwatch = new Stopwatch();
+            // stopwatch.Restart();
+            // OctreeNode.BuildOctree(m_Root, s, random, splatList);
+            // Debug.Log(stopwatch.ElapsedMilliseconds);
+            // Debug.Log($"Average time per triangle: {OctreeNode.m_Time / Stopwatch.Frequency:F4} ms");
+            // OctreeNeighborUtils.SetOctreeNeighbors(m_Root);
+            // List<OctreeNode> nodes = OctreeUtils.ExtractHull(m_Root);
             
-            OctreeNode.GenerateMesh(s, splatList, m_Root, vertices, indices);
 
-            vertexList = vertices.ToArray();
-            indexList = indices.ToArray();
+            // // // Add QEF solver for all leaf nodes that ContainSurface
+            // // ProcessLeafNodes(m_Root, m_Settings, splatList);
+
+            // // // Generate the final mesh
+            // List<Vector3> vertices = new List<Vector3>();
+            // List<int> indices = new List<int>();
+
+            // foreach (var node in nodes) {
+            //     OctreeUtils.GenerateCube(node, vertices, indices, splatList);
+            // }
+            // // OctreeNode.GenerateMesh(s, splatList, m_Root, vertices, indices);
+
+            // vertexList = vertices.ToArray();
+            // indexList = indices.ToArray();
         }
 
         private void ProcessLeafNodes(OctreeNode node, Settings settings, List<MeshUtils.SplatData> splats)

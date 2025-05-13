@@ -1,0 +1,12 @@
+fileFormatVersion: 2
+guid: d13949a5567ebed4c8358a476c76748d
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - m_RayCastShader: {fileID: 7200000, guid: 519535ef7c377b042a38b711413ec7ce, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

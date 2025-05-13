@@ -16,6 +16,7 @@ namespace UnityEngine.GsplEdit {
         [HideInInspector, SerializeField] public Shader m_ShaderComposite;
         [HideInInspector, SerializeField] public Shader m_ShaderDebugPoints;
         [HideInInspector, SerializeField] public Shader m_ShaderDebugBoxes;
+        [HideInInspector, SerializeField] public Shader m_ShaderSplatDepth;
         [HideInInspector, SerializeField] public ComputeShader m_CSSplatUtilities;
         [HideInInspector, SerializeField] public ComputeShader m_CSBufferOps;
 
@@ -67,6 +68,7 @@ namespace UnityEngine.GsplEdit {
                     m_ShadowCasterShader,
                     m_CSEditMesh
                 );
+                m_EditableMesh.m_DebugPlane = m_DebugPlane;
                 m_ModifierSystem.SetMesh(ref m_EditableMesh);
             }
 
@@ -106,11 +108,7 @@ namespace UnityEngine.GsplEdit {
             m_Context.scaffoldIndices.SetData(m_ScaffoldData.indices);
             m_Context.scaffoldDeletedBits = new ComputeBuffer((m_Context.scaffoldData.vertexCount + 31) / 32, sizeof(uint));
             m_Context.scaffoldDeletedBits.SetData(m_ScaffoldData.deletedBits);
-
-            // Create textures
-            m_Context.splatColorMap = new Texture2D(1000, 1000, TextureFormat.RGBA32, false);
-            m_Context.splatNormalMap = new Texture2D(1000, 1000, TextureFormat.RGBA32, false);
-
+            
             // Create link buffers
             m_Context.forwardLinks = new ComputeBuffer(m_Context.gsSplatData.splatCount, sizeof(ForwardLink));
             m_Context.forwardLinks.SetData(m_ScaffoldData.forwardLinks);
@@ -130,6 +128,9 @@ namespace UnityEngine.GsplEdit {
                 m_Context.offscreenCam.targetTexture = m_Context.offscreenBuffer;
             }
 
+            GameObject extractionCameraObject = new GameObject("extractionCameraObject");
+            extractionCameraObject.hideFlags = HideFlags.HideAndDontSave;
+
             if (Camera.current != null) {
                 m_ScreenSize = Camera.current.pixelRect;
             }
@@ -142,6 +143,7 @@ namespace UnityEngine.GsplEdit {
                 m_ShaderComposite,
                 m_ShaderDebugPoints,
                 m_ShaderDebugBoxes, 
+                m_ShaderSplatDepth,
                 m_CSSplatUtilities
             );
         }
@@ -263,7 +265,7 @@ namespace UnityEngine.GsplEdit {
 
                 m_EditableMesh.m_DebugPlane = m_DebugPlane;
                 m_ModifierSystem.SetMesh(ref m_EditableMesh);
-                GenerateLinks();
+                GenerateForwardLinks();
 
                 // Sync GPU Buffers to Serializable struct
                 m_ScaffoldData.vertexCount = m_Context.scaffoldData.vertexCount;
@@ -276,13 +278,16 @@ namespace UnityEngine.GsplEdit {
             }
         }
 
-        public void GenerateLinks() {
+        public void GenerateForwardLinks() {
             m_LinkGenerator.GenerateForward();
-            m_LinkGenerator.GenerateBackward(); // TODO
 
             // Sync GPU Buffers to Serializable struct
             m_ScaffoldData.forwardLinks = new ForwardLink[m_Context.forwardLinks.count];
             m_Context.forwardLinks.GetData(m_ScaffoldData.forwardLinks);
+        }
+
+        public void GenerateBackwardLinks() {
+            m_LinkGenerator.GenerateBackward();
         }
 #endif
 
