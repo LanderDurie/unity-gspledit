@@ -13,76 +13,26 @@ namespace UnityEngine.GsplEdit
         public class Settings
         {
             // public float cameraDistance = 1.0f;
-            public int textureSize = 4096;
-            public int triangleTextureSize = 256;
+            public int textureSize = 2048;
+            public int triangleTextureSize = 512;
         }
 
         public Settings m_Settings = new();
         public ComputeShader m_TextureLinkageCompute;
 
+    Stopwatch triangleTimer = new Stopwatch();
+    Stopwatch readPixelsTimer = new Stopwatch();
+    Stopwatch pixelLoopTimer = new Stopwatch();
+    Stopwatch fullTimer = new Stopwatch();
+
+    List<double> triangleTimes = new List<double>();
+    List<double> readPixelsTimes = new List<double>();
+    List<double> pixelLoopTimes = new List<double>();
+
+
         public unsafe override void Generate(SharedComputeContext context)
         {
-            // // Modified CPU-side code
-            // // Create render texture instead of Texture2D for UAV support
-            // RenderTexture distances = new RenderTexture(context.scaffoldData.indexCount/3/10, 100, 0, RenderTextureFormat.ARGBFloat);
-            // distances.enableRandomWrite = true;  // Critical for UAV access
-            // distances.Create();
-            // // Clear to black (0)
-            // RenderTexture.active = distances;
-            // GL.Clear(true, true, Color.black);
-            // RenderTexture.active = null;
-
-            // // Need to create a buffer to store average triangle size
-            // ComputeBuffer avgTriangleSizeBuffer = new ComputeBuffer(1, sizeof(float));
-            // float[] avgSizeData = new float[1] { 0.0f };
-            // avgTriangleSizeBuffer.SetData(avgSizeData);
-
-            // // Set compute shader parameters
-            // m_TextureLinkageCompute.SetTexture(0, "_Distances", distances);
-            // m_TextureLinkageCompute.SetBuffer(0, "_SplatPos", context.gsPosData);
-            // m_TextureLinkageCompute.SetBuffer(0, "_SplatOther", context.gsOtherData);
-            // m_TextureLinkageCompute.SetBuffer(0, "_SplatSH", context.gsSHData);
-            // m_TextureLinkageCompute.SetBuffer(0, "_SplatChunks", context.gsChunks);
-            // m_TextureLinkageCompute.SetInt("_SplatChunkCount", context.gsChunksValid ? context.gsChunks.count : 0);
-            // m_TextureLinkageCompute.SetBuffer(0, "_SplatColor", context.gsSHData);
-            // uint format = (uint)context.gsSplatData.posFormat | ((uint)context.gsSplatData.scaleFormat << 8) | ((uint)context.gsSplatData.shFormat << 16);
-            // m_TextureLinkageCompute.SetInt("_SplatFormat", (int)format);
-            // m_TextureLinkageCompute.SetTexture(0, "_SplatColor", context.gsColorData);
-            // m_TextureLinkageCompute.SetBuffer(0, "_VertexBasePos", context.scaffoldBaseVertex);
-            // m_TextureLinkageCompute.SetBuffer(0, "_MeshIndices", context.scaffoldIndices);
-            // m_TextureLinkageCompute.SetInt("_SplatCount", context.gsSplatData.splatCount);
-            // m_TextureLinkageCompute.SetInt("_VertexCount", context.scaffoldData.vertexCount);
-            // m_TextureLinkageCompute.SetInt("_IndexCount", context.scaffoldData.indexCount/10);
-            // m_TextureLinkageCompute.SetBuffer(0, "_AvgTriangleSizeBuffer", avgTriangleSizeBuffer);
-
-            // // Calculate number of thread groups needed
-            // int numThreadGroups = Mathf.CeilToInt((float)context.gsSplatData.splatCount / m_Settings.threadsPerGroup);
-
-            // // Dispatch compute shader
-            // m_TextureLinkageCompute.Dispatch(0, numThreadGroups, 1, 1);
-
-            // // Read back average triangle size
-            // avgTriangleSizeBuffer.GetData(avgSizeData);
-            // float avgTriangleSize = avgSizeData[0];
-            // avgTriangleSizeBuffer.Release(); // Important: release the buffer when done
-
-            // // Read back results from texture
-            // Texture2D readbackTex = new Texture2D(distances.width, distances.height, TextureFormat.RGBAFloat, false);
-            // RenderTexture.active = distances;
-            // readbackTex.ReadPixels(new Rect(0, 0, distances.width, distances.height), 0, 0);
-            // RenderTexture.active = null;
-            // readbackTex.Apply();
-
-            // // Now avgTriangleSize contains the computed average triangle size
-            // // You can use it as needed
-            // Debug.Log("Average Triangle Size: " + avgTriangleSize);
-
-            // // Don't forget to clean up
-            // distances.Release();
-
-            // WriteDistancesToJson(readbackTex, avgTriangleSize, context);
-
-
+            fullTimer.Start();
             Mesh mesh = context.scaffoldMesh;
 
             // Create target texture
@@ -120,23 +70,21 @@ namespace UnityEngine.GsplEdit
             Texture2D tempTexture = new Texture2D(m_Settings.triangleTextureSize, m_Settings.triangleTextureSize, TextureFormat.RGBAFloat, false);
 
             // Timing variables
-            // Stopwatch stopwatch1 = new Stopwatch();
-            // Stopwatch stopwatch2 = new Stopwatch();
-            // long totalTriangleTime = 0;
-            // int count = 0;
+            Stopwatch stopwatch1 = new Stopwatch();
+            Stopwatch stopwatch2 = new Stopwatch();
+            long totalTriangleTime = 0;
+            int count = 0;
 
             GSRenderSystem.instance.m_ForceDepth = true;
 
             for (int i = 0; i < triangles.Length; i += 3)
-            {   
-                // count++;
-                // stopwatch1.Restart();
+            {
+                triangleTimer.Restart();
 
                 int vertA = triangles[i];
                 int vertB = triangles[i + 1];
                 int vertC = triangles[i + 2];
 
-                // Get world positions
                 Vector3 worldA = vertices[vertA];
                 Vector3 worldB = vertices[vertB];
                 Vector3 worldC = vertices[vertC];
@@ -145,59 +93,54 @@ namespace UnityEngine.GsplEdit
                 GSRenderSystem.instance.m_TriangleProj[1] = worldB;
                 GSRenderSystem.instance.m_TriangleProj[2] = worldC;
                 GSRenderSystem.instance.m_TriangleProj[3] = normals[i];
-                GSRenderSystem.instance.m_TriangleProj[4] = normals[i+1];
-                GSRenderSystem.instance.m_TriangleProj[5] = normals[i+2];
+                GSRenderSystem.instance.m_TriangleProj[4] = normals[i + 1];
+                GSRenderSystem.instance.m_TriangleProj[5] = normals[i + 2];
 
-                // Setup camera
-                // Vector3 cameraPos, faceNormal;
-                // float orthoSize;
                 SetCamera(faceCamera, worldA, worldB, worldC);
 
                 CaptureGaussianSplatOnly(worldA, worldB, worldC, renderTexture, faceCamera);
+                // GL.Flush(); // Ensure rendering is complete
+                // triangleTimer.Stop();
+                // triangleTimes.Add(triangleTimer.Elapsed.TotalMilliseconds);
 
+
+                // readPixelsTimer.Restart();
                 RenderTexture.active = renderTexture;
-                tempTexture.ReadPixels(new Rect(0, 0, m_Settings.textureSize, m_Settings.textureSize), 0, 0);
+                tempTexture.ReadPixels(new Rect(0, 0, m_Settings.triangleTextureSize, m_Settings.triangleTextureSize), 0, 0);
                 tempTexture.Apply();
                 RenderTexture.active = null;
+                // readPixelsTimer.Stop();
 
-                // Get UVs
+
                 Vector2 uvA = uvs[vertA];
                 Vector2 uvB = uvs[vertB];
                 Vector2 uvC = uvs[vertC];
 
-                // Convert UVs to texture space
                 Vector2Int pixelA = new Vector2Int(Mathf.FloorToInt(uvA.x * m_Settings.textureSize), Mathf.FloorToInt(uvA.y * m_Settings.textureSize));
                 Vector2Int pixelB = new Vector2Int(Mathf.FloorToInt(uvB.x * m_Settings.textureSize), Mathf.FloorToInt(uvB.y * m_Settings.textureSize));
                 Vector2Int pixelC = new Vector2Int(Mathf.FloorToInt(uvC.x * m_Settings.textureSize), Mathf.FloorToInt(uvC.y * m_Settings.textureSize));
 
-                // Compute bounding box
                 int minX = Mathf.Max(0, Mathf.Min(pixelA.x, Mathf.Min(pixelB.x, pixelC.x)));
                 int minY = Mathf.Max(0, Mathf.Min(pixelA.y, Mathf.Min(pixelB.y, pixelC.y)));
                 int maxX = Mathf.Min(m_Settings.textureSize - 1, Mathf.Max(pixelA.x, Mathf.Max(pixelB.x, pixelC.x)));
                 int maxY = Mathf.Min(m_Settings.textureSize - 1, Mathf.Max(pixelA.y, Mathf.Max(pixelB.y, pixelC.y)));
 
-                // Compute inverse denominator for barycentric coordinates
                 float invDenom = 1.0f / ((pixelB.y - pixelC.y) * (pixelA.x - pixelC.x) + (pixelC.x - pixelB.x) * (pixelA.y - pixelC.y));
                 if (float.IsInfinity(invDenom) || float.IsNaN(invDenom))
                     continue;
 
-                // Get camera matrices
                 Matrix4x4 worldToCameraMatrix = faceCamera.worldToCameraMatrix;
                 Matrix4x4 projectionMatrix = faceCamera.projectionMatrix;
 
-                // Time the pixel loop separately
-                // stopwatch2.Restart();
-
+                pixelLoopTimer.Restart();
                 for (int y = minY - 5; y <= maxY + 5; y++)
                 {
                     for (int x = minX - 5; x <= maxX + 5; x++)
                     {
-                        // Compute barycentric coordinates
                         float wA = ((pixelB.y - pixelC.y) * (x - pixelC.x) + (pixelC.x - pixelB.x) * (y - pixelC.y)) * invDenom;
                         float wB = ((pixelC.y - pixelA.y) * (x - pixelC.x) + (pixelA.x - pixelC.x) * (y - pixelC.y)) * invDenom;
                         float wC = 1.0f - wA - wB;
 
-                        // Interpolate world position
                         Vector3 worldPos = wA * worldA + wB * worldB + wC * worldC;
                         Vector3 viewPos = worldToCameraMatrix.MultiplyPoint(worldPos);
                         Vector4 clipPos = projectionMatrix.MultiplyPoint(viewPos);
@@ -212,8 +155,13 @@ namespace UnityEngine.GsplEdit
                         }
                     }
                 }
+                pixelLoopTimer.Stop();
+                triangleTimer.Stop();
 
-                // totalTriangleTime += stopwatch1.ElapsedTicks;
+                // Record times in milliseconds
+                triangleTimes.Add(triangleTimer.Elapsed.TotalMilliseconds);
+                readPixelsTimes.Add(readPixelsTimer.Elapsed.TotalMilliseconds);
+                pixelLoopTimes.Add(pixelLoopTimer.Elapsed.TotalMilliseconds);
             }
 
             GSRenderSystem.instance.m_ForceDepth = false;
@@ -227,46 +175,66 @@ namespace UnityEngine.GsplEdit
             DestroyImmediate(renderTexture);
             DestroyImmediate(cameraObj);
 
+            fullTimer.Stop();
+
             // Compute and log timing results
             // double averageTriangleTimeMs = (double)totalTriangleTime / count / Stopwatch.Frequency * 1000.0;
 
-            // Debug.Log($"Average time per triangle: {averageTriangleTimeMs:F4} ms");
+            Debug.Log($"Total time per triangle: {fullTimer.Elapsed.TotalMilliseconds:F4} ms");
 
             DestroyImmediate(context.backwardDepthTex);
             DestroyImmediate(context.backwardNormalTex);
-
-            context.backwardDepthTex = (generatedTexture);
-            context.backwardNormalTex = DepthToNormalMap(generatedTexture, 10);
+// DumpTimingResults();
+            context.backwardDepthTex = generatedTexture;
+            context.backwardNormalTex = DepthToNormalMap(generatedTexture, 100);
 
         }
+        
+        void DumpTimingResults()
+{
+    string path = Application.dataPath + "/../TimingResults.csv";
+    using (var writer = new StreamWriter(path))
+    {
+        writer.WriteLine("TriangleTimeMs,ReadPixelsMs,PixelLoopMs");
+        for (int i = 0; i < triangleTimes.Count; i++)
+        {
+            writer.WriteLine($"{triangleTimes[i]:F4},{readPixelsTimes[i]:F4},{pixelLoopTimes[i]:F4}");
+        }
+    }
+    Debug.Log("Timing results written to: " + path);
+}
 
-        public void CaptureGaussianSplatOnly(Vector3 vertA, Vector3 vertB, Vector3 vertC, RenderTexture outputRT, Camera renderCamera) {
+
+        public void CaptureGaussianSplatOnly(Vector3 vertA, Vector3 vertB, Vector3 vertC, RenderTexture outputRT, Camera renderCamera)
+        {
             // Save the original culling mask and clear flags
             int originalCullingMask = renderCamera.cullingMask;
             CameraClearFlags originalClearFlags = renderCamera.clearFlags;
             Color originalBackgroundColor = renderCamera.backgroundColor;
-            
-            try {
+
+            try
+            {
                 // Setup the camera to view the triangle
                 // Vector3 cameraPos, faceNormal;
                 // float orthoSize;
                 SetCamera(renderCamera, vertA, vertB, vertC);
-                
+
                 // Make sure the camera renders to our render texture
                 renderCamera.targetTexture = outputRT;
-                
+
                 // Set the culling mask to only include the layer your Gaussian Splat objects are on
                 // Assuming your splats are on layer 8 (adjust as needed)
                 renderCamera.cullingMask = 1 << 8; // Only the layer with Gaussian Splats
-                
+
                 // Clear to transparent color
                 renderCamera.clearFlags = CameraClearFlags.SolidColor;
                 renderCamera.backgroundColor = new Color(0, 0, 0, 0);
-                
+
                 // Force the camera to render
                 renderCamera.Render();
             }
-            finally {
+            finally
+            {
                 // Restore camera settings
                 renderCamera.cullingMask = originalCullingMask;
                 renderCamera.clearFlags = originalClearFlags;

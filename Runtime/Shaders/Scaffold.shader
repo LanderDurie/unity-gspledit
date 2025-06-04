@@ -1,8 +1,8 @@
 Shader "Hidden/GsplEdit/Scaffold" {
     Properties {
-        _WireframeColour("Wireframe Color", Color) = (1.0, 0.635, 0, 0.15)
+        _WireframeColour("Wireframe Color", Color) = (1.0, 0.635, 0, 1)//0.15)
         _WireframeAliasing("Wireframe Aliasing", Float) = 0.5
-        _DefaultColor("Default Color", Color) = (1.0, 0.635, 0, 0.08)
+        _DefaultColor("Default Color", Color) = (1.0, 0.635, 0, 1)//0.08)
         _SelectedColor("Selected Color", Color) = (0.356, 0.878, 0.270, 0.6)
         _PointSize("Point Size", Float) = 1.0
     }

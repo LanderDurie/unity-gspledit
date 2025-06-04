@@ -9,7 +9,7 @@ Shader "Hidden/GsplEdit/ShadowCaster" {
             Tags { "LightMode" = "ForwardBase" }
             Blend SrcAlpha OneMinusSrcAlpha
             ZWrite Off
-            Cull Back
+            Cull Off
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -56,7 +56,7 @@ Shader "Hidden/GsplEdit/ShadowCaster" {
             Tags { "LightMode" = "ShadowCaster" }
             ZWrite On
             ZTest LEqual
-            Cull Back
+            Cull Off
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag

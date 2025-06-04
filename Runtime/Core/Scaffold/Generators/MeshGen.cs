@@ -14,7 +14,7 @@ namespace UnityEngine.GsplEdit
 
         public MeshGen(ref SharedComputeContext context) {
             m_Context = context;
-            m_SelectedType = GenType.MarchingCubes;
+            m_SelectedType = GenType.SurfaceNets;
 
             GameObject generatorHolder = new GameObject("MeshGenerators");
             generatorHolder.hideFlags = HideFlags.HideAndDontSave; // Hide in hierarchy and don't save
@@ -58,7 +58,8 @@ namespace UnityEngine.GsplEdit
             baseMesh.RecalculateNormals();
             baseMesh.RecalculateBounds();
             baseMesh = MeshGenUtils.UnwrapMesh(baseMesh);
-            Debug.Log(vertexList.Count());
+
+            Debug.Log($"Mesh generated with {baseMesh.vertices.Count()} vertices and {baseMesh.triangles.Count()} indices");
 
             // Create and initialize the EditableMesh
             m_Context.scaffoldMesh = baseMesh;

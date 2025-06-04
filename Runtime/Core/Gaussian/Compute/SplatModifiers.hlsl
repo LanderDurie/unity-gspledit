@@ -75,15 +75,26 @@ bool IsVertexDeleted(int vertexId) {
 }
 
 bool CanIgnoreModifiers(SplatLink currentSplat) {
-    bool anyLinks = false;
-    [unroll]
-    for (int i = 0; i < 8; i++) {
-        // Check if valid triangle
-        int triangleId = currentSplat.triangleIds[i];
-        if (triangleId == -1) break; // Weights are sorted -> stop on first invalid
-        anyLinks = true;
-    }
-    return !anyLinks;
+    // bool anyLinks = false;
+    // [unroll]
+    // for (int i = 0; i < 8; i++) {
+    //     // Check if valid triangle
+    //     int triangleId = currentSplat.triangleIds[i];
+    //     if (triangleId == -1) break; // Weights are sorted -> stop on first invalid
+        
+    //     // Fetch triangle data once
+    //     Triangle t = _MeshIndices[triangleId];
+    //     if (abs(length(_VertexModPos[t.v0] - _VertexBasePos[t.v0])) > 0.01 ||
+    //         abs(length(_VertexModPos[t.v1] - _VertexBasePos[t.v1])) > 0.01 ||
+    //         abs(length(_VertexModPos[t.v2] - _VertexBasePos[t.v2])) > 0.01) {
+    //         return false;
+    //     }
+
+    //     // anyLinks = true;
+    //     return false;
+    // }
+    // return true;
+    return false;
 }
 
 bool ShouldRemoveSplat(SplatLink currentSplat, float threshold = 0.9999) {
@@ -492,7 +503,7 @@ TranslateOut translatePoint(int splatIndex, float3 p) {
 
         TANC tc = WorldToTanc(p, tv.v0, tv.v1, tv.v2);
         float3 tancTransformed = TancToWorld(tc, tvm.v0, tvm.v1, tvm.v2);
-        
+
         finalPoint += tancTransformed * weights[j];
     }
 
@@ -543,6 +554,20 @@ half calculateColorVariance(half4 colors[6], int count) {
 
     return variance;
 }
+
+float3 LinearToSRGB(float3 linearColor) {
+    float3 srgbColor;
+    [unroll]
+    for (int i = 0; i < 3; i++) {
+        if (linearColor[i] <= 0.0031308)
+            srgbColor[i] = linearColor[i] * 12.92;
+        else
+            srgbColor[i] = 1.055 * pow(linearColor[i], 1.0 / 2.4) - 0.055;
+    }
+    return srgbColor;
+}
+
+
 
 half4 getModColor(int splatIndex, ModSplat splat) {
     const int NUM_SAMPLES = 12;
@@ -627,6 +652,7 @@ half4 getModColor(int splatIndex, ModSplat splat) {
     
     // Store final alpha
     weightedColor.a = max(0.5, similarity);
+    weightedColor.xyz = LinearToSRGB(weightedColor.xyz);
     
     return weightedColor;
 }

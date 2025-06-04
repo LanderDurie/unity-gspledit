@@ -275,7 +275,6 @@ namespace UnityEngine.GsplEdit
                 // Set the camera to see everything
                 m_Context.offscreenCam.cullingMask = -1;
                 DrawSurface();
-                // Render the scene
                 m_Context.offscreenCam.Render();
                 
                 // Restore all shadow modes

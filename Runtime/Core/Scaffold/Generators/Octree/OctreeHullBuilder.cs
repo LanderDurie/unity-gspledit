@@ -1,9 +1,10 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace UnityEngine.GsplEdit {
     public static class OctreeHullBuilder
     {
-        public static void ExtractHull(OctreeNode root)
+       public static void ExtractHull(OctreeNode root)
         {
             if (root == null) return;
 
@@ -14,6 +15,77 @@ namespace UnityEngine.GsplEdit {
             // Flood-fill from the start node
             FloodFillSurface(startNode, root);
         }
+
+        private static bool EqVec(Vector3 v1, Vector3 v2) {
+            return (v1 - v2).magnitude < 0.001;
+        }
+
+        public static HashSet<Vector3> ExtractHullVertices(OctreeNode[] surfaceNodes)
+        {
+            HashSet<Vector3> insideCorners = new HashSet<Vector3>();
+
+            foreach (var node in surfaceNodes)
+            {
+                OctreeNode p = node.m_Parent;
+                List<Vector3> corners = GetCorners(node.m_Bounds);
+                List<OctreeNode> neigh = node.GetAllNeighbors();
+                foreach (var corner in corners)
+                {
+                    // bool inactiveFound = false;
+                    // foreach (var child in p.m_Children)
+                    // {
+                    //     if (!child.m_ContainsPotentialSurface && IsPointInsideBoundsWithEpsilon(child.m_Bounds, corner))
+                    //     {
+                    //         inactiveFound = true;
+                    //         break;
+                    //     }
+                    // }
+
+                    // if (!inactiveFound)
+                    // {
+                        foreach (var n in neigh)
+                        {
+                            if (n.m_OutsideFlag && IsPointInsideBoundsWithEpsilon(n.m_Bounds, corner))
+                            {
+                                insideCorners.Add(corner);
+                                break;
+                            }
+                        }
+                    // }
+                }
+            }
+
+            // The hull consists of corners shared between surface and non-surface nodes
+            return insideCorners;
+        }
+
+        private static bool IsPointInsideBoundsWithEpsilon(Bounds bounds, Vector3 point, float epsilon = 0.001f)
+        {
+            return
+                point.x >= bounds.min.x - epsilon && point.x <= bounds.max.x + epsilon &&
+                point.y >= bounds.min.y - epsilon && point.y <= bounds.max.y + epsilon &&
+                point.z >= bounds.min.z - epsilon && point.z <= bounds.max.z + epsilon;
+        }
+
+
+        private static List<Vector3> GetCorners(Bounds bounds)
+        {
+            Vector3 min = bounds.min;
+            Vector3 max = bounds.max;
+            return new List<Vector3>
+            {
+                new Vector3(min.x, min.y, min.z),
+                new Vector3(max.x, min.y, min.z),
+                new Vector3(min.x, max.y, min.z),
+                new Vector3(max.x, max.y, min.z),
+                new Vector3(min.x, min.y, max.z),
+                new Vector3(max.x, min.y, max.z),
+                new Vector3(min.x, max.y, max.z),
+                new Vector3(max.x, max.y, max.z)
+            };
+        }
+
+        
 
         private static OctreeNode FindCornerNode(OctreeNode node)
         {
@@ -27,131 +99,70 @@ namespace UnityEngine.GsplEdit {
             return FindCornerNode(node.m_Children[0]);
         }
 
-    private static void FloodFillSurface(OctreeNode startNode, OctreeNode root)
-    {
-        if (startNode == null) return;
-
-        // Create a queue for flood-filling
-        Queue<OctreeNode> nodesToCheck = new Queue<OctreeNode>();
-        nodesToCheck.Enqueue(startNode);
-
-        // Track processed nodes to avoid redundant checks
-        HashSet<OctreeNode> processedNodes = new HashSet<OctreeNode>();
-        HashSet<OctreeNode> surfaceNodes = new HashSet<OctreeNode>();
-
-        while (nodesToCheck.Count > 0)
+        private static void FloodFillSurface(OctreeNode startNode, OctreeNode root)
         {
-            OctreeNode current = nodesToCheck.Dequeue();
+            if (startNode == null) return;
 
-            // Skip if already processed
-            if (processedNodes.Contains(current)) continue;
+            // Create a queue for flood-filling
+            Queue<OctreeNode> nodesToCheck = new Queue<OctreeNode>();
+            nodesToCheck.Enqueue(startNode);
 
-            processedNodes.Add(current);
+            // Track processed nodes to avoid redundant checks
+            HashSet<OctreeNode> processedNodes = new HashSet<OctreeNode>();
+            HashSet<OctreeNode> surfaceNodes = new HashSet<OctreeNode>();
 
-            if (current.m_ContainsPotentialSurface)
+            while (nodesToCheck.Count > 0)
             {
-                OctreeNode n = current;
-                while(n != null && !n.m_ContainsSurface) {
-                    n.m_ContainsSurface = true;
-                    n = n.m_Parent;
-                }
-                surfaceNodes.Add(current);
-                
-                // Get flood neighbors for surface nodes
-                List<OctreeNode> floodNeighbors = new List<OctreeNode>();
-                List<OctreeNode> allNeighbors = current.GetAllNeighbors();
-                
-                foreach (var neighbor in allNeighbors)
+                OctreeNode current = nodesToCheck.Dequeue();
+
+                // Skip if already processed
+                if (processedNodes.Contains(current)) continue;
+
+                processedNodes.Add(current);
+
+                if (current.m_ContainsPotentialSurface)
                 {
-                    if (neighbor != null && neighbor.m_ContainsPotentialSurface)
+                    OctreeNode n = current;
+                    while(n != null && !n.m_ContainsSurface) {
+                        n.m_ContainsSurface = true;
+                        n.m_OutsideFlag = false;
+                        n = n.m_Parent;
+                    }
+                    surfaceNodes.Add(current);
+                    
+                    // Get flood neighbors for surface nodes
+                    List<OctreeNode> floodNeighbors = new List<OctreeNode>();
+                    List<OctreeNode> allNeighbors = current.GetAllNeighbors();
+                    
+                    foreach (var neighbor in allNeighbors)
                     {
-                        floodNeighbors.Add(neighbor);
-                        if (!processedNodes.Contains(neighbor))
+                        if (neighbor != null && neighbor.m_ContainsPotentialSurface)
+                        {
+                            floodNeighbors.Add(neighbor);
+                            if (!processedNodes.Contains(neighbor))
+                            {
+                                nodesToCheck.Enqueue(neighbor);
+                            }
+                        }
+                    }
+                    
+                    // Store the flood neighbors
+                    current.m_FloodNeighbours = floodNeighbors;
+                }
+                else
+                {
+                    // For non-surface nodes, just continue propagation
+                    current.m_OutsideFlag = true;
+                    List<OctreeNode> neighbors = current.GetAllNeighbors();
+                    foreach (var neighbor in neighbors)
+                    {
+                        if (neighbor != null && !processedNodes.Contains(neighbor))
                         {
                             nodesToCheck.Enqueue(neighbor);
                         }
                     }
                 }
-                
-                // Store the flood neighbors
-                current.m_FloodNeighbours = floodNeighbors;
             }
-            else
-            {
-                // For non-surface nodes, just continue propagation
-                List<OctreeNode> neighbors = current.GetAllNeighbors();
-                foreach (var neighbor in neighbors)
-                {
-                    if (neighbor != null && !processedNodes.Contains(neighbor))
-                    {
-                        nodesToCheck.Enqueue(neighbor);
-                    }
-                }
-            }
-        }
-
-        // Set non-filled nodes on edge
-        FillEdges(root, root.m_Bounds, processedNodes);
-    }
-
-    private static void FillEdges(OctreeNode node, Bounds bounds, HashSet<OctreeNode> processedNodes) 
-    {
-        if (node.m_IsLeaf) 
-        {
-            if (!processedNodes.Contains(node) && TouchingBounds(node, bounds)) 
-            {
-                OctreeNode n = node;
-                while(n != null && !n.m_ContainsSurface) {
-                    n.m_ContainsSurface = true;
-                    n = n.m_Parent;
-                }
-                
-                // Initialize and populate flood neighbors for edge nodes
-                node.m_FloodNeighbours = new List<OctreeNode>();
-                List<OctreeNode> allNeighbors = node.GetAllNeighbors();
-                
-                foreach (var neighbor in allNeighbors)
-                {
-                    if (neighbor != null && neighbor.m_ContainsSurface)
-                    {
-                        node.m_FloodNeighbours.Add(neighbor);
-                        
-                        // Ensure bidirectional connection
-                        if (neighbor.m_FloodNeighbours == null)
-                            neighbor.m_FloodNeighbours = new List<OctreeNode>();
-                            
-                        if (!neighbor.m_FloodNeighbours.Contains(node))
-                            neighbor.m_FloodNeighbours.Add(node);
-                    }
-                }
-            }
-        } 
-        else 
-        {
-            foreach (var child in node.m_Children)
-            {
-                if (child != null)
-                    FillEdges(child, bounds, processedNodes);
-            }
-        }
-    }
-        public static bool TouchingBounds(OctreeNode node, Bounds bounds)
-        {
-            if (node == null) return false;
-
-            Bounds nodeBounds = node.m_Bounds;
-            Bounds octreeBounds = bounds;
-
-            // Check if any face of the node's bounds is touching a face of the octree's bounds
-            bool touchingXMin = Mathf.Approximately(nodeBounds.min.x, octreeBounds.min.x);
-            bool touchingXMax = Mathf.Approximately(nodeBounds.max.x, octreeBounds.max.x);
-            bool touchingYMin = Mathf.Approximately(nodeBounds.min.y, octreeBounds.min.y);
-            bool touchingYMax = Mathf.Approximately(nodeBounds.max.y, octreeBounds.max.y);
-            bool touchingZMin = Mathf.Approximately(nodeBounds.min.z, octreeBounds.min.z);
-            bool touchingZMax = Mathf.Approximately(nodeBounds.max.z, octreeBounds.max.z);
-
-            // Return true if any face is touching
-            return touchingXMin || touchingXMax || touchingYMin || touchingYMax || touchingZMin || touchingZMax;
         }
     }
 }

@@ -89,7 +89,7 @@ namespace UnityEngine.GsplEdit
             tex.Apply();
             
             context.backwardDepthTex = tex;
-            context.backwardNormalTex = DepthToNormalMap(tex, 10);
+            context.backwardNormalTex = DepthToNormalMap(tex, 100);
 
             rayBuffer.Release();
         }

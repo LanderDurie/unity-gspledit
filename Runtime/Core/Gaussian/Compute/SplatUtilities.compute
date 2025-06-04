@@ -222,6 +222,7 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     float splatScale = _SplatScale;    
 
     if (_ForceDepth != 0) {
+        splatScale *= 1.5;
         modSplat = baryWarp(modSplat);
     }
 
